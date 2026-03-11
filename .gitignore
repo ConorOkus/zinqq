@@ -88,3 +88,8 @@ coverage/
 /test-results/
 /playwright-report/
 /blob-report/
+
+# =============================================================================
+# LDK WASM binary (copied from node_modules at build time)
+# =============================================================================
+public/liblightningjs.wasm
