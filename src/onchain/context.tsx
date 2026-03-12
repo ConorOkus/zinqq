@@ -20,6 +20,14 @@ export function OnchainProvider({
   const walletRef = useRef<Wallet | null>(null)
   const ldk = useLdk()
 
+  // Hold a stable ref to setBdkWallet so it doesn't trigger effect re-runs.
+  // The ldk context object changes reference on every LDK state update —
+  // depending on it directly would tear down and rebuild BDK on each change.
+  const setBdkWalletRef = useRef<((wallet: Wallet | null) => void) | null>(null)
+  useEffect(() => {
+    setBdkWalletRef.current = ldk.status === 'ready' ? ldk.setBdkWallet : null
+  }, [ldk])
+
   const generateAddress = useCallback((): string => {
     if (!walletRef.current) throw new Error('BDK wallet not initialized')
     const info = walletRef.current.next_unused_address('external')
@@ -37,9 +45,7 @@ export function OnchainProvider({
         walletRef.current = wallet
 
         // Register BDK wallet with LDK event handler for channel funding
-        if (ldk.status === 'ready') {
-          ldk.setBdkWallet(wallet)
-        }
+        setBdkWalletRef.current?.(wallet)
 
         syncHandle = startOnchainSyncLoop(
           wallet,
@@ -70,12 +76,10 @@ export function OnchainProvider({
       cancelled = true
       syncHandle?.stop()
       // Unregister BDK wallet from LDK event handler
-      if (ldk.status === 'ready') {
-        ldk.setBdkWallet(null)
-      }
+      setBdkWalletRef.current?.(null)
       walletRef.current = null
     }
-  }, [bdkDescriptors, generateAddress, ldk])
+  }, [bdkDescriptors, generateAddress])
 
   return <OnchainContext value={state}>{children}</OnchainContext>
 }

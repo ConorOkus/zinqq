@@ -116,11 +116,16 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   await acquireWalletLock()
   await initWasm()
 
-  // 1. Persist derived seed to IDB (no-op if already stored from a previous session)
+  // 1. Persist derived seed to IDB, or verify stored seed matches mnemonic derivation
   let seed = await getSeed()
   if (!seed) {
     await storeDerivedSeed(ldkSeed)
     seed = ldkSeed
+  } else if (seed.length !== ldkSeed.length || !seed.every((b, i) => b === ldkSeed[i])) {
+    throw new Error(
+      '[LDK Init] Stored seed does not match mnemonic derivation — possible data corruption. ' +
+        'Clear browser data to start fresh.',
+    )
   }
 
   // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness

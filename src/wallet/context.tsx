@@ -25,7 +25,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [setReady])
 
   const importWallet = useCallback(
-    (mnemonic: string) => {
+    (raw: string) => {
+      const mnemonic = raw.trim().toLowerCase().replace(/\s+/g, ' ')
       if (!validateMnemonic(mnemonic)) {
         setState({ status: 'error', error: new Error('Invalid mnemonic') })
         return
