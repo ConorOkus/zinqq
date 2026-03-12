@@ -21,6 +21,8 @@ import {
   Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK,
   Result_NetworkGraphDecodeErrorZ_OK,
   Result_ProbabilisticScorerDecodeErrorZ_OK,
+  PeerManager,
+  IgnoringMessageHandler,
   type Logger,
   type FeeEstimator,
   type BroadcasterInterface,
@@ -49,6 +51,7 @@ export interface LdkNode {
   channelManager: ChannelManager
   networkGraph: NetworkGraph
   scorer: ProbabilisticScorer
+  peerManager: PeerManager
 }
 
 export interface InitResult {
@@ -251,7 +254,20 @@ async function doInitializeLdk(): Promise<InitResult> {
     )
   }
 
-  // 10. Derive node public key
+  // 10. Create PeerManager
+  const ignorer = IgnoringMessageHandler.constructor_new()
+  const peerManager = PeerManager.constructor_new(
+    channelManager.as_ChannelMessageHandler(),
+    ignorer.as_RoutingMessageHandler(),
+    ignorer.as_OnionMessageHandler(),
+    ignorer.as_CustomMessageHandler(),
+    Math.floor(Date.now() / 1000),
+    keysManager.as_EntropySource().get_secure_random_bytes(),
+    logger,
+    keysManager.as_NodeSigner()
+  )
+
+  // 11. Derive node public key
   const nodeIdResult = keysManager.as_NodeSigner().get_node_id(Recipient.LDKRecipient_Node)
   if (!nodeIdResult.is_ok()) {
     throw new Error('Failed to derive node ID from KeysManager')
@@ -272,6 +288,7 @@ async function doInitializeLdk(): Promise<InitResult> {
     channelManager,
     networkGraph,
     scorer,
+    peerManager,
   }
 
   return { node, watchState }

@@ -9,4 +9,5 @@ export const SIGNET_CONFIG = {
   wsProxyUrl:
     (import.meta.env.VITE_WS_PROXY_URL as string | undefined) ??
     'wss://p.mutinynet.com',
+  peerTimerIntervalMs: 10_000,
 } as const
