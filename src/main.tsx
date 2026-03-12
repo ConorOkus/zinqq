@@ -2,7 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router'
 import { router } from './routes/router'
-import { LdkProvider } from './ldk/context'
+import { WalletProvider } from './wallet/context'
+import { WalletGate } from './wallet/wallet-gate'
 import './index.css'
 
 const root = document.getElementById('root')
@@ -12,8 +13,10 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <LdkProvider>
-      <RouterProvider router={router} />
-    </LdkProvider>
+    <WalletProvider>
+      <WalletGate>
+        <RouterProvider router={router} />
+      </WalletGate>
+    </WalletProvider>
   </StrictMode>
 )
