@@ -35,6 +35,7 @@ export function createEventHandler(channelManager: ChannelManager): {
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
         handleEvent(event, channelManager, (id) => {
+          if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
         })
       } catch (err: unknown) {
