@@ -57,12 +57,20 @@ export function Home() {
               +{(onchain.balance.trustedPending + onchain.balance.untrustedPending).toString()} sats pending
             </p>
           )}
-          <Link
-            to="/receive"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
-          >
-            Receive
-          </Link>
+          <div className="flex gap-3">
+            <Link
+              to="/send"
+              className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+            >
+              Send
+            </Link>
+            <Link
+              to="/receive"
+              className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+            >
+              Receive
+            </Link>
+          </div>
         </div>
       )}
 
