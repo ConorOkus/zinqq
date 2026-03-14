@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router'
 import { Layout } from '../components/Layout'
 import { Home } from '../pages/Home'
+import { Receive } from '../pages/Receive'
 import { Settings } from '../pages/Settings'
 
 export const router = createBrowserRouter([
@@ -9,6 +10,7 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <Home /> },
+      { path: 'receive', element: <Receive /> },
       { path: 'settings', element: <Settings /> },
     ],
   },

@@ -1,9 +1,12 @@
 import { useState, useCallback } from 'react'
+import { Link } from 'react-router'
 import { useLdk } from '../ldk/use-ldk'
+import { useOnchain } from '../onchain/use-onchain'
 import { parsePeerAddress } from '../ldk/peers/peer-connection'
 
 export function Home() {
   const ldk = useLdk()
+  const onchain = useOnchain()
   const [peerAddress, setPeerAddress] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -42,6 +45,34 @@ export function Home() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Browser Wallet</h1>
+
+      {onchain.status === 'ready' && (
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">On-chain Balance</h2>
+          <p className="text-2xl font-bold">
+            {onchain.balance.confirmed.toString()} sats
+          </p>
+          {onchain.balance.trustedPending + onchain.balance.untrustedPending > 0n && (
+            <p className="text-sm text-gray-500">
+              +{(onchain.balance.trustedPending + onchain.balance.untrustedPending).toString()} sats pending
+            </p>
+          )}
+          <Link
+            to="/receive"
+            className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+          >
+            Receive
+          </Link>
+        </div>
+      )}
+
+      {onchain.status === 'loading' && (
+        <p className="text-gray-500">Loading on-chain wallet...</p>
+      )}
+
+      {onchain.status === 'error' && (
+        <p className="text-sm text-red-500">On-chain wallet error: {onchain.error.message}</p>
+      )}
 
       {ldk.status === 'loading' && (
         <p className="text-gray-500">Initializing Lightning node...</p>

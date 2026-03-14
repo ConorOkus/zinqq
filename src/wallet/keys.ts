@@ -3,6 +3,8 @@ import { HDKey } from '@scure/bip32'
 
 const LDK_DERIVATION_PATH = "m/535'/0'"
 
+const TESTNET_VERSIONS = { private: 0x04358394, public: 0x043587cf }
+
 /**
  * Derive a 32-byte seed for LDK's KeysManager from a BIP39 mnemonic.
  * Uses the private key at m/535'/0' — a dedicated path that won't
@@ -35,7 +37,8 @@ export function deriveBdkDescriptors(
   const path = `m/84'/${coinType}'/0'`
 
   const seed = mnemonicToSeedSync(mnemonic)
-  const master = HDKey.fromMasterSeed(seed)
+  const versions = network === 'bitcoin' ? undefined : TESTNET_VERSIONS
+  const master = HDKey.fromMasterSeed(seed, versions)
   const fingerprint = master.fingerprint.toString(16).padStart(8, '0')
   const account = master.derive(path)
   const xprv = account.privateExtendedKey

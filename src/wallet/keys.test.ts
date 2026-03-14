@@ -60,13 +60,15 @@ describe('deriveBdkDescriptors', () => {
     expect(external).toMatch(/\[73c5da0a\//)
   })
 
-  it('contains a valid xprv in the descriptor', () => {
-    const { external } = deriveBdkDescriptors(TEST_MNEMONIC, 'signet')
-    // Extract xprv from descriptor — between ] and /0/*)
-    // @scure/bip32 always uses mainnet version bytes (xprv), which is
-    // fine for BDK descriptors since the network is specified separately.
-    const match = external.match(/\](xprv[A-Za-z0-9]+)\/0\/\*\)/)
-    expect(match).not.toBeNull()
-    expect(match![1]).toMatch(/^xprv/)
+  it('uses tprv for signet and xprv for mainnet', () => {
+    const signet = deriveBdkDescriptors(TEST_MNEMONIC, 'signet')
+    const signetMatch = signet.external.match(/\](tprv[A-Za-z0-9]+)\/0\/\*\)/)
+    expect(signetMatch).not.toBeNull()
+    expect(signetMatch![1]).toMatch(/^tprv/)
+
+    const mainnet = deriveBdkDescriptors(TEST_MNEMONIC, 'bitcoin')
+    const mainnetMatch = mainnet.external.match(/\](xprv[A-Za-z0-9]+)\/0\/\*\)/)
+    expect(mainnetMatch).not.toBeNull()
+    expect(mainnetMatch![1]).toMatch(/^xprv/)
   })
 })
