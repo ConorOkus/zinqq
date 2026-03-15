@@ -47,6 +47,10 @@ function persistChangeset(wallet: Wallet): void {
   }
 }
 
+function discardStagedChanges(wallet: Wallet): void {
+  wallet.take_staged()
+}
+
 function mapSendError(err: unknown): Error {
   if (err instanceof InsufficientFunds) {
     return new Error(
@@ -107,12 +111,18 @@ export function OnchainProvider({
       const addr = Address.from_string(address, 'signet')
       const recipient = Recipient.from_address(addr, Amount.from_sat(amountSats))
 
-      const txBuilder = wallet.build_tx()
-      txBuilder.add_recipient(recipient)
-      txBuilder.fee_rate(new FeeRate(feeRateSatVb))
-      const psbt = txBuilder.finish()
+      // TxBuilder methods consume self — must chain calls
+      const psbt = wallet
+        .build_tx()
+        .add_recipient(recipient)
+        .fee_rate(new FeeRate(feeRateSatVb))
+        .finish()
 
       const fee = psbt.fee().to_sat()
+
+      // Discard staged changes from the estimate build
+      discardStagedChanges(wallet)
+
       return { fee, feeRate: feeRateSatVb }
     },
     [],
@@ -127,17 +137,22 @@ export function OnchainProvider({
       const feeRateSatVb = await getFeeRate(esplora)
       const addr = Address.from_string(address, 'signet')
 
-      const txBuilder = wallet.build_tx()
-      txBuilder.drain_wallet()
-      txBuilder.drain_to(addr.script_pubkey)
-      txBuilder.fee_rate(new FeeRate(feeRateSatVb))
-      const psbt = txBuilder.finish()
+      // TxBuilder methods consume self — must chain calls
+      const psbt = wallet
+        .build_tx()
+        .drain_wallet()
+        .drain_to(addr.script_pubkey)
+        .fee_rate(new FeeRate(feeRateSatVb))
+        .finish()
 
       const fee = psbt.fee().to_sat()
       // Total inputs minus fee = amount sent
       const balance = wallet.balance
       const totalAvailable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
       const amount = totalAvailable - fee
+
+      // Discard staged changes from the estimate build
+      discardStagedChanges(wallet)
 
       return { amount, fee, feeRate: feeRateSatVb }
     },
@@ -156,14 +171,17 @@ export function OnchainProvider({
         const addr = Address.from_string(address, 'signet')
         const recipient = Recipient.from_address(addr, Amount.from_sat(amountSats))
 
-        const txBuilder = wallet.build_tx()
-        txBuilder.add_recipient(recipient)
-        txBuilder.fee_rate(new FeeRate(feeRateSatVb))
-        const psbt = txBuilder.finish()
+        // TxBuilder methods consume self — must chain calls
+        const psbt = wallet
+          .build_tx()
+          .add_recipient(recipient)
+          .fee_rate(new FeeRate(feeRateSatVb))
+          .finish()
 
         // Fee sanity check
         const fee = psbt.fee().to_sat()
         if (fee > MAX_FEE_SATS) {
+          discardStagedChanges(wallet)
           throw new Error(`Fee too high: ${fee.toString()} sats exceeds safety limit`)
         }
 
@@ -195,14 +213,17 @@ export function OnchainProvider({
         const feeRateSatVb = await getFeeRate(esplora)
         const addr = Address.from_string(address, 'signet')
 
-        const txBuilder = wallet.build_tx()
-        txBuilder.drain_wallet()
-        txBuilder.drain_to(addr.script_pubkey)
-        txBuilder.fee_rate(new FeeRate(feeRateSatVb))
-        const psbt = txBuilder.finish()
+        // TxBuilder methods consume self — must chain calls
+        const psbt = wallet
+          .build_tx()
+          .drain_wallet()
+          .drain_to(addr.script_pubkey)
+          .fee_rate(new FeeRate(feeRateSatVb))
+          .finish()
 
         const fee = psbt.fee().to_sat()
         if (fee > MAX_FEE_SATS) {
+          discardStagedChanges(wallet)
           throw new Error(`Fee too high: ${fee.toString()} sats exceeds safety limit`)
         }
 

@@ -127,7 +127,7 @@ const mockPsbt = {
   toString: () => 'base64psbt',
 }
 const mockTxBuilder = {
-  add_recipient: vi.fn(),
+  add_recipient: vi.fn(() => mockTxBuilder),
   finish: vi.fn(() => mockPsbt),
 }
 const mockBdkWallet = {

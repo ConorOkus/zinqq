@@ -224,9 +224,8 @@ function handleEvent(
       const amount = Amount.from_sat(event.channel_value_satoshis)
       const recipient = new Recipient(scriptPubkey, amount)
 
-      const txBuilder = bdkWallet.build_tx()
-      txBuilder.add_recipient(recipient)
-      const psbt = txBuilder.finish()
+      // TxBuilder methods consume self — must chain calls
+      const psbt = bdkWallet.build_tx().add_recipient(recipient).finish()
       bdkWallet.sign(psbt, new SignOptions())
 
       // Extract raw tx bytes from signed PSBT via @scure/btc-signer bridge
