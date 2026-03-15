@@ -59,8 +59,18 @@ export async function syncOnce(
 
   // 4. Check watched outputs for spends
   for (const [key] of watchState.watchedOutputs) {
-    const [txid, voutStr] = key.split(':')
-    const spend = await esplora.getOutspend(txid, parseInt(voutStr, 10))
+    const colonIdx = key.indexOf(':')
+    if (colonIdx === -1) {
+      console.error(`[LDK Sync] Malformed watched output key: ${key}`)
+      continue
+    }
+    const txid = key.slice(0, colonIdx)
+    const vout = parseInt(key.slice(colonIdx + 1), 10)
+    if (isNaN(vout)) {
+      console.error(`[LDK Sync] Invalid vout in watched output key: ${key}`)
+      continue
+    }
+    const spend = await esplora.getOutspend(txid, vout)
     if (spend.spent && spend.txid) {
       const status = await esplora.getTxStatus(spend.txid)
       if (status.confirmed && status.block_hash && status.block_height != null) {
@@ -102,6 +112,7 @@ export function startSyncLoop(
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let tickCount = 0
+  let cmNeedsPersist = false
 
   async function tick() {
     if (stopped) return
@@ -111,17 +122,23 @@ export function startSyncLoop(
       channelManager.timer_tick_occurred()
       chainMonitor.rebroadcast_pending_claims()
 
-      // Persist ChannelManager if needed
-      if (channelManager.get_and_clear_needs_persistence()) {
-        await idbPut('ldk_channel_manager', 'primary', channelManager.write())
+      // Persist ChannelManager if needed (cmNeedsPersist retries after prior idbPut failure)
+      if (cmNeedsPersist || channelManager.get_and_clear_needs_persistence()) {
+        cmNeedsPersist = false
+        try {
+          await idbPut('ldk_channel_manager', 'primary', channelManager.write())
+        } catch (err: unknown) {
+          cmNeedsPersist = true
+          throw err
+        }
       }
 
       // Persist NetworkGraph + Scorer every ~10 ticks (~5 min at 30s interval)
-      tickCount++
-      if (tickCount % 10 === 0) {
+      if ((tickCount + 1) % 10 === 0) {
         await idbPut('ldk_network_graph', 'primary', networkGraph.write())
         await idbPut('ldk_scorer', 'primary', scorer.write())
       }
+      tickCount++
     } catch (err) {
       console.error('[LDK Sync] Sync error:', err)
     }

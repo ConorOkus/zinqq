@@ -18,6 +18,7 @@ interface FeeCache {
 }
 
 const CACHE_TTL_MS = 60_000 // 1 minute
+const MAX_FEE_SAT_KW = 500_000 // ~2,000 sat/vB — beyond this, something is wrong
 
 export function createFeeEstimator(esploraUrl: string): FeeEstimator {
   let cache: FeeCache | null = null
@@ -31,8 +32,12 @@ export function createFeeEstimator(esploraUrl: string): FeeEstimator {
       .then((estimates) => {
         const rates = new Map<number, number>()
         for (const [blocks, feePerVbyte] of Object.entries(estimates)) {
+          if (typeof feePerVbyte !== 'number' || !Number.isFinite(feePerVbyte) || feePerVbyte <= 0) {
+            continue
+          }
           // Esplora returns sat/vB, LDK wants sat/KW (multiply by 250)
-          rates.set(Number(blocks), Math.round(feePerVbyte * 250))
+          const satKw = Math.round(feePerVbyte * 250)
+          rates.set(Number(blocks), Math.min(satKw, MAX_FEE_SAT_KW))
         }
         cache = { rates, fetchedAt: Date.now() }
       })

@@ -94,6 +94,7 @@ export function createPersister(): {
     },
 
     archive_persisted_channel(channel_funding_outpoint: OutPoint): void {
+      // LDK calls this "archive" but we delete — no need to retain closed channel monitors
       const key = outpointKey(channel_funding_outpoint)
       idbDelete('ldk_channel_monitors', key).catch((err: unknown) => {
         console.error('[LDK Persist] Failed to delete archived channel monitor:', err)

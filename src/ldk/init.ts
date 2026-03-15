@@ -80,8 +80,10 @@ function initWasm(): Promise<void> {
 // Multi-tab lock: prevent two tabs from running independent ChannelManagers
 async function acquireWalletLock(): Promise<void> {
   if (!navigator.locks) {
-    console.warn('[LDK Init] Web Locks API not available, skipping multi-tab guard')
-    return
+    throw new Error(
+      '[LDK Init] Web Locks API not available. ' +
+        'A modern browser with Web Locks support is required to prevent multi-tab fund loss.',
+    )
   }
 
   return new Promise<void>((resolve, reject) => {
@@ -138,7 +140,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   const logger = createLogger()
   const feeEstimator = createFeeEstimator(SIGNET_CONFIG.esploraUrl)
   const broadcaster = createBroadcaster(SIGNET_CONFIG.esploraUrl)
-  const { persist: persister, setChainMonitor } = createPersister()
+  const { persist: persister, setChainMonitor, onPersistFailure } = createPersister()
 
   // 4. Create Filter + ChainMonitor
   const { filter, watchState } = createFilter()
@@ -150,6 +152,9 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     persister
   )
   setChainMonitor(chainMonitor)
+  onPersistFailure(({ key, error }) => {
+    console.error(`[LDK Init] CRITICAL: Persist failure for ${key}, channel operations halted`, error)
+  })
 
   // 5. Restore or create NetworkGraph
   const ngBytes = await idbGet<Uint8Array>('ldk_network_graph', 'primary')
