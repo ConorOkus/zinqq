@@ -6,6 +6,8 @@ import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer } from './peers/peer-connection'
 import { idbPut } from './storage/idb'
+import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
+import { bytesToHex } from './utils'
 
 export function LdkProvider({
   children,
@@ -21,19 +23,29 @@ export function LdkProvider({
     async (pubkey: string, host: string, port: number): Promise<void> => {
       if (!nodeRef.current) throw new Error('Node not initialized')
       await doConnectToPeer(nodeRef.current.peerManager, pubkey, host, port)
+      putKnownPeer(pubkey, host, port).catch((err: unknown) =>
+        console.warn('[ldk] failed to persist known peer:', err)
+      )
     },
     []
   )
 
-  const listPeers = useCallback((): string[] => {
-    if (!nodeRef.current) return []
-    const peers = nodeRef.current.peerManager.list_peers()
-    return peers.map((p) => {
-      const bytes = p.get_counterparty_node_id()
-      return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
+  const forgetPeer = useCallback(async (pubkey: string): Promise<void> => {
+    const node = nodeRef.current
+    if (!node) throw new Error('Node not initialized')
+
+    const channels = node.channelManager.list_channels()
+    const hasChannels = channels.some((ch) => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- LDK WASM bindings have unresolved types
+      const counterparty = bytesToHex(ch.get_counterparty().get_node_id().write() as Uint8Array)
+      return counterparty === pubkey
     })
+
+    if (hasChannels) {
+      throw new Error('Cannot forget peer with open channels')
+    }
+
+    await deleteKnownPeer(pubkey)
   }, [])
 
   useEffect(() => {
@@ -100,9 +112,27 @@ export function LdkProvider({
           error: null,
           syncStatus: 'syncing',
           connectToPeer,
-          listPeers,
+          forgetPeer,
           setBdkWallet,
         })
+
+        // Auto-reconnect to known peers (fire-and-forget, non-blocking)
+        getKnownPeers()
+          .then(async (peers) => {
+            if (peers.size === 0) return
+            console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
+            const results = await Promise.allSettled(
+              Array.from(peers.entries()).map(([pubkey, { host, port }]) =>
+                doConnectToPeer(node.peerManager, pubkey, host, port)
+              )
+            )
+            const succeeded = results.filter((r) => r.status === 'fulfilled').length
+            const failed = results.filter((r) => r.status === 'rejected').length
+            console.log(`[ldk] peer reconnection: ${succeeded} connected, ${failed} failed`)
+          })
+          .catch((err: unknown) => {
+            console.warn('[ldk] failed to read known peers:', err)
+          })
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -121,7 +151,7 @@ export function LdkProvider({
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
-  }, [connectToPeer, listPeers, ldkSeed])
+  }, [connectToPeer, forgetPeer, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }

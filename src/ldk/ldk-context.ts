@@ -13,7 +13,7 @@ export type LdkContextValue =
       error: null
       syncStatus: SyncStatus
       connectToPeer: (pubkey: string, host: string, port: number) => Promise<void>
-      listPeers: () => string[]
+      forgetPeer: (pubkey: string) => Promise<void>
       setBdkWallet: (wallet: Wallet | null) => void
     }
   | { status: 'error'; node: null; nodeId: null; error: Error }

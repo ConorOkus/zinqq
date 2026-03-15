@@ -17,6 +17,16 @@ export function connectToPeer(
   host: string,
   port: number
 ): Promise<void> {
+  if (!/^[0-9a-f]{66}$/.test(pubkeyHex)) {
+    return Promise.reject(new Error('Invalid pubkey: must be 66 lowercase hex characters'))
+  }
+  if (!/^[a-zA-Z0-9._-]+$/.test(host)) {
+    return Promise.reject(new Error('Invalid host: must contain only alphanumeric, dot, hyphen, or underscore'))
+  }
+  if (port < 1 || port > 65535) {
+    return Promise.reject(new Error('Invalid port: must be between 1 and 65535'))
+  }
+
   return new Promise((resolve, reject) => {
     const proxyHost = host.replace(/\./g, '_')
     const wsUrl = `${SIGNET_CONFIG.wsProxyUrl}/v1/${proxyHost}/${port}`
@@ -61,22 +71,24 @@ export function connectToPeer(
     }
 
     ws.onmessage = (event) => {
-      if (!descriptor || resolved) return
+      if (!descriptor) return
       if (!(event.data instanceof ArrayBuffer)) return
       const data = new Uint8Array(event.data)
 
       const readResult = peerManager.read_event(descriptor, data)
       if (!(readResult instanceof Result_boolPeerHandleErrorZ_OK)) {
         cleanup()
-        resolved = true
-        ws.close()
-        reject(new Error('Peer handshake failed'))
+        if (!resolved) {
+          resolved = true
+          ws.close()
+          reject(new Error('Peer handshake failed'))
+        }
         return
       }
 
       peerManager.process_events()
 
-      // Check if handshake is complete
+      // Check if handshake is complete (resolve the promise once)
       if (!resolved) {
         const peers = peerManager.list_peers()
         for (const peer of peers) {

@@ -1,5 +1,5 @@
 const DB_NAME = 'browser-wallet-ldk'
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 const STORES = [
   'ldk_seed',
@@ -8,6 +8,7 @@ const STORES = [
   'ldk_network_graph',
   'ldk_scorer',
   'ldk_spendable_outputs',
+  'ldk_known_peers',
   'wallet_mnemonic',
   'bdk_changeset',
 ] as const
@@ -43,6 +44,7 @@ export function openDb(): Promise<IDBDatabase> {
           'ldk_network_graph',
           'ldk_scorer',
           'ldk_spendable_outputs',
+          'ldk_known_peers',
         ] as const
         for (const storeName of LDK_STORES_TO_CLEAR) {
           if (db.objectStoreNames.contains(storeName)) {

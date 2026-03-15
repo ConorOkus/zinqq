@@ -1,26 +1,79 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useLdk } from '../ldk/use-ldk'
 import { parsePeerAddress } from '../ldk/peers/peer-connection'
+import { getKnownPeers, type KnownPeer } from '../ldk/storage/known-peers'
+import { bytesToHex } from '../ldk/utils'
 import { ScreenHeader } from '../components/ScreenHeader'
+
+interface PeerEntry {
+  pubkey: string
+  connected: boolean
+  known: boolean
+  host?: string
+  port?: number
+  hasChannels: boolean
+}
 
 export function Peers() {
   const ldk = useLdk()
   const [peerAddress, setPeerAddress] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
-  const [connectedPeers, setConnectedPeers] = useState<string[]>([])
+  const [peers, setPeers] = useState<PeerEntry[]>([])
+  const [forgetError, setForgetError] = useState<string | null>(null)
 
-  const refreshPeers = useCallback(() => {
+  const refreshPeers = useCallback(async () => {
     if (ldk.status !== 'ready') return
-    const peers = ldk.node.peerManager.list_peers()
-    const pubkeys = peers.map((p) => {
-      const bytes = p.get_counterparty_node_id()
-      return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
+
+    // Get connected peers from PeerManager
+    const connectedList = ldk.node.peerManager.list_peers()
+    const connectedPubkeys = new Set(
+      connectedList.map((p) => bytesToHex(p.get_counterparty_node_id()))
+    )
+
+    // Get known peers from IndexedDB
+    let knownPeers: Map<string, KnownPeer>
+    try {
+      knownPeers = await getKnownPeers()
+    } catch {
+      knownPeers = new Map()
+    }
+
+    // Get channels to check which peers have open channels
+    const channels = ldk.node.channelManager.list_channels()
+    const channelPeerPubkeys = new Set(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- LDK WASM bindings have unresolved types
+      channels.map((ch) => bytesToHex(ch.get_counterparty().get_node_id().write() as Uint8Array))
+    )
+
+    // Merge: all known peers + any connected peers not in known list
+    const allPubkeys = new Set([...knownPeers.keys(), ...connectedPubkeys])
+    const entries: PeerEntry[] = Array.from(allPubkeys).map((pubkey) => {
+      const known = knownPeers.has(pubkey)
+      const peer = knownPeers.get(pubkey)
+      return {
+        pubkey,
+        connected: connectedPubkeys.has(pubkey),
+        known,
+        host: peer?.host,
+        port: peer?.port,
+        hasChannels: channelPeerPubkeys.has(pubkey),
+      }
     })
-    setConnectedPeers(pubkeys)
+
+    // Sort: connected first, then by pubkey
+    entries.sort((a, b) => {
+      if (a.connected !== b.connected) return a.connected ? -1 : 1
+      return a.pubkey.localeCompare(b.pubkey)
+    })
+
+    setPeers(entries)
   }, [ldk])
+
+  // Load peers on mount and when ldk becomes ready
+  useEffect(() => {
+    void refreshPeers()
+  }, [refreshPeers])
 
   const handleConnect = useCallback(async () => {
     if (ldk.status !== 'ready') return
@@ -30,13 +83,27 @@ export function Peers() {
       const { pubkey, host, port } = parsePeerAddress(peerAddress.trim())
       await ldk.connectToPeer(pubkey, host, port)
       setPeerAddress('')
-      refreshPeers()
+      await refreshPeers()
     } catch (err: unknown) {
       setConnectError(err instanceof Error ? err.message : String(err))
     } finally {
       setConnecting(false)
     }
   }, [ldk, peerAddress, refreshPeers])
+
+  const handleForget = useCallback(
+    async (pubkey: string) => {
+      if (ldk.status !== 'ready') return
+      setForgetError(null)
+      try {
+        await ldk.forgetPeer(pubkey)
+        await refreshPeers()
+      } catch (err: unknown) {
+        setForgetError(err instanceof Error ? err.message : String(err))
+      }
+    },
+    [ldk, refreshPeers]
+  )
 
   if (ldk.status === 'loading') {
     return (
@@ -60,6 +127,8 @@ export function Peers() {
       </div>
     )
   }
+
+  const connectedCount = peers.filter((p) => p.connected).length
 
   return (
     <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
@@ -99,34 +168,56 @@ export function Peers() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
-              Connected ({connectedPeers.length})
+              Peers ({connectedCount} connected, {peers.length} saved)
             </span>
             <button
               className="text-xs text-accent"
-              onClick={refreshPeers}
+              onClick={() => void refreshPeers()}
             >
               Refresh
             </button>
           </div>
 
-          {connectedPeers.length === 0 ? (
+          {forgetError && (
+            <p className="text-sm text-red-400">{forgetError}</p>
+          )}
+
+          {peers.length === 0 ? (
             <p className="py-4 text-center text-sm text-[var(--color-on-dark-muted)]">
               No peers connected
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {connectedPeers.map((pubkey) => (
+              {peers.map((peer) => (
                 <div
-                  key={pubkey}
+                  key={peer.pubkey}
                   className="flex items-center gap-3 rounded-xl bg-dark-elevated p-4"
                 >
-                  <div className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
+                  <div
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                      peer.connected ? 'bg-green-500' : 'bg-gray-500'
+                    }`}
+                  />
                   <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm">
-                    {pubkey.slice(0, 16)}...{pubkey.slice(-8)}
+                    {peer.pubkey.slice(0, 16)}...{peer.pubkey.slice(-8)}
                   </span>
-                  <span className="shrink-0 text-xs font-semibold text-green-500">
-                    Connected
+                  <span
+                    className={`shrink-0 text-xs font-semibold ${
+                      peer.connected ? 'text-green-500' : 'text-[var(--color-on-dark-muted)]'
+                    }`}
+                  >
+                    {peer.connected ? 'Connected' : 'Offline'}
                   </span>
+                  {peer.known && (
+                    <button
+                      className="shrink-0 text-xs text-red-400 disabled:opacity-30"
+                      onClick={() => void handleForget(peer.pubkey)}
+                      disabled={peer.hasChannels}
+                      title={peer.hasChannels ? 'Cannot forget peer with open channels' : 'Remove from saved peers'}
+                    >
+                      Forget
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
