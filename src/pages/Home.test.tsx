@@ -1,91 +1,100 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect } from 'vitest'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
 import { OnchainContext, defaultOnchainContextValue, type OnchainContextValue } from '../onchain/onchain-context'
-import type { LdkNode } from '../ldk/init'
 import { Home } from './Home'
 
-function renderWithContexts(
+function readyOnchain(overrides: Partial<Extract<OnchainContextValue, { status: 'ready' }>> = {}): OnchainContextValue {
+  return {
+    status: 'ready',
+    balance: { confirmed: 100000n, trustedPending: 0n, untrustedPending: 0n },
+    generateAddress: () => 'tb1qtest',
+    estimateFee: async () => ({ fee: 245n, feeRate: 2n }),
+    estimateMaxSendable: async () => ({ amount: 99000n, fee: 1000n, feeRate: 2n }),
+    sendToAddress: async () => 'txid123',
+    sendMax: async () => 'txid123',
+    error: null,
+    ...overrides,
+  }
+}
+
+function readyLdk(): LdkContextValue {
+  return {
+    status: 'ready',
+    node: {} as never,
+    nodeId: 'abc123',
+    error: null,
+    syncStatus: 'synced',
+    connectToPeer: async () => {},
+    setBdkWallet: () => {},
+  }
+}
+
+function renderHome(
   ldkValue?: LdkContextValue,
   onchainValue?: OnchainContextValue,
 ) {
   return render(
     <MemoryRouter>
-      <LdkContext value={ldkValue ?? defaultLdkContextValue}>
-        <OnchainContext value={onchainValue ?? defaultOnchainContextValue}>
+      <LdkContext value={ldkValue ?? readyLdk()}>
+        <OnchainContext value={onchainValue ?? readyOnchain()}>
           <Home />
         </OnchainContext>
       </LdkContext>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 }
 
 describe('Home', () => {
-  it('renders the heading', () => {
-    renderWithContexts()
-    expect(screen.getByRole('heading', { name: /browser wallet/i })).toBeInTheDocument()
+  it('shows loading state when wallet is loading', () => {
+    renderHome(defaultLdkContextValue, defaultOnchainContextValue)
+    expect(screen.getByText(/loading wallet/i)).toBeInTheDocument()
   })
 
-  it('shows LDK loading state', () => {
-    renderWithContexts({ status: 'loading', node: null, nodeId: null, error: null })
-    expect(screen.getByText(/initializing lightning node/i)).toBeInTheDocument()
+  it('shows error state when onchain fails', () => {
+    renderHome(readyLdk(), { status: 'error', balance: null, error: new Error('BDK failed') })
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument()
+    expect(screen.getByText(/bdk failed/i)).toBeInTheDocument()
   })
 
-  it('shows node ID when LDK ready', () => {
-    renderWithContexts({
-      status: 'ready',
-      node: {} as unknown as LdkNode,
-      nodeId: 'abc123',
-      error: null,
-    } as LdkContextValue)
-    expect(screen.getByText(/lightning node ready/i)).toBeInTheDocument()
-    expect(screen.getByText(/abc123/)).toBeInTheDocument()
+  it('shows unified balance in BIP 177 format', () => {
+    renderHome(readyLdk(), readyOnchain({
+      balance: { confirmed: 100000n, trustedPending: 5000n, untrustedPending: 0n },
+    }))
+    expect(screen.getByText('₿105,000')).toBeInTheDocument()
   })
 
-  it('shows LDK error message on failure', () => {
-    renderWithContexts({
-      status: 'error',
-      node: null,
-      nodeId: null,
-      error: new Error('WASM failed to load'),
-    })
-    expect(screen.getByText(/failed to initialize/i)).toBeInTheDocument()
-    expect(screen.getByText(/wasm failed to load/i)).toBeInTheDocument()
+  it('shows untrusted pending as secondary indicator', () => {
+    renderHome(readyLdk(), readyOnchain({
+      balance: { confirmed: 100000n, trustedPending: 0n, untrustedPending: 500n },
+    }))
+    expect(screen.getByText(/\+₿500 pending/)).toBeInTheDocument()
   })
 
-  it('shows on-chain balance when ready', () => {
-    renderWithContexts(undefined, {
-      status: 'ready',
-      balance: { confirmed: 100000n, trustedPending: 0n, untrustedPending: 0n },
-      generateAddress: () => 'tb1qtest',
-      error: null,
-    })
-    expect(screen.getByText(/100000 sats/)).toBeInTheDocument()
-    expect(screen.getByText(/receive/i)).toBeInTheDocument()
+  it('has Send and Request buttons', () => {
+    renderHome()
+    expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /request/i })).toBeInTheDocument()
   })
 
-  it('shows pending balance when non-zero', () => {
-    renderWithContexts(undefined, {
-      status: 'ready',
-      balance: { confirmed: 100000n, trustedPending: 2000n, untrustedPending: 500n },
-      generateAddress: () => 'tb1qtest',
-      error: null,
-    })
-    expect(screen.getByText(/\+2500 sats pending/)).toBeInTheDocument()
+  it('can toggle balance visibility', async () => {
+    const user = userEvent.setup()
+    renderHome()
+    expect(screen.getByText('₿100,000')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /hide balance/i }))
+    expect(screen.queryByText('₿100,000')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /show balance/i }))
+    expect(screen.getByText('₿100,000')).toBeInTheDocument()
   })
 
-  it('shows on-chain loading state', () => {
-    renderWithContexts()
-    expect(screen.getByText(/loading on-chain wallet/i)).toBeInTheDocument()
-  })
-
-  it('shows on-chain error', () => {
-    renderWithContexts(undefined, {
-      status: 'error',
-      balance: null,
-      error: new Error('BDK failed'),
-    })
-    expect(screen.getByText(/on-chain wallet error/i)).toBeInTheDocument()
+  it('shows zero balance for new wallet', () => {
+    renderHome(readyLdk(), readyOnchain({
+      balance: { confirmed: 0n, trustedPending: 0n, untrustedPending: 0n },
+    }))
+    expect(screen.getByText('₿0')).toBeInTheDocument()
   })
 })

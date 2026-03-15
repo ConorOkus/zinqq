@@ -1,25 +1,11 @@
-import { Outlet, Link } from 'react-router'
+import { Outlet } from 'react-router'
+import { TabBar } from './TabBar'
 
 export function Layout() {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
-      <nav className="flex gap-4 border-b border-gray-200 p-4 dark:border-gray-700">
-        <Link to="/" className="font-medium hover:underline">
-          Home
-        </Link>
-        <Link to="/send" className="font-medium hover:underline">
-          Send
-        </Link>
-        <Link to="/receive" className="font-medium hover:underline">
-          Receive
-        </Link>
-        <Link to="/settings" className="font-medium hover:underline">
-          Settings
-        </Link>
-      </nav>
-      <main className="p-4">
-        <Outlet />
-      </main>
+    <div className="mx-auto flex min-h-dvh max-w-[430px] flex-col">
+      <Outlet />
+      <TabBar />
     </div>
   )
 }

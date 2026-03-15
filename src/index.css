@@ -1,5 +1,112 @@
 @import 'tailwindcss';
 
+/* --- Self-hosted Fonts (no Google Fonts CDN for privacy) --- */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/SpaceGrotesk-500.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/SpaceGrotesk-600.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/SpaceGrotesk-700.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Inter-400.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/Inter-500.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/Inter-600.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Inter-700.ttf') format('truetype');
+}
+
+/* --- Design Tokens --- */
+
 @theme {
+  /* Typography */
   --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+
+  /* Accent color — swap this one line to change the entire vibe */
+  --color-accent: #7C3AED;
+
+  /* Core palette */
+  --color-dark: #0a0a0a;
+  --color-dark-surface: #141414;
+  --color-dark-elevated: #1a1a1a;
+  --color-dark-border: #2a2a2a;
+
+  /* Text on accent background */
+  --color-on-accent: #0a0a0a;
+
+  /* Text on dark background */
+  --color-on-dark: #ffffff;
+
+  /* Layout */
+  --spacing-tab-bar: 64px;
+  --spacing-header: 56px;
+}
+
+/* Muted text colors (rgba not supported in @theme) */
+:root {
+  --color-on-accent-muted: rgba(0, 0, 0, 0.5);
+  --color-on-dark-muted: rgba(255, 255, 255, 0.45);
+}
+
+/* --- App Shell --- */
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-dark);
+  color: var(--color-on-dark);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* --- Focus / Accessibility --- */
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
