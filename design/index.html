@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Browser Wallet — Design Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- ============================================ -->
+    <!-- HOME SCREEN (Wallet Tab)                     -->
+    <!-- ============================================ -->
+    <section id="home" class="screen screen--accent home">
+      <div class="home__balance-section">
+        <div id="balance-shown" class="home__balance">
+          <span>₿100,000,000</span>
+        </div>
+        <div id="balance-hidden" class="home__balance-hidden" style="display:none">
+          &#8226;&#8226;&#8226;&#8226;&#8226;&#8226;
+        </div>
+        <button class="home__balance-toggle" onclick="toggleBalance()" aria-label="Toggle balance visibility">
+          <span id="balance-toggle-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </span>
+          <span id="balance-toggle-label">Hide balance</span>
+        </button>
+      </div>
+
+      <div class="home__actions">
+        <button class="home__action-btn home__action-btn--send" onclick="sendAmount='';updateAmountDisplay();navigate('send')">
+          SEND
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+        </button>
+        <button class="home__action-btn home__action-btn--receive" onclick="navigate('receive')">
+          REQUEST
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SEND: AMOUNT SCREEN                          -->
+    <!-- ============================================ -->
+    <section id="send" class="screen screen--dark screen--sub-flow send">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('home')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Send</span>
+      </header>
+
+      <div class="send__amount-section">
+        <span class="send__remaining">₿100,000,000 available</span>
+        <div class="send__amount">
+          <span id="send-amount-value">₿0.00000000</span>
+        </div>
+      </div>
+
+      <div class="numpad">
+        <button id="numpad-next" class="numpad__next-btn" onclick="goToReview()" disabled>
+          NEXT
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+        <div class="numpad__grid">
+          <button class="numpad__key" data-key="1">1</button>
+          <button class="numpad__key" data-key="2">2</button>
+          <button class="numpad__key" data-key="3">3</button>
+          <button class="numpad__key" data-key="4">4</button>
+          <button class="numpad__key" data-key="5">5</button>
+          <button class="numpad__key" data-key="6">6</button>
+          <button class="numpad__key" data-key="7">7</button>
+          <button class="numpad__key" data-key="8">8</button>
+          <button class="numpad__key" data-key="9">9</button>
+          <button class="numpad__key numpad__key--empty"></button>
+          <button class="numpad__key" data-key="0">0</button>
+          <button class="numpad__key numpad__key--backspace" data-key="backspace" aria-label="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SEND: REVIEW SCREEN                          -->
+    <!-- ============================================ -->
+    <section id="send-review" class="screen screen--dark screen--sub-flow send-review">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('send')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Review</span>
+      </header>
+
+      <div class="send-review__details">
+        <div class="send-review__row">
+          <span class="send-review__label">To</span>
+          <span class="send-review__value send-review__value--mono">tb1qw508d6q...gm9kah9c</span>
+        </div>
+        <div class="send-review__row">
+          <span class="send-review__label">Amount</span>
+          <span id="review-amount" class="send-review__value">₿50,000</span>
+        </div>
+        <div class="send-review__row">
+          <span class="send-review__label">Network fee</span>
+          <span id="review-fee" class="send-review__value">₿245</span>
+        </div>
+        <hr class="send-review__divider">
+        <div class="send-review__total">
+          <span class="send-review__total-label">Total</span>
+          <span id="review-total" class="send-review__total-value">₿50,245</span>
+        </div>
+      </div>
+
+      <div class="send-review__footer">
+        <button class="send-review__confirm-btn" onclick="confirmSend()">
+          Confirm Send
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SEND: SUCCESS SCREEN                         -->
+    <!-- ============================================ -->
+    <section id="send-success" class="screen screen--dark screen--sub-flow send-success">
+      <div class="send-success__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <div>
+        <div id="success-amount" class="send-success__amount">₿50,000</div>
+        <div class="send-success__label">sent successfully</div>
+      </div>
+      <a href="#" class="send-success__explorer" onclick="event.preventDefault()">View on explorer</a>
+      <button class="send-success__done-btn" onclick="resetSend()">Done</button>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- ACTIVITY SCREEN                              -->
+    <!-- ============================================ -->
+    <section id="activity" class="screen screen--accent activity">
+      <div class="activity__header">
+        <h1 class="activity__title">Activity</h1>
+      </div>
+      <div class="activity__list">
+        <!-- Received -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Received</div>
+            <div class="activity__item-time">2 hours ago</div>
+          </div>
+          <div class="activity__item-amount">+₿250,000</div>
+        </div>
+        <!-- Sent -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Sent to tb1q...8f3k</div>
+            <div class="activity__item-time">1 day ago</div>
+          </div>
+          <div class="activity__item-amount">-₿50,000</div>
+        </div>
+        <!-- Received -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Received</div>
+            <div class="activity__item-time">3 days ago</div>
+          </div>
+          <div class="activity__item-amount">+₿1,000,000</div>
+        </div>
+        <!-- Sent -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Sent to tb1q...m2px</div>
+            <div class="activity__item-time">5 days ago</div>
+          </div>
+          <div class="activity__item-amount">-₿125,000</div>
+        </div>
+        <!-- Received -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Received</div>
+            <div class="activity__item-time">1 week ago</div>
+          </div>
+          <div class="activity__item-amount">+₿75,000</div>
+        </div>
+        <!-- Sent -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Sent to tb1q...v9ql</div>
+            <div class="activity__item-time">2 weeks ago</div>
+          </div>
+          <div class="activity__item-amount">-₿500,000</div>
+        </div>
+        <!-- Received -->
+        <div class="activity__item">
+          <div class="activity__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>
+          </div>
+          <div class="activity__item-details">
+            <div class="activity__item-label">Received</div>
+            <div class="activity__item-time">3 weeks ago</div>
+          </div>
+          <div class="activity__item-amount">+₿2,500,000</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SETTINGS SCREEN                              -->
+    <!-- ============================================ -->
+    <section id="settings" class="screen screen--dark screen--sub-flow settings">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('home')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Settings</span>
+      </header>
+      <div class="settings__list">
+        <div class="settings__item">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <span class="settings__item-label">Wallet Backup</span>
+          <span class="settings__item-detail">Setup</span>
+        </div>
+        <div class="settings__item">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          </div>
+          <span class="settings__item-label">Recover Wallet</span>
+          <span class="settings__item-detail">From Seed</span>
+        </div>
+        <div class="settings__item" onclick="navigate('advanced')">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <span class="settings__item-label">Advanced</span>
+          <span class="settings__item-detail">Settings</span>
+        </div>
+        <div class="settings__item">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <span class="settings__item-label">How It Works</span>
+          <span class="settings__item-detail">FAQ</span>
+        </div>
+        <div class="settings__item">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <span class="settings__item-label">Get Help</span>
+          <span class="settings__item-detail">Chat with us</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- ADVANCED SETTINGS SCREEN                     -->
+    <!-- ============================================ -->
+    <section id="advanced" class="screen screen--dark screen--sub-flow settings">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('settings')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Advanced</span>
+      </header>
+      <div class="settings__list">
+        <div class="settings__item" onclick="navigate('open-channel')">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </div>
+          <span class="settings__item-label">Open Channel</span>
+          <span class="settings__item-detail">Lightning</span>
+        </div>
+        <div class="settings__item" onclick="navigate('close-channel')">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </div>
+          <span class="settings__item-label">Close Channel</span>
+          <span class="settings__item-detail">Lightning</span>
+        </div>
+        <div class="settings__item" onclick="navigate('peers')">
+          <div class="settings__item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <span class="settings__item-label">Peers</span>
+          <span class="settings__item-detail">Connected</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- OPEN CHANNEL SCREEN                          -->
+    <!-- ============================================ -->
+    <section id="open-channel" class="screen screen--dark screen--sub-flow">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('advanced')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Open Channel</span>
+      </header>
+      <div class="form-screen">
+        <div class="form-screen__group">
+          <label class="form-screen__label">Node Public Key</label>
+          <input class="form-screen__input form-screen__input--mono" type="text" placeholder="02abc...def" readonly value="02312627fdf07fbdd7e5ddb136611bdde9b00d26821d14d94891395b98104d4f31">
+        </div>
+        <div class="form-screen__group">
+          <label class="form-screen__label">Host</label>
+          <input class="form-screen__input" type="text" placeholder="127.0.0.1:9735" readonly value="44.219.111.31:39735">
+        </div>
+        <div class="form-screen__group">
+          <label class="form-screen__label">Channel Amount</label>
+          <input class="form-screen__input" type="text" placeholder="₿100,000" readonly value="₿100,000">
+        </div>
+        <div class="form-screen__group">
+          <label class="form-screen__label">Push Amount</label>
+          <input class="form-screen__input" type="text" placeholder="₿0" readonly value="₿0">
+        </div>
+        <div class="form-screen__footer">
+          <button class="form-screen__submit" onclick="navigate('advanced')">Open Channel</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- CLOSE CHANNEL SCREEN                         -->
+    <!-- ============================================ -->
+    <section id="close-channel" class="screen screen--dark screen--sub-flow">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('advanced')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Close Channel</span>
+      </header>
+      <div class="form-screen">
+        <div class="form-screen__heading">Select a channel to close</div>
+        <div class="channel-list">
+          <div class="channel-list__item">
+            <div class="channel-list__item-header">
+              <span class="channel-list__item-status channel-list__item-status--open">Open</span>
+              <span class="channel-list__item-capacity">₿100,000</span>
+            </div>
+            <div class="channel-list__item-peer">02312627...4d4f31</div>
+            <div class="channel-list__item-bar">
+              <div class="channel-list__item-bar-fill" style="width: 65%"></div>
+            </div>
+            <div class="channel-list__item-balances">
+              <span>Local: ₿65,000</span>
+              <span>Remote: ₿35,000</span>
+            </div>
+            <button class="channel-list__close-btn" onclick="navigate('advanced')">Close Channel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- PEERS SCREEN                                 -->
+    <!-- ============================================ -->
+    <section id="peers" class="screen screen--dark screen--sub-flow">
+      <header class="screen-header">
+        <button class="screen-header__back" onclick="navigate('advanced')" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <span class="screen-header__title">Peers</span>
+      </header>
+      <div class="form-screen">
+        <div class="peer-list">
+          <div class="peer-list__item">
+            <div class="peer-list__item-indicator peer-list__item-indicator--connected"></div>
+            <div class="peer-list__item-details">
+              <div class="peer-list__item-pubkey">02312627fdf0...4d4f31</div>
+              <div class="peer-list__item-address">44.219.111.31:39735</div>
+            </div>
+            <span class="peer-list__item-status">Connected</span>
+          </div>
+          <div class="peer-list__item">
+            <div class="peer-list__item-indicator peer-list__item-indicator--connected"></div>
+            <div class="peer-list__item-details">
+              <div class="peer-list__item-pubkey">03864ef025fd...b91f2a</div>
+              <div class="peer-list__item-address">52.1.72.207:9735</div>
+            </div>
+            <span class="peer-list__item-status">Connected</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- REQUEST MODAL (overlay)                      -->
+    <!-- ============================================ -->
+    <div id="receive" class="receive-overlay">
+      <header class="screen-header">
+        <span class="screen-header__title">Request</span>
+        <button class="screen-header__close" onclick="navigate('home')" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </header>
+
+      <div class="receive-overlay__qr-wrapper">
+        <!-- Placeholder QR code as SVG pattern -->
+        <div class="receive-overlay__qr">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Simplified QR-like pattern -->
+            <rect width="200" height="200" fill="white"/>
+            <!-- Position markers -->
+            <rect x="10" y="10" width="50" height="50" fill="black"/>
+            <rect x="15" y="15" width="40" height="40" fill="white"/>
+            <rect x="22" y="22" width="26" height="26" fill="black"/>
+            <rect x="140" y="10" width="50" height="50" fill="black"/>
+            <rect x="145" y="15" width="40" height="40" fill="white"/>
+            <rect x="152" y="22" width="26" height="26" fill="black"/>
+            <rect x="10" y="140" width="50" height="50" fill="black"/>
+            <rect x="15" y="145" width="40" height="40" fill="white"/>
+            <rect x="22" y="152" width="26" height="26" fill="black"/>
+            <!-- Data pattern (decorative) -->
+            <rect x="70" y="10" width="10" height="10" fill="black"/>
+            <rect x="90" y="10" width="10" height="10" fill="black"/>
+            <rect x="110" y="10" width="10" height="10" fill="black"/>
+            <rect x="70" y="30" width="10" height="10" fill="black"/>
+            <rect x="100" y="30" width="10" height="10" fill="black"/>
+            <rect x="120" y="30" width="10" height="10" fill="black"/>
+            <rect x="80" y="50" width="10" height="10" fill="black"/>
+            <rect x="110" y="50" width="10" height="10" fill="black"/>
+            <rect x="10" y="70" width="10" height="10" fill="black"/>
+            <rect x="30" y="70" width="10" height="10" fill="black"/>
+            <rect x="50" y="70" width="10" height="10" fill="black"/>
+            <rect x="70" y="70" width="10" height="10" fill="black"/>
+            <rect x="90" y="70" width="10" height="10" fill="black"/>
+            <rect x="110" y="70" width="10" height="10" fill="black"/>
+            <rect x="130" y="70" width="10" height="10" fill="black"/>
+            <rect x="150" y="70" width="10" height="10" fill="black"/>
+            <rect x="170" y="70" width="10" height="10" fill="black"/>
+            <rect x="20" y="90" width="10" height="10" fill="black"/>
+            <rect x="50" y="90" width="10" height="10" fill="black"/>
+            <rect x="80" y="90" width="10" height="10" fill="black"/>
+            <rect x="100" y="90" width="10" height="10" fill="black"/>
+            <rect x="130" y="90" width="10" height="10" fill="black"/>
+            <rect x="160" y="90" width="10" height="10" fill="black"/>
+            <rect x="180" y="90" width="10" height="10" fill="black"/>
+            <rect x="10" y="110" width="10" height="10" fill="black"/>
+            <rect x="40" y="110" width="10" height="10" fill="black"/>
+            <rect x="70" y="110" width="10" height="10" fill="black"/>
+            <rect x="90" y="110" width="10" height="10" fill="black"/>
+            <rect x="120" y="110" width="10" height="10" fill="black"/>
+            <rect x="150" y="110" width="10" height="10" fill="black"/>
+            <rect x="180" y="110" width="10" height="10" fill="black"/>
+            <rect x="70" y="130" width="10" height="10" fill="black"/>
+            <rect x="100" y="130" width="10" height="10" fill="black"/>
+            <rect x="130" y="130" width="10" height="10" fill="black"/>
+            <rect x="150" y="130" width="10" height="10" fill="black"/>
+            <rect x="70" y="150" width="10" height="10" fill="black"/>
+            <rect x="90" y="150" width="10" height="10" fill="black"/>
+            <rect x="120" y="150" width="10" height="10" fill="black"/>
+            <rect x="160" y="150" width="10" height="10" fill="black"/>
+            <rect x="70" y="170" width="10" height="10" fill="black"/>
+            <rect x="100" y="170" width="10" height="10" fill="black"/>
+            <rect x="140" y="170" width="10" height="10" fill="black"/>
+            <rect x="170" y="170" width="10" height="10" fill="black"/>
+            <rect x="80" y="180" width="10" height="10" fill="black"/>
+            <rect x="110" y="180" width="10" height="10" fill="black"/>
+            <rect x="150" y="180" width="10" height="10" fill="black"/>
+            <rect x="180" y="180" width="10" height="10" fill="black"/>
+          </svg>
+        </div>
+
+        <div class="receive-overlay__message">
+          Request money by letting someone scan this
+        </div>
+
+        <div class="receive-overlay__address">
+          <span id="receive-address-text" class="receive-overlay__address-text"
+                data-full="tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx">
+            tb1qw508d6q...kxpjzsx
+          </span>
+          <button id="copy-btn" class="receive-overlay__copy-btn" onclick="copyAddress()">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- BOTTOM TAB BAR                               -->
+    <!-- ============================================ -->
+    <nav class="tab-bar" role="navigation" aria-label="Main navigation">
+      <button class="tab-bar__icon-btn" onclick="navigate('scan')" aria-label="Scan QR code">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+          <rect x="7" y="7" width="10" height="10" rx="1"/>
+        </svg>
+      </button>
+      <button class="tab-bar__tab active" data-route="home" onclick="navigate('home')">Wallet</button>
+      <button class="tab-bar__tab" data-route="activity" onclick="navigate('activity')">Activity</button>
+      <button class="tab-bar__icon-btn" onclick="navigate('settings')" aria-label="Settings menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+      </button>
+    </nav>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
