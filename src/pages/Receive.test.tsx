@@ -82,4 +82,36 @@ describe('Receive', () => {
       })
     })
   })
+
+  describe('focus trap', () => {
+    it('focuses the first focusable element on mount', () => {
+      renderWithOnchain(readyContext())
+      const copyButton = screen.getByRole('button', { name: /copy address/i })
+      expect(copyButton).toHaveFocus()
+    })
+
+    it('wraps focus from last to first element on Tab', async () => {
+      const user = userEvent.setup()
+      renderWithOnchain(readyContext())
+
+      const copyButton = screen.getByRole('button', { name: /copy address/i })
+      expect(copyButton).toHaveFocus()
+
+      // Tab on the last (and only) focusable element should wrap to first
+      await user.keyboard('{Tab}')
+      expect(copyButton).toHaveFocus()
+    })
+
+    it('wraps focus from first to last element on Shift+Tab', async () => {
+      const user = userEvent.setup()
+      renderWithOnchain(readyContext())
+
+      const copyButton = screen.getByRole('button', { name: /copy address/i })
+      expect(copyButton).toHaveFocus()
+
+      // Shift+Tab on the first element should wrap to last
+      await user.keyboard('{Shift>}{Tab}{/Shift}')
+      expect(copyButton).toHaveFocus()
+    })
+  })
 })

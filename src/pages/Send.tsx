@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { parseBip21 } from '../onchain/bip21'
 import { ONCHAIN_CONFIG } from '../onchain/config'
+import { Numpad, type NumpadKey } from '../components/Numpad'
 
 type SendStep =
   | { step: 'input' }
@@ -19,6 +20,7 @@ type SendStep =
   | { step: 'error'; message: string }
 
 const MIN_DUST_SATS = 294n
+const TXID_RE = /^[0-9a-f]{64}$/i
 
 function classifyEstimateError(err: unknown): { field: 'address' | 'amount'; message: string } {
   const msg = err instanceof Error ? err.message : String(err)
@@ -53,6 +55,23 @@ export function Send() {
         }
         setAddressError(null)
       }
+    },
+    [isSendMax],
+  )
+
+  const handleNumpadKey = useCallback(
+    (key: NumpadKey) => {
+      if (isSendMax) return
+      if (key === 'backspace') {
+        setAmountStr((prev) => prev.slice(0, -1))
+      } else {
+        setAmountStr((prev) => {
+          if (prev.length >= 8) return prev
+          if (prev === '0') return key
+          return prev + key
+        })
+      }
+      setAmountError(null)
     },
     [isSendMax],
   )
@@ -193,14 +212,18 @@ export function Send() {
         <p className="text-green-600 font-medium">Your transaction has been broadcast.</p>
         <div className="space-y-2">
           <p className="text-sm text-gray-500">Transaction ID</p>
-          <a
-            href={`${explorerBaseUrl}/tx/${sendStep.txid}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block font-mono text-sm text-blue-600 hover:underline break-all"
-          >
-            {sendStep.txid}
-          </a>
+          {TXID_RE.test(sendStep.txid) ? (
+            <a
+              href={`${explorerBaseUrl}/tx/${sendStep.txid}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block font-mono text-sm text-blue-600 hover:underline break-all"
+            >
+              {sendStep.txid}
+            </a>
+          ) : (
+            <p className="font-mono text-sm break-all">{sendStep.txid}</p>
+          )}
         </div>
         <Link
           to="/"
@@ -312,6 +335,7 @@ export function Send() {
           <input
             id="address"
             type="text"
+            maxLength={200}
             value={address}
             onChange={(e) => {
               setAddress(e.target.value)
@@ -361,6 +385,8 @@ export function Send() {
           )}
         </div>
       </div>
+
+      {!isSendMax && <Numpad onKey={handleNumpadKey} />}
 
       <button
         onClick={() => void validateAndReview()}

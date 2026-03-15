@@ -14,14 +14,7 @@ export function Home() {
 
   const refreshPeers = useCallback(() => {
     if (ldk.status !== 'ready') return
-    const peers = ldk.node.peerManager.list_peers()
-    const pubkeys = peers.map((p) => {
-      const bytes = p.get_counterparty_node_id()
-      return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
-    })
-    setConnectedPeers(pubkeys)
+    setConnectedPeers(ldk.listPeers())
   }, [ldk])
 
   const handleConnect = useCallback(async () => {

@@ -25,6 +25,17 @@ export function LdkProvider({
     []
   )
 
+  const listPeers = useCallback((): string[] => {
+    if (!nodeRef.current) return []
+    const peers = nodeRef.current.peerManager.list_peers()
+    return peers.map((p) => {
+      const bytes = p.get_counterparty_node_id()
+      return Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    })
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     let syncHandle: { stop: () => void } | null = null
@@ -89,6 +100,7 @@ export function LdkProvider({
           error: null,
           syncStatus: 'syncing',
           connectToPeer,
+          listPeers,
           setBdkWallet,
         })
       })
@@ -109,7 +121,7 @@ export function LdkProvider({
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
-  }, [connectToPeer, ldkSeed])
+  }, [connectToPeer, listPeers, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }

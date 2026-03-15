@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useOnchain } from '../onchain/use-onchain'
@@ -7,6 +7,7 @@ export function Receive() {
   const onchain = useOnchain()
   const [address, setAddress] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copyError, setCopyError] = useState(false)
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
 
   useEffect(() => {
@@ -20,8 +21,9 @@ export function Receive() {
     try {
       await navigator.clipboard.writeText(address)
       setCopied(true)
+      setCopyError(false)
     } catch {
-      // Address is already displayed and selectable as fallback
+      setCopyError(true)
     }
   }, [address])
 
@@ -30,6 +32,12 @@ export function Receive() {
     const id = setTimeout(() => setCopied(false), 2000)
     return () => clearTimeout(id)
   }, [copied])
+
+  useEffect(() => {
+    if (!copyError) return
+    const id = setTimeout(() => setCopyError(false), 3000)
+    return () => clearTimeout(id)
+  }, [copyError])
 
   if (onchain.status === 'loading') {
     return <p className="text-center text-gray-500">Loading wallet...</p>
@@ -47,6 +55,42 @@ export function Receive() {
     )
   }
 
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (!overlay) return
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Tab') return
+
+      const focusable = overlay!.querySelectorAll<HTMLElement>(
+        'button, a, input, [tabindex]'
+      )
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+
+    overlay.addEventListener('keydown', handleKeyDown)
+    // Focus first focusable element on mount
+    const firstFocusable = overlay.querySelector<HTMLElement>(
+      'button, a, input, [tabindex]'
+    )
+    firstFocusable?.focus()
+
+    return () => overlay.removeEventListener('keydown', handleKeyDown)
+  }, [address])
+
   const { balance } = onchain
   const pending = balance.trustedPending + balance.untrustedPending
   const qrValue = address ? `BITCOIN:${address.toUpperCase()}` : ''
@@ -56,7 +100,7 @@ export function Receive() {
       <h1 className="text-3xl font-bold">Receive Bitcoin</h1>
 
       {address && (
-        <div className="flex flex-col items-center space-y-4">
+        <div ref={overlayRef} className="flex flex-col items-center space-y-4">
           <div
             aria-label={`QR code for Bitcoin address ${address}`}
             className="rounded-lg bg-white p-4"
@@ -74,6 +118,12 @@ export function Receive() {
           >
             {copied ? 'Copied!' : 'Copy Address'}
           </button>
+
+          {copyError && (
+            <p className="text-sm text-red-600">
+              Copy failed — select and copy manually
+            </p>
+          )}
         </div>
       )}
 
