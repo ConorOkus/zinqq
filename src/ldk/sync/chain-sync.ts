@@ -134,11 +134,11 @@ export function startSyncLoop(
       }
 
       // Persist NetworkGraph + Scorer every ~10 ticks (~5 min at 30s interval)
-      tickCount++
-      if (tickCount % 10 === 0) {
+      if ((tickCount + 1) % 10 === 0) {
         await idbPut('ldk_network_graph', 'primary', networkGraph.write())
         await idbPut('ldk_scorer', 'primary', scorer.write())
       }
+      tickCount++
     } catch (err) {
       console.error('[LDK Sync] Sync error:', err)
     }

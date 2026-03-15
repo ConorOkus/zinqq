@@ -129,14 +129,11 @@ export function parsePeerAddress(address: string): { pubkey: string; host: strin
   if (isNaN(port) || port < 1 || port > 65535) {
     throw new Error('Invalid peer address: port must be a number between 1 and 65535')
   }
-  if (pubkey.length !== 66) {
-    throw new Error('Invalid peer address: pubkey must be 66 hex characters')
-  }
   if (!/^[0-9a-f]{66}$/.test(pubkey)) {
-    throw new Error('Invalid peer address: pubkey must be valid lowercase hex')
+    throw new Error('Invalid peer address: pubkey must be 66 lowercase hex characters')
   }
-  if (host.length === 0 || /[/?#]/.test(host)) {
-    throw new Error('Invalid peer address: host contains invalid characters')
+  if (!/^[a-zA-Z0-9._-]+$/.test(host)) {
+    throw new Error('Invalid peer address: host must contain only alphanumeric, dot, hyphen, or underscore')
   }
   return { pubkey, host, port }
 }

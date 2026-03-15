@@ -17,11 +17,9 @@ describe('parsePeerAddress', () => {
     expect(result.port).toBe(9735)
   })
 
-  it('handles IPv6 with port', () => {
+  it('rejects IPv6 addresses (not supported)', () => {
     const pubkey = '02' + 'c'.repeat(64)
-    const result = parsePeerAddress(`${pubkey}@::1:9735`)
-    expect(result.host).toBe('::1')
-    expect(result.port).toBe(9735)
+    expect(() => parsePeerAddress(`${pubkey}@::1:9735`)).toThrow('host must contain only')
   })
 
   it('throws on missing @', () => {
@@ -44,6 +42,6 @@ describe('parsePeerAddress', () => {
   })
 
   it('throws on wrong pubkey length', () => {
-    expect(() => parsePeerAddress('02abcd@127.0.0.1:9735')).toThrow('66 hex characters')
+    expect(() => parsePeerAddress('02abcd@127.0.0.1:9735')).toThrow('66 lowercase hex characters')
   })
 })

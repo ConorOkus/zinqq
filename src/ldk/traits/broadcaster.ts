@@ -35,7 +35,7 @@ async function broadcastWithRetry(esploraUrl: string, txHex: string): Promise<vo
       }
     }
   }
-  console.error('[LDK Broadcaster] CRITICAL: All broadcast attempts failed for tx')
+  console.error(`[LDK Broadcaster] CRITICAL: All broadcast attempts failed for tx ${txHex.slice(0, 16)}...`)
 }
 
 export function createBroadcaster(esploraUrl: string): BroadcasterInterface {
