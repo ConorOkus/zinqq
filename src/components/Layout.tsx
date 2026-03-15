@@ -7,6 +7,9 @@ export function Layout() {
         <Link to="/" className="font-medium hover:underline">
           Home
         </Link>
+        <Link to="/send" className="font-medium hover:underline">
+          Send
+        </Link>
         <Link to="/receive" className="font-medium hover:underline">
           Receive
         </Link>

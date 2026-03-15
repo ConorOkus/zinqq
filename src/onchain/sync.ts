@@ -4,6 +4,8 @@ import { putChangeset } from './storage/changeset'
 
 export interface OnchainSyncHandle {
   stop: () => void
+  pause: () => void
+  resume: () => void
 }
 
 export interface OnchainBalance {
@@ -19,6 +21,7 @@ export function startOnchainSyncLoop(
 ): OnchainSyncHandle {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
+  let paused = false
 
   function readBalance(): OnchainBalance {
     const b = wallet.balance
@@ -31,6 +34,10 @@ export function startOnchainSyncLoop(
 
   async function tick() {
     if (stopped) return
+    if (paused) {
+      timeoutId = setTimeout(() => void tick(), ONCHAIN_CONFIG.syncIntervalMs)
+      return
+    }
     try {
       const syncRequest = wallet.start_sync_with_revealed_spks()
       const update = await esploraClient.sync(
@@ -70,6 +77,12 @@ export function startOnchainSyncLoop(
         clearTimeout(timeoutId)
         timeoutId = null
       }
+    },
+    pause() {
+      paused = true
+    },
+    resume() {
+      paused = false
     },
   }
 }

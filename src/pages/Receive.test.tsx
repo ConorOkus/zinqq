@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect } from 'vitest'
 import { OnchainContext, type OnchainContextValue, defaultOnchainContextValue } from '../onchain/onchain-context'
-import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 import { Receive } from './Receive'
 
 const TEST_ADDRESS = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
@@ -24,7 +23,6 @@ function readyContext(overrides?: Partial<Extract<OnchainContextValue, { status:
   return {
     status: 'ready',
     balance: { confirmed: 50000n, trustedPending: 0n, untrustedPending: 0n },
-    wallet: {} as unknown as Wallet,
     generateAddress: () => TEST_ADDRESS,
     error: null,
     ...overrides,
@@ -41,7 +39,6 @@ describe('Receive', () => {
     renderWithOnchain({
       status: 'error',
       balance: null,
-      wallet: null,
       error: new Error('BDK init failed'),
     })
     expect(screen.getByText(/failed to load wallet/i)).toBeInTheDocument()

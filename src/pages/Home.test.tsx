@@ -4,7 +4,6 @@ import { describe, it, expect } from 'vitest'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
 import { OnchainContext, defaultOnchainContextValue, type OnchainContextValue } from '../onchain/onchain-context'
 import type { LdkNode } from '../ldk/init'
-import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 import { Home } from './Home'
 
 function renderWithContexts(
@@ -59,7 +58,6 @@ describe('Home', () => {
     renderWithContexts(undefined, {
       status: 'ready',
       balance: { confirmed: 100000n, trustedPending: 0n, untrustedPending: 0n },
-      wallet: {} as unknown as Wallet,
       generateAddress: () => 'tb1qtest',
       error: null,
     })
@@ -71,7 +69,6 @@ describe('Home', () => {
     renderWithContexts(undefined, {
       status: 'ready',
       balance: { confirmed: 100000n, trustedPending: 2000n, untrustedPending: 500n },
-      wallet: {} as unknown as Wallet,
       generateAddress: () => 'tb1qtest',
       error: null,
     })
@@ -87,7 +84,6 @@ describe('Home', () => {
     renderWithContexts(undefined, {
       status: 'error',
       balance: null,
-      wallet: null,
       error: new Error('BDK failed'),
     })
     expect(screen.getByText(/on-chain wallet error/i)).toBeInTheDocument()
