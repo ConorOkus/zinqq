@@ -71,22 +71,24 @@ export function connectToPeer(
     }
 
     ws.onmessage = (event) => {
-      if (!descriptor || resolved) return
+      if (!descriptor) return
       if (!(event.data instanceof ArrayBuffer)) return
       const data = new Uint8Array(event.data)
 
       const readResult = peerManager.read_event(descriptor, data)
       if (!(readResult instanceof Result_boolPeerHandleErrorZ_OK)) {
         cleanup()
-        resolved = true
-        ws.close()
-        reject(new Error('Peer handshake failed'))
+        if (!resolved) {
+          resolved = true
+          ws.close()
+          reject(new Error('Peer handshake failed'))
+        }
         return
       }
 
       peerManager.process_events()
 
-      // Check if handshake is complete
+      // Check if handshake is complete (resolve the promise once)
       if (!resolved) {
         const peers = peerManager.list_peers()
         for (const peer of peers) {
