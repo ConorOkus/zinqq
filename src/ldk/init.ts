@@ -141,6 +141,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   const startingTimeSecs = BigInt(Math.floor(nowMs / 1000))
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
   const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos)
+  seed.fill(0) // Zero seed bytes after KeysManager copies them
 
   // 3. Create trait implementations
   const logger = createLogger()

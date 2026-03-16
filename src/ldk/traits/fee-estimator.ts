@@ -82,23 +82,10 @@ export function createFeeEstimator(esploraUrl: string): FeeEstimator {
         targetBlocks = 6
     }
 
-    // Find closest available block target
+    // Direct lookup, fallback to default
     const feeRate = cache.rates.get(targetBlocks)
-    if (feeRate !== undefined) return Math.max(feeRate, 253)
-
-    // Fallback: find the nearest block target
-    let closest = Infinity
-    let closestRate = DEFAULT_FEE_RATES[confirmationTarget] ?? 5_000
-    for (const [blocks, rate] of cache.rates) {
-      const distance = Math.abs(blocks - targetBlocks)
-      if (distance < closest) {
-        closest = distance
-        closestRate = rate
-      }
-    }
-
     // LDK enforces minimum of 253 sat/KW (1 sat/vB)
-    return Math.max(closestRate, 253)
+    return Math.max(feeRate ?? (DEFAULT_FEE_RATES[confirmationTarget] ?? 5_000), 253)
   }
 
   return FeeEstimator.new_impl({

@@ -8,15 +8,21 @@ export function Receive() {
   const navigate = useNavigate()
   const onchain = useOnchain()
   const [address, setAddress] = useState<string | null>(null)
+  const [addressError, setAddressError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
 
   useEffect(() => {
-    if (generateAddress && address === null) {
-      setAddress(generateAddress())
+    if (generateAddress && address === null && addressError === null) {
+      try {
+        setAddress(generateAddress())
+      } catch (err) {
+        console.error('[Receive] Failed to generate address:', err)
+        setAddressError(err instanceof Error ? err.message : 'Failed to generate address')
+      }
     }
-  }, [generateAddress, address])
+  }, [generateAddress, address, addressError])
 
   // Focus trap: keep focus within overlay
   useEffect(() => {
@@ -101,6 +107,9 @@ export function Receive() {
       <ScreenHeader title="Request" onClose={handleClose} />
 
       <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">
+        {addressError && (
+          <p className="text-sm text-red-400">{addressError}</p>
+        )}
         {address && (
           <>
             <div
