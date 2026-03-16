@@ -10,4 +10,6 @@ export const SIGNET_CONFIG = {
     (import.meta.env.VITE_WS_PROXY_URL as string | undefined) ??
     'wss://p.mutinynet.com',
   peerTimerIntervalMs: 10_000,
+  rgsUrl: 'https://mutinynet.ltbl.io/snapshot',
+  rgsSyncIntervalTicks: 20, // ~10 min at 30s chain poll interval
 } as const

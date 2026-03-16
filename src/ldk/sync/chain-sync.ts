@@ -4,10 +4,12 @@ import {
   type ChannelManager,
   type ChainMonitor,
   type NetworkGraph,
+  type Logger,
   type ProbabilisticScorer,
 } from 'lightningdevkit'
 import type { EsploraClient } from './esplora-client'
 import type { WatchState } from '../traits/filter'
+import { initRapidGossipSync, syncRapidGossip, type RgsHandle } from './rapid-gossip-sync'
 import { bytesToHex } from '../utils'
 import { idbPut } from '../storage/idb'
 
@@ -98,6 +100,22 @@ export interface SyncLoopHandle {
   stop: () => void
 }
 
+export interface SyncLoopConfig {
+  confirmables: Confirm[]
+  watchState: WatchState
+  esplora: EsploraClient
+  channelManager: ChannelManager
+  chainMonitor: ChainMonitor
+  networkGraph: NetworkGraph
+  logger: Logger
+  scorer: ProbabilisticScorer
+  intervalMs: number
+  rgsUrl?: string
+  rgsSyncIntervalTicks?: number
+}
+
+export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle
+/** @deprecated Use config object overload */
 export function startSyncLoop(
   confirmables: Confirm[],
   watchState: WatchState,
@@ -107,26 +125,77 @@ export function startSyncLoop(
   networkGraph: NetworkGraph,
   scorer: ProbabilisticScorer,
   intervalMs: number
+): SyncLoopHandle
+export function startSyncLoop(
+  configOrConfirmables: SyncLoopConfig | Confirm[],
+  watchState?: WatchState,
+  esplora?: EsploraClient,
+  channelManager?: ChannelManager,
+  chainMonitor?: ChainMonitor,
+  networkGraph?: NetworkGraph,
+  scorer?: ProbabilisticScorer,
+  intervalMs?: number,
 ): SyncLoopHandle {
+  // Normalize to config object
+  const config: SyncLoopConfig = Array.isArray(configOrConfirmables)
+    ? {
+        confirmables: configOrConfirmables,
+        watchState: watchState!,
+        esplora: esplora!,
+        channelManager: channelManager!,
+        chainMonitor: chainMonitor!,
+        networkGraph: networkGraph!,
+        logger: null as unknown as Logger,
+        scorer: scorer!,
+        intervalMs: intervalMs!,
+      }
+    : configOrConfirmables
+
   let lastTipHash: string | null = null
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let tickCount = 0
   let cmNeedsPersist = false
+  let rgsHandle: RgsHandle | null = null
+  let rgsInitStarted = false
+
+  async function ensureRgs() {
+    if (!config.rgsUrl || rgsHandle || rgsInitStarted) return
+    rgsInitStarted = true
+    try {
+      rgsHandle = await initRapidGossipSync(
+        config.networkGraph,
+        config.logger,
+        config.rgsUrl,
+      )
+      console.log('[LDK Sync] Rapid Gossip Sync initialized')
+    } catch (err) {
+      console.warn('[LDK Sync] RGS init failed, will retry:', err)
+      rgsInitStarted = false // allow retry on next tick
+    }
+  }
 
   async function tick() {
     if (stopped) return
     try {
-      lastTipHash = await syncOnce(confirmables, watchState, esplora, lastTipHash)
+      // Initialize RGS on first tick (non-blocking for chain sync)
+      await ensureRgs()
 
-      channelManager.timer_tick_occurred()
-      chainMonitor.rebroadcast_pending_claims()
+      lastTipHash = await syncOnce(
+        config.confirmables,
+        config.watchState,
+        config.esplora,
+        lastTipHash,
+      )
+
+      config.channelManager.timer_tick_occurred()
+      config.chainMonitor.rebroadcast_pending_claims()
 
       // Persist ChannelManager if needed (cmNeedsPersist retries after prior idbPut failure)
-      if (cmNeedsPersist || channelManager.get_and_clear_needs_persistence()) {
+      if (cmNeedsPersist || config.channelManager.get_and_clear_needs_persistence()) {
         cmNeedsPersist = false
         try {
-          await idbPut('ldk_channel_manager', 'primary', channelManager.write())
+          await idbPut('ldk_channel_manager', 'primary', config.channelManager.write())
         } catch (err: unknown) {
           cmNeedsPersist = true
           throw err
@@ -135,16 +204,27 @@ export function startSyncLoop(
 
       // Persist NetworkGraph + Scorer every ~10 ticks (~5 min at 30s interval)
       if ((tickCount + 1) % 10 === 0) {
-        await idbPut('ldk_network_graph', 'primary', networkGraph.write())
-        await idbPut('ldk_scorer', 'primary', scorer.write())
+        await idbPut('ldk_network_graph', 'primary', config.networkGraph.write())
+        await idbPut('ldk_scorer', 'primary', config.scorer.write())
       }
+
+      // Periodic RGS delta sync
+      const rgsInterval = config.rgsSyncIntervalTicks ?? 20
+      if (rgsHandle && config.rgsUrl && (tickCount + 1) % rgsInterval === 0) {
+        try {
+          await syncRapidGossip(rgsHandle, config.rgsUrl)
+        } catch (err) {
+          console.warn('[LDK Sync] RGS periodic sync failed:', err)
+        }
+      }
+
       tickCount++
     } catch (err) {
       console.error('[LDK Sync] Sync error:', err)
     }
 
     if (!stopped) {
-      timeoutId = setTimeout(tick, intervalMs)
+      timeoutId = setTimeout(tick, config.intervalMs)
     }
   }
 

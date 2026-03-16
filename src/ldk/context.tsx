@@ -274,16 +274,19 @@ export function LdkProvider({
           node.chainMonitor.as_Confirm(),
         ]
 
-        syncHandle = startSyncLoop(
+        syncHandle = startSyncLoop({
           confirmables,
           watchState,
           esplora,
-          node.channelManager,
-          node.chainMonitor,
-          node.networkGraph,
-          node.scorer,
-          SIGNET_CONFIG.chainPollIntervalMs
-        )
+          channelManager: node.channelManager,
+          chainMonitor: node.chainMonitor,
+          networkGraph: node.networkGraph,
+          logger: node.logger,
+          scorer: node.scorer,
+          intervalMs: SIGNET_CONFIG.chainPollIntervalMs,
+          rgsUrl: SIGNET_CONFIG.rgsUrl,
+          rgsSyncIntervalTicks: SIGNET_CONFIG.rgsSyncIntervalTicks,
+        })
 
         // PeerManager timer + LDK event processing every ~10s
         peerTimerId = setInterval(() => {
