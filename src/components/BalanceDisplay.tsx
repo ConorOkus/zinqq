@@ -32,13 +32,19 @@ export function BalanceDisplay({ balance, pending, breakdown, loading }: Balance
     })
   }, [])
 
-  return (
-    <div className="flex flex-1 flex-col items-start justify-start pt-[20vh]">
-      {loading ? (
+  if (loading) {
+    return (
+      <div className="flex flex-1 flex-col items-start justify-start pt-[20vh]">
         <div className="flex h-[clamp(2.5rem,12vw,5rem)] items-center">
           <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-on-accent/30 border-t-on-accent" />
         </div>
-      ) : visible ? (
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-1 flex-col items-start justify-start pt-[20vh]">
+      {visible ? (
         <div
           className="max-w-full break-all font-display font-bold leading-none tracking-tight text-on-accent"
           style={{ fontSize: 'clamp(2.5rem, 12vw, 5rem)' }}
