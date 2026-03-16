@@ -32,6 +32,8 @@ export function LdkProvider({
   const [state, setState] = useState<LdkContextValue>(defaultLdkContextValue)
   const nodeRef = useRef<LdkNode | null>(null)
   const lightningBalanceSatsRef = useRef(0n)
+  const channelChangeCounterRef = useRef(0)
+  const lastChannelSnapshotRef = useRef('')
   const activeConnections = useRef<Map<string, PeerConnection>>(new Map())
 
   const connectToPeer = useCallback(
@@ -50,9 +52,11 @@ export function LdkProvider({
   const createChannel = useCallback(
     (counterpartyPubkey: Uint8Array, channelValueSats: bigint): boolean => {
       if (!nodeRef.current) throw new Error('Node not initialized')
-      const bytes = new Uint8Array(8)
-      crypto.getRandomValues(bytes)
-      const userChannelId = bytes.reduce(
+      // Generate a random user channel ID (u128). Use 8 random bytes (64 bits)
+      // which is well within LDK's u128 limit while providing sufficient uniqueness.
+      const idBytes = new Uint8Array(8)
+      crypto.getRandomValues(idBytes)
+      const userChannelId = idBytes.reduce(
         (acc, byte) => (acc << 8n) | BigInt(byte),
         0n,
       )
@@ -373,11 +377,24 @@ export function LdkProvider({
             .list_usable_channels()
             .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
           const newBalanceSats = msatToSatFloor(capacityMsat)
-          if (newBalanceSats !== lightningBalanceSatsRef.current) {
+          const balanceChanged = newBalanceSats !== lightningBalanceSatsRef.current
+
+          // Detect channel state changes (count, ready, usable status)
+          const channels = node.channelManager.list_channels()
+          const snapshot = channels
+            .map((ch) => `${bytesToHex(ch.get_channel_id().write())}:${ch.get_is_channel_ready()}:${ch.get_is_usable()}`)
+            .sort()
+            .join(',')
+          const channelsChanged = snapshot !== lastChannelSnapshotRef.current
+          lastChannelSnapshotRef.current = snapshot
+
+          if (balanceChanged || channelsChanged) {
             lightningBalanceSatsRef.current = newBalanceSats
+            if (channelsChanged) channelChangeCounterRef.current += 1
+            const newCounter = channelChangeCounterRef.current
             setState((prev) =>
               prev.status === 'ready'
-                ? { ...prev, lightningBalanceSats: newBalanceSats }
+                ? { ...prev, lightningBalanceSats: newBalanceSats, channelChangeCounter: newCounter }
                 : prev,
             )
           }
@@ -425,12 +442,20 @@ export function LdkProvider({
           listRecentPayments,
           outboundCapacityMsat,
           lightningBalanceSats: initialBalanceSats,
+          channelChangeCounter: 0,
+          peersReconnected: false,
         })
 
-        // Auto-reconnect to known peers (fire-and-forget, non-blocking)
+        // Auto-reconnect to known peers, then mark peersReconnected so
+        // the Home screen knows the lightning balance is now accurate.
         getKnownPeers()
           .then(async (peers) => {
-            if (peers.size === 0) return
+            if (peers.size === 0) {
+              setState((prev) =>
+                prev.status === 'ready' ? { ...prev, peersReconnected: true } : prev,
+              )
+              return
+            }
             console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
             const results = await Promise.allSettled(
               Array.from(peers.entries()).map(async ([pubkey, { host, port }]) => {
@@ -441,9 +466,37 @@ export function LdkProvider({
             const succeeded = results.filter((r) => r.status === 'fulfilled').length
             const failed = results.filter((r) => r.status === 'rejected').length
             console.log(`[ldk] peer reconnection: ${succeeded} connected, ${failed} failed`)
+
+            // Wait for channels to become usable after reconnection.
+            // connectToPeer resolves after the noise handshake, but LDK still
+            // needs to exchange channel_reestablish messages before channels
+            // are marked usable. Poll briefly (up to 5s) so the balance is
+            // accurate before we dismiss the loading spinner.
+            if (succeeded > 0) {
+              for (let attempt = 0; attempt < 10; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 500))
+                node.peerManager.process_events()
+                if (node.channelManager.list_usable_channels().length > 0) break
+              }
+            }
+
+            const cap = node.channelManager
+              .list_usable_channels()
+              .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
+            const bal = msatToSatFloor(cap)
+            lightningBalanceSatsRef.current = bal
+            setState((prev) =>
+              prev.status === 'ready'
+                ? { ...prev, lightningBalanceSats: bal, peersReconnected: true }
+                : prev,
+            )
           })
           .catch((err: unknown) => {
             console.warn('[ldk] failed to read known peers:', err)
+            // Still mark as reconnected so UI doesn't stay loading forever
+            setState((prev) =>
+              prev.status === 'ready' ? { ...prev, peersReconnected: true } : prev,
+            )
           })
       })
       .catch((err: unknown) => {

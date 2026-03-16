@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useLocation } from 'react-router'
 import { useLdk } from '../ldk/use-ldk'
 import { bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
@@ -19,48 +19,64 @@ interface ChannelInfo {
   isReady: boolean
 }
 
+interface RouteState {
+  channelIdHex?: string
+  counterpartyPubkey?: string
+}
+
 type CloseChannelStep =
-  | { step: 'select-channel' }
   | { step: 'confirm'; channel: ChannelInfo; closeType: 'cooperative' | 'force' }
   | { step: 'success'; closeType: 'cooperative' | 'force' }
   | { step: 'error'; message: string; canForceClose: boolean; channel: ChannelInfo }
 
 export function CloseChannel() {
   const navigate = useNavigate()
+  const location = useLocation()
   const ldk = useLdk()
-  const [currentStep, setCurrentStep] = useState<CloseChannelStep>({ step: 'select-channel' })
-  const [channels, setChannels] = useState<ChannelInfo[]>([])
 
-  const refreshChannels = useCallback(() => {
-    if (ldk.status !== 'ready') return
-    const list = ldk.listChannels()
-    const mapped: ChannelInfo[] = list.map((ch) => {
-      const counterparty = ch.get_counterparty()
-      return {
-        channelId: ch.get_channel_id(),
-        channelIdHex: bytesToHex(ch.get_channel_id().write()),
-        counterpartyNodeId: counterparty.get_node_id(),
-        counterpartyPubkey: bytesToHex(counterparty.get_node_id()),
-        capacitySats: ch.get_channel_value_satoshis(),
-        outboundCapacityMsat: ch.get_outbound_capacity_msat(),
-        inboundCapacityMsat: ch.get_inbound_capacity_msat(),
-        isUsable: ch.get_is_usable(),
-        isReady: ch.get_is_channel_ready(),
-      }
-    })
-    setChannels(mapped)
-  }, [ldk.status]) // eslint-disable-line react-hooks/exhaustive-deps
+  const routeState = (location.state as RouteState | null) ?? {}
+  const { channelIdHex, counterpartyPubkey } = routeState
 
+  const [currentStep, setCurrentStep] = useState<CloseChannelStep | null>(null)
+
+  // Redirect if missing route state
   useEffect(() => {
-    refreshChannels()
-  }, [refreshChannels])
+    if (!channelIdHex || !counterpartyPubkey) {
+      void navigate('/settings/advanced/peers', { replace: true })
+    }
+  }, [channelIdHex, counterpartyPubkey, navigate])
 
-  const handleSelectChannel = useCallback((channel: ChannelInfo) => {
+  // Look up the channel from LDK once ready
+  useEffect(() => {
+    if (ldk.status !== 'ready' || !channelIdHex || !counterpartyPubkey) return
+    if (currentStep !== null) return // Already initialized
+
+    const channels = ldk.listChannels()
+    const match = channels.find((ch) => bytesToHex(ch.get_channel_id().write()) === channelIdHex)
+
+    if (!match) {
+      void navigate('/settings/advanced/peers', { replace: true })
+      return
+    }
+
+    const counterparty = match.get_counterparty()
+    const channel: ChannelInfo = {
+      channelId: match.get_channel_id(),
+      channelIdHex,
+      counterpartyNodeId: counterparty.get_node_id(),
+      counterpartyPubkey: bytesToHex(counterparty.get_node_id()),
+      capacitySats: match.get_channel_value_satoshis(),
+      outboundCapacityMsat: match.get_outbound_capacity_msat(),
+      inboundCapacityMsat: match.get_inbound_capacity_msat(),
+      isUsable: match.get_is_usable(),
+      isReady: match.get_is_channel_ready(),
+    }
+
     setCurrentStep({ step: 'confirm', channel, closeType: 'cooperative' })
-  }, [])
+  }, [ldk.status, channelIdHex, counterpartyPubkey, navigate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConfirm = useCallback(() => {
-    if (ldk.status !== 'ready' || currentStep.step !== 'confirm') return
+    if (ldk.status !== 'ready' || !currentStep || currentStep.step !== 'confirm') return
 
     const { channel, closeType } = currentStep
 
@@ -89,13 +105,16 @@ export function CloseChannel() {
         step: 'error',
         message,
         canForceClose: currentStep.closeType === 'cooperative',
-        channel,
+        channel: currentStep.channel,
       })
     }
   }, [ldk, currentStep])
 
-  // --- Loading / error gates ---
-  if (ldk.status === 'loading') {
+  // --- Guard: no route state ---
+  if (!channelIdHex || !counterpartyPubkey) return null
+
+  // --- Loading ---
+  if (ldk.status === 'loading' || !currentStep) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-dark">
         <p className="text-[var(--color-on-dark-muted)]">Loading...</p>
@@ -110,9 +129,9 @@ export function CloseChannel() {
         <p className="mt-2 text-sm text-red-400">{ldk.error.message}</p>
         <button
           className="mt-6 text-sm text-accent"
-          onClick={() => void navigate('/settings/advanced')}
+          onClick={() => void navigate('/settings/advanced/peers')}
         >
-          Back to Advanced
+          Back to Peers
         </button>
       </div>
     )
@@ -179,7 +198,13 @@ export function CloseChannel() {
           )}
           <button
             className="h-14 w-full rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
-            onClick={() => setCurrentStep({ step: 'select-channel' })}
+            onClick={() =>
+              setCurrentStep({
+                step: 'confirm',
+                channel: currentStep.channel,
+                closeType: 'cooperative',
+              })
+            }
           >
             Try Again
           </button>
@@ -188,165 +213,83 @@ export function CloseChannel() {
     )
   }
 
-  // --- Confirm screen ---
-  if (currentStep.step === 'confirm') {
-    const { channel, closeType } = currentStep
-    const localSats = channel.outboundCapacityMsat / 1000n
-    const remoteSats = channel.inboundCapacityMsat / 1000n
-    const isForce = closeType === 'force'
+  // --- Confirm screen --- (first step now)
+  const { channel, closeType } = currentStep
+  const localSats = channel.outboundCapacityMsat / 1000n
+  const remoteSats = channel.inboundCapacityMsat / 1000n
+  const isForce = closeType === 'force'
 
-    return (
-      <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Close Channel" onBack={() => setCurrentStep({ step: 'select-channel' })} />
-        <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
-          <div className="flex justify-between">
-            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Peer</span>
-            <span className="max-w-[60%] break-all text-right font-mono text-sm font-semibold">
-              {channel.counterpartyPubkey.slice(0, 12)}...{channel.counterpartyPubkey.slice(-8)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Channel Capacity</span>
-            <span className="font-semibold">{formatBtc(channel.capacitySats)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Your Balance</span>
-            <span className="font-semibold">{formatBtc(localSats)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Remote Balance</span>
-            <span className="font-semibold">{formatBtc(remoteSats)}</span>
-          </div>
-
-          <hr className="border-dark-border" />
-
-          {/* Close type toggle */}
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Close Method</span>
-            <div className="flex gap-2">
-              <button
-                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
-                  !isForce
-                    ? 'bg-accent text-white'
-                    : 'bg-dark-elevated text-[var(--color-on-dark-muted)]'
-                }`}
-                onClick={() => setCurrentStep({ ...currentStep, closeType: 'cooperative' })}
-              >
-                Cooperative
-              </button>
-              <button
-                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
-                  isForce
-                    ? 'bg-red-500/20 text-red-400'
-                    : 'bg-dark-elevated text-[var(--color-on-dark-muted)]'
-                }`}
-                onClick={() => setCurrentStep({ ...currentStep, closeType: 'force' })}
-              >
-                Force Close
-              </button>
-            </div>
-          </div>
-
-          {isForce && (
-            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
-              Force close broadcasts your latest commitment transaction. Funds will be locked
-              for a timelock period (may take several hours) before they can be swept to your wallet.
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
-          <button
-            className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] ${
-              isForce
-                ? 'bg-red-500 text-white'
-                : 'bg-accent text-white'
-            }`}
-            onClick={handleConfirm}
-          >
-            {isForce ? 'Force Close Channel' : 'Close Channel'}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // --- Channel selection screen ---
   return (
-    <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
-      <ScreenHeader title="Close Channel" backTo="/settings/advanced" />
-      <div className="flex flex-col gap-4 px-6 pt-2">
-        <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
-          Select a channel to close
-        </span>
+    <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
+      <ScreenHeader title="Close Channel" backTo="/settings/advanced/peers" />
+      <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
+        <div className="flex justify-between">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Peer</span>
+          <span className="max-w-[60%] break-all text-right font-mono text-sm font-semibold">
+            {channel.counterpartyPubkey.slice(0, 12)}...{channel.counterpartyPubkey.slice(-8)}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Channel Capacity</span>
+          <span className="font-semibold">{formatBtc(channel.capacitySats)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Your Balance</span>
+          <span className="font-semibold">{formatBtc(localSats)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Remote Balance</span>
+          <span className="font-semibold">{formatBtc(remoteSats)}</span>
+        </div>
 
-        {channels.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <p className="text-[var(--color-on-dark-muted)]">No open channels</p>
+        <hr className="border-dark-border" />
+
+        {/* Close type toggle */}
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Close Method</span>
+          <div className="flex gap-2">
             <button
-              className="text-sm text-accent"
-              onClick={() => void navigate('/settings/advanced/open-channel')}
+              className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+                !isForce
+                  ? 'bg-accent text-white'
+                  : 'bg-dark-elevated text-[var(--color-on-dark-muted)]'
+              }`}
+              onClick={() => setCurrentStep({ ...currentStep, closeType: 'cooperative' })}
             >
-              Open a Channel
+              Cooperative
+            </button>
+            <button
+              className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+                isForce
+                  ? 'bg-red-500/20 text-red-400'
+                  : 'bg-dark-elevated text-[var(--color-on-dark-muted)]'
+              }`}
+              onClick={() => setCurrentStep({ ...currentStep, closeType: 'force' })}
+            >
+              Force Close
             </button>
           </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {channels.map((channel) => {
-              const localSats = channel.outboundCapacityMsat / 1000n
-              const remoteSats = channel.inboundCapacityMsat / 1000n
-              const totalForBar = localSats + remoteSats
-              const localPercent = totalForBar > 0n
-                ? Number((localSats * 100n) / totalForBar)
-                : 50
+        </div>
 
-              return (
-                <div
-                  key={channel.channelIdHex}
-                  className="flex flex-col gap-3 rounded-xl bg-dark-elevated p-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        channel.isUsable
-                          ? 'bg-green-500/20 text-green-400'
-                          : channel.isReady
-                            ? 'bg-yellow-500/20 text-yellow-400'
-                            : 'bg-[var(--color-on-dark-muted)]/20 text-[var(--color-on-dark-muted)]'
-                      }`}
-                    >
-                      {channel.isUsable ? 'Open' : channel.isReady ? 'Ready' : 'Pending'}
-                    </span>
-                    <span className="font-semibold">{formatBtc(channel.capacitySats)}</span>
-                  </div>
-
-                  <span className="font-mono text-xs text-[var(--color-on-dark-muted)]">
-                    {channel.counterpartyPubkey.slice(0, 12)}...{channel.counterpartyPubkey.slice(-8)}
-                  </span>
-
-                  {/* Balance bar */}
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-accent"
-                      style={{ width: `${localPercent}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs text-[var(--color-on-dark-muted)]">
-                    <span>Local: {formatBtc(localSats)}</span>
-                    <span>Remote: {formatBtc(remoteSats)}</span>
-                  </div>
-
-                  <button
-                    className="h-10 w-full rounded-lg border border-red-500/50 text-sm font-semibold text-red-400 transition-colors active:bg-red-500/10"
-                    onClick={() => handleSelectChannel(channel)}
-                  >
-                    Close Channel
-                  </button>
-                </div>
-              )
-            })}
+        {isForce && (
+          <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+            Force close broadcasts your latest commitment transaction. Funds will be locked
+            for a timelock period (may take several hours) before they can be swept to your wallet.
           </div>
         )}
+      </div>
+
+      <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
+        <button
+          className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] ${
+            isForce
+              ? 'bg-red-500 text-white'
+              : 'bg-accent text-white'
+          }`}
+          onClick={handleConfirm}
+        >
+          {isForce ? 'Force Close Channel' : 'Close Channel'}
+        </button>
       </div>
     </div>
   )

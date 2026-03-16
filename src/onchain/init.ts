@@ -59,25 +59,18 @@ async function doInitializeBdkWallet(
     console.log('[BDK Init] Created fresh wallet')
   }
 
-  // Initial sync: full scan for new wallets, incremental for restored
+  // Always do a full scan on init to discover all addresses, including
+  // any that were revealed by the LDK event handler (sweep destinations)
+  // but may not have been persisted in the changeset.
   try {
-    if (isNewWallet) {
-      const fullScanRequest = wallet.start_full_scan()
-      const update = await esploraClient.full_scan(
-        fullScanRequest,
-        ONCHAIN_CONFIG.fullScanGapLimit,
-        ONCHAIN_CONFIG.syncParallelRequests,
-      )
-      wallet.apply_update(update)
-    } else {
-      const syncRequest = wallet.start_sync_with_revealed_spks()
-      const update = await esploraClient.sync(
-        syncRequest,
-        ONCHAIN_CONFIG.syncParallelRequests,
-      )
-      wallet.apply_update(update)
-    }
-    console.log('[BDK Init] Initial sync complete')
+    const fullScanRequest = wallet.start_full_scan()
+    const update = await esploraClient.full_scan(
+      fullScanRequest,
+      ONCHAIN_CONFIG.fullScanGapLimit,
+      ONCHAIN_CONFIG.syncParallelRequests,
+    )
+    wallet.apply_update(update)
+    console.log('[BDK Init] Initial full scan complete')
   } catch (err) {
     // Non-fatal: wallet is usable but may have stale data
     console.warn('[BDK Init] Initial sync failed, wallet may have stale data:', err)

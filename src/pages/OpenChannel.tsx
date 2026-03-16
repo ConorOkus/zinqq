@@ -1,22 +1,24 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useLocation } from 'react-router'
 import { useLdk } from '../ldk/use-ldk'
 import { useOnchain } from '../onchain/use-onchain'
-import { bytesToHex, hexToBytes } from '../ldk/utils'
+import { hexToBytes, bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
 import { SIGNET_CONFIG } from '../ldk/config'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
 import { Check, XClose } from '../components/icons'
 
-interface ConnectedPeer {
-  pubkey: string
+interface OpenChannelState {
+  peerPubkey?: string
+  peerHost?: string
+  peerPort?: number
 }
 
 type OpenChannelStep =
-  | { step: 'select-peer' }
-  | { step: 'amount'; peer: ConnectedPeer }
-  | { step: 'reviewing'; peer: ConnectedPeer; amountSats: bigint; estimatedFeeSats: bigint; feeRate: bigint }
+  | { step: 'amount' }
+  | { step: 'reviewing'; amountSats: bigint; estimatedFeeSats: bigint; feeRate: bigint }
+  | { step: 'opening'; amountSats: bigint }
   | { step: 'success' }
   | { step: 'error'; message: string }
 
@@ -29,33 +31,31 @@ const APPROX_FUNDING_TX_VBYTES = 140n
 
 export function OpenChannel() {
   const navigate = useNavigate()
+  const location = useLocation()
   const ldk = useLdk()
   const onchain = useOnchain()
-  const [currentStep, setCurrentStep] = useState<OpenChannelStep>({ step: 'select-peer' })
+
+  const routeState = (location.state as OpenChannelState | null) ?? {}
+  const { peerPubkey, peerHost, peerPort } = routeState
+  const needsConnect = Boolean(peerHost && peerPort)
+
+  const [currentStep, setCurrentStep] = useState<OpenChannelStep>({ step: 'amount' })
   const [amountDigits, setAmountDigits] = useState('')
   const [amountError, setAmountError] = useState<string | null>(null)
-  const [peers, setPeers] = useState<ConnectedPeer[]>([])
   const [feeRate, setFeeRate] = useState<bigint | null>(null)
   const openingRef = useRef(false)
+
+  // Redirect to Peers if no peer pubkey in route state
+  useEffect(() => {
+    if (!peerPubkey) {
+      void navigate('/settings/advanced/peers', { replace: true })
+    }
+  }, [peerPubkey, navigate])
 
   const balance =
     onchain.status === 'ready'
       ? onchain.balance.confirmed + onchain.balance.trustedPending
       : 0n
-
-  // Fetch connected peers
-  const refreshPeers = useCallback(() => {
-    if (ldk.status !== 'ready') return
-    const connectedList = ldk.node.peerManager.list_peers()
-    const entries: ConnectedPeer[] = connectedList.map((p) => ({
-      pubkey: bytesToHex(p.get_counterparty_node_id()),
-    }))
-    setPeers(entries)
-  }, [ldk.status]) // eslint-disable-line react-hooks/exhaustive-deps -- only re-run when status changes, not on every context object change
-
-  useEffect(() => {
-    refreshPeers()
-  }, [refreshPeers])
 
   // Fetch fee rate from Esplora
   useEffect(() => {
@@ -87,13 +87,6 @@ export function OpenChannel() {
 
   const amountSats = amountDigits ? BigInt(amountDigits) : 0n
 
-  // --- Select peer ---
-  const handleSelectPeer = useCallback((peer: ConnectedPeer) => {
-    setAmountDigits('')
-    setAmountError(null)
-    setCurrentStep({ step: 'amount', peer })
-  }, [])
-
   // --- Amount next (go to review) ---
   const handleAmountNext = useCallback(() => {
     if (currentStep.step !== 'amount') return
@@ -119,23 +112,34 @@ export function OpenChannel() {
 
     setCurrentStep({
       step: 'reviewing',
-      peer: currentStep.peer,
       amountSats,
       estimatedFeeSats: estimatedFee,
       feeRate: rate,
     })
   }, [currentStep, amountSats, balance, feeRate])
 
-  // --- Confirm open channel ---
-  const handleConfirm = useCallback(() => {
+  // --- Confirm: connect (if needed) then open channel ---
+  const handleConfirm = useCallback(async () => {
     if (openingRef.current) return
-    if (ldk.status !== 'ready' || currentStep.step !== 'reviewing') return
+    if (ldk.status !== 'ready' || currentStep.step !== 'reviewing' || !peerPubkey) return
 
     openingRef.current = true
+    const channelAmountSats = currentStep.amountSats
+    setCurrentStep({ step: 'opening', amountSats: channelAmountSats })
 
     try {
-      const pubkeyBytes = hexToBytes(currentStep.peer.pubkey)
-      const ok = ldk.createChannel(pubkeyBytes, currentStep.amountSats)
+      // Connect to peer first if we have host/port and aren't already connected
+      if (needsConnect && peerHost && peerPort) {
+        const alreadyConnected = ldk.node.peerManager
+          .list_peers()
+          .some((p) => bytesToHex(p.get_counterparty_node_id()) === peerPubkey)
+        if (!alreadyConnected) {
+          await ldk.connectToPeer(peerPubkey, peerHost, peerPort)
+        }
+      }
+
+      const pubkeyBytes = hexToBytes(peerPubkey)
+      const ok = ldk.createChannel(pubkeyBytes, channelAmountSats)
       if (ok) {
         setCurrentStep({ step: 'success' })
       } else {
@@ -143,12 +147,15 @@ export function OpenChannel() {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[OpenChannel] create_channel error:', err)
+      console.error('[OpenChannel] error:', err)
       setCurrentStep({ step: 'error', message })
     } finally {
       openingRef.current = false
     }
-  }, [ldk, currentStep])
+  }, [ldk, currentStep, peerPubkey, needsConnect, peerHost, peerPort])
+
+  // --- Guard: no peer pubkey ---
+  if (!peerPubkey) return null
 
   // --- Loading / error gates ---
   if (ldk.status === 'loading' || onchain.status === 'loading') {
@@ -171,10 +178,22 @@ export function OpenChannel() {
         <p className="mt-2 text-sm text-red-400">{gatewayError.msg}</p>
         <button
           className="mt-6 text-sm text-accent"
-          onClick={() => void navigate('/settings/advanced')}
+          onClick={() => void navigate('/settings/advanced/peers')}
         >
-          Back to Advanced
+          Back to Peers
         </button>
+      </div>
+    )
+  }
+
+  // --- Opening screen (connecting + opening) ---
+  if (currentStep.step === 'opening') {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark px-8 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+        <div className="text-sm text-[var(--color-on-dark-muted)]">
+          {needsConnect ? 'Connecting to peer & opening channel...' : 'Opening channel...'}
+        </div>
       </div>
     )
   }
@@ -222,7 +241,7 @@ export function OpenChannel() {
         </div>
         <button
           className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
-          onClick={() => setCurrentStep({ step: 'select-peer' })}
+          onClick={() => setCurrentStep({ step: 'amount' })}
         >
           Try Again
         </button>
@@ -234,12 +253,12 @@ export function OpenChannel() {
   if (currentStep.step === 'reviewing') {
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Review" onBack={() => setCurrentStep({ step: 'amount', peer: currentStep.peer })} />
+        <ScreenHeader title="Review" onBack={() => setCurrentStep({ step: 'amount' })} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Peer</span>
             <span className="max-w-[60%] break-all text-right font-mono text-sm font-semibold">
-              {currentStep.peer.pubkey.slice(0, 12)}...{currentStep.peer.pubkey.slice(-8)}
+              {peerPubkey.slice(0, 12)}...{peerPubkey.slice(-8)}
             </span>
           </div>
           <div className="flex justify-between">
@@ -263,81 +282,40 @@ export function OpenChannel() {
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
             className="h-14 w-full rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
-            onClick={handleConfirm}
+            onClick={() => void handleConfirm()}
           >
-            Open Channel
+            {needsConnect ? 'Connect & Open Channel' : 'Open Channel'}
           </button>
         </div>
       </div>
     )
   }
 
-  // --- Amount screen (numpad) ---
-  if (currentStep.step === 'amount') {
-    return (
-      <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Channel Size" onBack={() => setCurrentStep({ step: 'select-peer' })} />
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <span className="text-sm text-[var(--color-on-dark-muted)]">
-            {formatBtc(balance)} available
-          </span>
-          <div
-            className={`font-display font-bold leading-none tracking-tight ${
-              amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
-            }`}
-            aria-live="polite"
-          >
-            {formatBtc(amountSats)}
-          </div>
-          {amountError && (
-            <p className="mt-1 text-sm text-red-400">{amountError}</p>
-          )}
-        </div>
-        <Numpad
-          onKey={handleNumpadKey}
-          onNext={handleAmountNext}
-          nextDisabled={amountSats <= 0n}
-        />
-      </div>
-    )
-  }
-
-  // --- Peer selection screen ---
+  // --- Amount screen (numpad) — first step ---
   return (
-    <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
-      <ScreenHeader title="Open Channel" backTo="/settings/advanced" />
-      <div className="flex flex-col gap-4 px-6 pt-2">
-        <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
-          Select a connected peer
+    <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
+      <ScreenHeader title="Channel Size" backTo="/settings/advanced/peers" />
+      <div className="flex flex-1 flex-col items-center justify-center gap-2">
+        <span className="text-sm text-[var(--color-on-dark-muted)]">
+          {formatBtc(balance)} available
         </span>
-
-        {peers.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <p className="text-[var(--color-on-dark-muted)]">No peers connected</p>
-            <button
-              className="text-sm text-accent"
-              onClick={() => void navigate('/settings/advanced/peers')}
-            >
-              Go to Peers
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {peers.map((peer) => (
-              <button
-                key={peer.pubkey}
-                className="flex items-center gap-3 rounded-xl bg-dark-elevated p-4 transition-colors active:bg-white/5"
-                onClick={() => handleSelectPeer(peer)}
-              >
-                <div className="h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
-                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left font-mono text-sm">
-                  {peer.pubkey.slice(0, 16)}...{peer.pubkey.slice(-8)}
-                </span>
-              </button>
-            ))}
-          </div>
+        <div
+          className={`font-display font-bold leading-none tracking-tight ${
+            amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
+          }`}
+          aria-live="polite"
+        >
+          {formatBtc(amountSats)}
+        </div>
+        {amountError && (
+          <p className="mt-1 text-sm text-red-400">{amountError}</p>
         )}
       </div>
+      <Numpad
+        onKey={handleNumpadKey}
+        onNext={handleAmountNext}
+        nextDisabled={amountSats <= 0n}
+      />
     </div>
   )
 }

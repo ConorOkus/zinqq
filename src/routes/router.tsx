@@ -10,6 +10,7 @@ import { Peers } from '../pages/Peers'
 import { Backup } from '../pages/Backup'
 import { OpenChannel } from '../pages/OpenChannel'
 import { CloseChannel } from '../pages/CloseChannel'
+import { Balance } from '../pages/Balance'
 
 export const router = createBrowserRouter([
   {
@@ -23,9 +24,10 @@ export const router = createBrowserRouter([
       { path: 'settings', element: <Settings /> },
       { path: 'settings/backup', element: <Backup /> },
       { path: 'settings/advanced', element: <Advanced /> },
+      { path: 'settings/advanced/balance', element: <Balance /> },
       { path: 'settings/advanced/peers', element: <Peers /> },
-      { path: 'settings/advanced/open-channel', element: <OpenChannel /> },
-      { path: 'settings/advanced/close-channel', element: <CloseChannel /> },
+      { path: 'settings/advanced/peers/open-channel', element: <OpenChannel /> },
+      { path: 'settings/advanced/peers/close-channel', element: <CloseChannel /> },
     ],
   },
 ])

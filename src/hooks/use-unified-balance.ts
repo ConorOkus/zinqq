@@ -13,7 +13,10 @@ export function useUnifiedBalance(): UnifiedBalance {
   const onchain = useOnchain()
   const ldk = useLdk()
 
-  const isLoading = onchain.status === 'loading' || ldk.status === 'loading'
+  const isLoading =
+    onchain.status === 'loading' ||
+    ldk.status === 'loading' ||
+    (ldk.status === 'ready' && !ldk.peersReconnected)
 
   const onchainBalance =
     onchain.status === 'ready'

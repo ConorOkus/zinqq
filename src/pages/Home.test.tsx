@@ -42,6 +42,8 @@ function readyLdk(overrides?: Partial<Extract<LdkContextValue, { status: 'ready'
     listRecentPayments: () => [],
     outboundCapacityMsat: () => 0n,
     lightningBalanceSats: 0n,
+    channelChangeCounter: 0,
+    peersReconnected: true,
     ...overrides,
   }
 }
@@ -62,9 +64,12 @@ function renderHome(
 }
 
 describe('Home', () => {
-  it('shows loading state when wallet is loading', () => {
+  it('shows loading shimmer when wallet is loading', () => {
     renderHome(defaultLdkContextValue, defaultOnchainContextValue)
-    expect(screen.getByText(/loading wallet/i)).toBeInTheDocument()
+    // Balance area shows a pulse/shimmer placeholder instead of a number
+    expect(screen.queryByText(/₿/)).not.toBeInTheDocument()
+    // Send/Request buttons are still visible
+    expect(screen.getByText(/send/i)).toBeInTheDocument()
   })
 
   it('shows error state when onchain fails', () => {
@@ -120,32 +125,12 @@ describe('Home', () => {
     expect(screen.getByText('₿150,000')).toBeInTheDocument()
   })
 
-  it('shows breakdown when both rails have funds', () => {
+  it('does not show onchain/lightning breakdown on home screen', () => {
     renderHome(
       readyLdk({ lightningBalanceSats: 50_000n }),
-      readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
-    )
-    expect(screen.getByText('₿100,000 onchain · ₿50,000 lightning')).toBeInTheDocument()
-  })
-
-  it('hides breakdown when only onchain has funds', () => {
-    renderHome(
-      readyLdk({ lightningBalanceSats: 0n }),
       readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
     )
     expect(screen.queryByText(/onchain/)).not.toBeInTheDocument()
     expect(screen.queryByText(/lightning/)).not.toBeInTheDocument()
-  })
-
-  it('hides breakdown when balance is hidden', async () => {
-    const user = userEvent.setup()
-    renderHome(
-      readyLdk({ lightningBalanceSats: 50_000n }),
-      readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
-    )
-    expect(screen.getByText(/onchain/)).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /hide balance/i }))
-    expect(screen.queryByText(/onchain/)).not.toBeInTheDocument()
   })
 })

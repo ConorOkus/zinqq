@@ -103,6 +103,13 @@ export function createEventHandler(
       // SpendableOutputs persisted from a previous session (crash recovery)
       if (wallet) {
         const addressInfo = wallet.next_unused_address('external')
+        // Persist the address reveal so BDK syncs this address after restart
+        const staged = wallet.take_staged()
+        if (staged && !staged.is_empty()) {
+          void putChangeset(staged.to_json()).catch((err: unknown) =>
+            console.warn('[LDK] Failed to persist address reveal changeset:', err),
+          )
+        }
         const destinationScript = addressInfo.address.script_pubkey.as_bytes()
         void sweepSpendableOutputs(
           keysManager,
@@ -255,6 +262,13 @@ function handleEvent(
         // Attempt immediate sweep if BDK wallet is available
         if (bdkWallet) {
           const addressInfo = bdkWallet.next_unused_address('external')
+          // Persist the address reveal so BDK syncs this address after restart
+          const staged = bdkWallet.take_staged()
+          if (staged && !staged.is_empty()) {
+            void putChangeset(staged.to_json()).catch((err: unknown) =>
+              console.warn('[LDK Event] Failed to persist address reveal changeset:', err),
+            )
+          }
           const destinationScript = addressInfo.address.script_pubkey.as_bytes()
           return sweepSpendableOutputs(
             keysManager,
