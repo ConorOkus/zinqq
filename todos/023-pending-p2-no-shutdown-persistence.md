@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "023"
 tags: [code-review, reliability, fund-safety]
