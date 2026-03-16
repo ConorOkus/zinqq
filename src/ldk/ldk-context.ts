@@ -37,6 +37,8 @@ export type LdkContextValue =
       lightningBalanceSats: bigint
       /** Monotonic counter that increments when channel state changes. Use to trigger UI refreshes. */
       channelChangeCounter: number
+      /** True once initial peer reconnection has completed and lightning balance is accurate. */
+      peersReconnected: boolean
     }
   | { status: 'error'; node: null; nodeId: null; error: Error }
 

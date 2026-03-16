@@ -42,6 +42,8 @@ function readyLdk(overrides?: Partial<Extract<LdkContextValue, { status: 'ready'
     listRecentPayments: () => [],
     outboundCapacityMsat: () => 0n,
     lightningBalanceSats: 0n,
+    channelChangeCounter: 0,
+    peersReconnected: true,
     ...overrides,
   }
 }

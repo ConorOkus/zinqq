@@ -441,12 +441,19 @@ export function LdkProvider({
           outboundCapacityMsat,
           lightningBalanceSats: initialBalanceSats,
           channelChangeCounter: 0,
+          peersReconnected: false,
         })
 
-        // Auto-reconnect to known peers (fire-and-forget, non-blocking)
+        // Auto-reconnect to known peers, then mark peersReconnected so
+        // the Home screen knows the lightning balance is now accurate.
         getKnownPeers()
           .then(async (peers) => {
-            if (peers.size === 0) return
+            if (peers.size === 0) {
+              setState((prev) =>
+                prev.status === 'ready' ? { ...prev, peersReconnected: true } : prev,
+              )
+              return
+            }
             console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
             const results = await Promise.allSettled(
               Array.from(peers.entries()).map(async ([pubkey, { host, port }]) => {
@@ -459,23 +466,23 @@ export function LdkProvider({
             console.log(`[ldk] peer reconnection: ${succeeded} connected, ${failed} failed`)
 
             // Recompute lightning balance now that peers are connected and channels usable
-            if (succeeded > 0) {
-              const cap = node.channelManager
-                .list_usable_channels()
-                .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
-              const bal = msatToSatFloor(cap)
-              if (bal !== lightningBalanceSatsRef.current) {
-                lightningBalanceSatsRef.current = bal
-                setState((prev) =>
-                  prev.status === 'ready'
-                    ? { ...prev, lightningBalanceSats: bal }
-                    : prev,
-                )
-              }
-            }
+            const cap = node.channelManager
+              .list_usable_channels()
+              .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
+            const bal = msatToSatFloor(cap)
+            lightningBalanceSatsRef.current = bal
+            setState((prev) =>
+              prev.status === 'ready'
+                ? { ...prev, lightningBalanceSats: bal, peersReconnected: true }
+                : prev,
+            )
           })
           .catch((err: unknown) => {
             console.warn('[ldk] failed to read known peers:', err)
+            // Still mark as reconnected so UI doesn't stay loading forever
+            setState((prev) =>
+              prev.status === 'ready' ? { ...prev, peersReconnected: true } : prev,
+            )
           })
       })
       .catch((err: unknown) => {
