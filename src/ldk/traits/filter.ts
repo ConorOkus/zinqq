@@ -1,5 +1,5 @@
 import { Filter, type WatchedOutput } from 'lightningdevkit'
-import { bytesToHex } from '../utils'
+import { txidBytesToHex } from '../utils'
 
 export interface WatchState {
   watchedTxids: Map<string, Uint8Array>
@@ -14,11 +14,11 @@ export function createFilter(): { filter: Filter; watchState: WatchState } {
 
   const filter = Filter.new_impl({
     register_tx(txid: Uint8Array, script_pubkey: Uint8Array): void {
-      watchState.watchedTxids.set(bytesToHex(txid), script_pubkey)
+      watchState.watchedTxids.set(txidBytesToHex(txid), script_pubkey)
     },
     register_output(output: WatchedOutput): void {
       const outpoint = output.get_outpoint()
-      const key = `${bytesToHex(outpoint.get_txid())}:${outpoint.get_index()}`
+      const key = `${txidBytesToHex(outpoint.get_txid())}:${outpoint.get_index()}`
       watchState.watchedOutputs.set(key, output)
     },
   })

@@ -23,8 +23,9 @@ describe('createFilter', () => {
     impl.register_tx(txid, scriptPubkey)
 
     expect(watchState.watchedTxids.size).toBe(1)
-    expect(watchState.watchedTxids.has('010203')).toBe(true)
-    expect(Array.from(watchState.watchedTxids.get('010203')!)).toEqual([0xaa, 0xbb])
+    // txid bytes are reversed to display order: [01,02,03] -> '030201'
+    expect(watchState.watchedTxids.has('030201')).toBe(true)
+    expect(Array.from(watchState.watchedTxids.get('030201')!)).toEqual([0xaa, 0xbb])
   })
 
   it('accumulates watched outputs', async () => {
@@ -42,6 +43,7 @@ describe('createFilter', () => {
     impl.register_output(mockOutput)
 
     expect(watchState.watchedOutputs.size).toBe(1)
-    expect(watchState.watchedOutputs.has('0a0b:2')).toBe(true)
+    // txid bytes are reversed to display order: [0a,0b] -> '0b0a'
+    expect(watchState.watchedOutputs.has('0b0a:2')).toBe(true)
   })
 })

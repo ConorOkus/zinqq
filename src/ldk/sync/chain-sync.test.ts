@@ -100,6 +100,25 @@ describe('syncOnce', () => {
     expect(confirmable.transaction_unconfirmed).toHaveBeenCalledWith(txid)
   })
 
+  it('skips reorg check when block hash is empty Uint8Array', async () => {
+    const confirmable = createMockConfirmable()
+    confirmable.get_relevant_txids.mockReturnValue([
+      {
+        get_a: () => new Uint8Array([0x01]),
+        get_b: () => 50,
+        get_c: () => new Uint8Array(0), // LDK WASM returns empty array for None
+      },
+    ])
+
+    const esplora = createMockEsplora('newtip')
+    const watchState = createEmptyWatchState()
+
+    await syncOnce([confirmable], watchState, esplora, 'oldtip')
+
+    expect(esplora.getBlockStatus).not.toHaveBeenCalled()
+    expect(confirmable.transaction_unconfirmed).not.toHaveBeenCalled()
+  })
+
   it('confirms watched transactions that are confirmed on chain', async () => {
     const confirmable = createMockConfirmable()
     const esplora = createMockEsplora('newtip')
