@@ -4,6 +4,19 @@ export function bytesToHex(bytes: Uint8Array): string {
     .join('')
 }
 
+/**
+ * Convert a Bitcoin txid/block-hash from LDK's internal byte order to display
+ * order (reversed). LDK stores these as raw SHA256d hashes; Esplora and block
+ * explorers use the reversed hex representation.
+ */
+export function txidBytesToHex(bytes: Uint8Array): string {
+  const reversed = new Uint8Array(bytes.length)
+  for (let i = 0; i < bytes.length; i++) {
+    reversed[i] = bytes[bytes.length - 1 - i]
+  }
+  return bytesToHex(reversed)
+}
+
 export function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2)
   for (let i = 0; i < hex.length; i += 2) {

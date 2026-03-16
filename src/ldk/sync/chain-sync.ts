@@ -10,7 +10,7 @@ import {
 import type { EsploraClient } from './esplora-client'
 import type { WatchState } from '../traits/filter'
 import { initRapidGossipSync, syncRapidGossip, type RgsHandle } from './rapid-gossip-sync'
-import { bytesToHex } from '../utils'
+import { txidBytesToHex } from '../utils'
 import { idbPut } from '../storage/idb'
 
 export async function syncOnce(
@@ -28,8 +28,8 @@ export async function syncOnce(
     for (const tuple of relevantTxids) {
       const txid = tuple.get_a()
       const blockHashOpt = tuple.get_c()
-      if (blockHashOpt) {
-        const blockHashHex = bytesToHex(blockHashOpt)
+      if (blockHashOpt && blockHashOpt.length > 0) {
+        const blockHashHex = txidBytesToHex(blockHashOpt)
         const status = await esplora.getBlockStatus(blockHashHex)
         if (!status.in_best_chain) {
           confirmable.transaction_unconfirmed(txid)
