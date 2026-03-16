@@ -52,9 +52,11 @@ export function LdkProvider({
   const createChannel = useCallback(
     (counterpartyPubkey: Uint8Array, channelValueSats: bigint): boolean => {
       if (!nodeRef.current) throw new Error('Node not initialized')
-      const bytes = new Uint8Array(8)
-      crypto.getRandomValues(bytes)
-      const userChannelId = bytes.reduce(
+      // Generate a random user channel ID (u128). Use 8 random bytes (64 bits)
+      // which is well within LDK's u128 limit while providing sufficient uniqueness.
+      const idBytes = new Uint8Array(8)
+      crypto.getRandomValues(idBytes)
+      const userChannelId = idBytes.reduce(
         (acc, byte) => (acc << 8n) | BigInt(byte),
         0n,
       )
