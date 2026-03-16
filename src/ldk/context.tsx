@@ -67,8 +67,7 @@ export function LdkProvider({
 
     const channels = node.channelManager.list_channels()
     const hasChannels = channels.some((ch) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- LDK WASM bindings have unresolved types
-      const counterparty = bytesToHex(ch.get_counterparty().get_node_id().write() as Uint8Array)
+      const counterparty = bytesToHex(ch.get_counterparty().get_node_id())
       return counterparty === pubkey
     })
 

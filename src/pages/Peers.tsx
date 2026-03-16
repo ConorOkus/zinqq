@@ -20,7 +20,6 @@ interface PeerEntry {
   known: boolean
   host?: string
   port?: number
-  hasChannels: boolean
   channels: ChannelInfo[]
 }
 
@@ -81,7 +80,6 @@ export function Peers() {
         known,
         host: peer?.host,
         port: peer?.port,
-        hasChannels: peerChannels.length > 0,
         channels: peerChannels,
       }
     })
@@ -93,7 +91,7 @@ export function Peers() {
     })
 
     setPeers(entries)
-  }, [ldk])
+  }, [ldk.status]) // eslint-disable-line react-hooks/exhaustive-deps -- only re-run when status changes, not on every context object change
 
   // Load peers on mount and when ldk becomes ready
   useEffect(() => {
@@ -238,8 +236,8 @@ export function Peers() {
                       <button
                         className="shrink-0 text-xs text-red-400 disabled:opacity-30"
                         onClick={() => void handleForget(peer.pubkey)}
-                        disabled={peer.hasChannels}
-                        title={peer.hasChannels ? 'Cannot forget peer with open channels' : 'Remove from saved peers'}
+                        disabled={peer.channels.length > 0}
+                        title={peer.channels.length > 0 ? 'Cannot forget peer with open channels' : 'Remove from saved peers'}
                       >
                         Forget
                       </button>
