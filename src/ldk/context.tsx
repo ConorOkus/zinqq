@@ -457,6 +457,22 @@ export function LdkProvider({
             const succeeded = results.filter((r) => r.status === 'fulfilled').length
             const failed = results.filter((r) => r.status === 'rejected').length
             console.log(`[ldk] peer reconnection: ${succeeded} connected, ${failed} failed`)
+
+            // Recompute lightning balance now that peers are connected and channels usable
+            if (succeeded > 0) {
+              const cap = node.channelManager
+                .list_usable_channels()
+                .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
+              const bal = msatToSatFloor(cap)
+              if (bal !== lightningBalanceSatsRef.current) {
+                lightningBalanceSatsRef.current = bal
+                setState((prev) =>
+                  prev.status === 'ready'
+                    ? { ...prev, lightningBalanceSats: bal }
+                    : prev,
+                )
+              }
+            }
           })
           .catch((err: unknown) => {
             console.warn('[ldk] failed to read known peers:', err)
