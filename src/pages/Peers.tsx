@@ -274,16 +274,6 @@ export function Peers() {
                       </div>
                     </div>
                   ))}
-                  {peer.connected && (
-                    <button
-                      className="mt-1 h-10 w-full rounded-lg border border-accent/50 text-sm font-semibold text-accent transition-colors active:bg-accent/10"
-                      onClick={() => void navigate('/settings/advanced/peers/open-channel', {
-                        state: { peerPubkey: peer.pubkey },
-                      })}
-                    >
-                      Open Channel
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
