@@ -286,7 +286,7 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk(ldkSeed)
-      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback }) => {
+      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelClosedCallback }) => {
         if (cancelled) return
 
         nodeRef.current = node
@@ -311,6 +311,15 @@ export function LdkProvider({
             })
           }
         })
+
+        // Remove peer from known peers when their last channel closes,
+        // so auto-reconnect doesn't trigger stale "wrong node" warnings.
+        setChannelClosedCallback((counterpartyPubkeyHex) => {
+          deleteKnownPeer(counterpartyPubkeyHex).catch((err: unknown) => {
+            console.warn('[ldk] Failed to remove known peer after channel close:', err)
+          })
+        })
+
         cleanupEventHandlerFn = cleanupEventHandler
 
         const esplora = new EsploraClient(SIGNET_CONFIG.esploraUrl)

@@ -60,10 +60,13 @@ export type PaymentEventCallback = (event:
   | { type: 'failed'; paymentHash: string; reason: string }
 ) => void
 
+export type ChannelClosedCallback = (counterpartyPubkeyHex: string) => void
+
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
   onPaymentEvent?: PaymentEventCallback,
+  onChannelClosed?: ChannelClosedCallback,
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -78,7 +81,7 @@ export function createEventHandler(
         handleEvent(event, channelManager, keysManager, bdkWallet, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
-        }, onPaymentEvent)
+        }, onPaymentEvent, onChannelClosed)
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
       }
@@ -124,6 +127,7 @@ function handleEvent(
   bdkWallet: Wallet | null,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
+  onChannelClosed?: ChannelClosedCallback,
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -226,6 +230,15 @@ function handleEvent(
     const channelIdHex = bytesToHex(event.channel_id.write())
     const reason = describeClosureReason(event.reason)
     console.log('[LDK Event] ChannelClosed:', channelIdHex, 'reason:', reason)
+
+    // Notify caller so they can clean up peer storage if no channels remain.
+    const peerPubkeyHex = bytesToHex(event.counterparty_node_id)
+    const hasRemainingChannels = channelManager.list_channels().some((ch) => {
+      return bytesToHex(ch.get_counterparty().get_node_id()) === peerPubkeyHex
+    })
+    if (!hasRemainingChannels) {
+      onChannelClosed?.(peerPubkeyHex)
+    }
     return
   }
 

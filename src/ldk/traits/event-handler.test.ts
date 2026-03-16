@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const mockClaimFunds = vi.fn()
 const mockProcessPendingHtlcForwards = vi.fn()
 const mockFundingTransactionGenerated = vi.fn(() => ({ is_ok: () => true }))
+const mockListChannels = vi.fn((): unknown[] => [])
+const mockOnChannelClosed = vi.fn()
 
 vi.mock('lightningdevkit', () => {
   class MockEvent {}
@@ -57,6 +59,7 @@ vi.mock('lightningdevkit', () => {
   class ClosureReason_PeerFeerateTooLow {}
   class Event_ChannelClosed extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
+    counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
     reason = new ClosureReason_LegacyCooperativeClosure()
   }
   class Event_ConnectionNeeded extends MockEvent {
@@ -260,6 +263,7 @@ function createMockChannelManager() {
     claim_funds: mockClaimFunds,
     process_pending_htlc_forwards: mockProcessPendingHtlcForwards,
     funding_transaction_generated: mockFundingTransactionGenerated,
+    list_channels: mockListChannels,
   } as never
 }
 
@@ -278,7 +282,7 @@ describe('createEventHandler', () => {
 
     const cm = createMockChannelManager()
     const km = createMockKeysManager()
-    const result = createEventHandler(cm, km)
+    const result = createEventHandler(cm, km, undefined, mockOnChannelClosed)
     cleanup = result.cleanup
     handleEvent = (
       result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
@@ -405,6 +409,20 @@ describe('createEventHandler', () => {
       'reason:',
       'Cooperative close',
     )
+  })
+
+  it('calls onChannelClosed when last channel with peer closes', () => {
+    mockListChannels.mockReturnValueOnce([])
+    handleEvent(new Event_ChannelClosed())
+    expect(mockOnChannelClosed).toHaveBeenCalledWith('aabbcc')
+  })
+
+  it('does not call onChannelClosed when peer still has channels', () => {
+    mockListChannels.mockReturnValueOnce([
+      { get_counterparty: () => ({ get_node_id: () => new Uint8Array([0xaa, 0xbb, 0xcc]) }) },
+    ])
+    handleEvent(new Event_ChannelClosed())
+    expect(mockOnChannelClosed).not.toHaveBeenCalled()
   })
 
   it('warns on ConnectionNeeded (not yet implemented)', () => {
