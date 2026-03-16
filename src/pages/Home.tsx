@@ -52,7 +52,7 @@ export function Home() {
     <div className="flex min-h-dvh flex-col justify-between bg-accent px-6 pt-4 text-on-accent">
       <BalanceDisplay balance={total} pending={pending} breakdown={breakdown} />
 
-      <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+1rem)]">
+      <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+0.75rem+env(safe-area-inset-bottom,0px))]">
         <button
           className="flex h-[88px] flex-1 items-center justify-center gap-3 rounded-2xl bg-on-accent font-display text-xl font-bold uppercase tracking-wide text-white transition-transform active:scale-[0.97]"
           onClick={() => void navigate('/send')}
