@@ -10,7 +10,7 @@ import {
 import type { EsploraClient } from './esplora-client'
 import type { WatchState } from '../traits/filter'
 import { initRapidGossipSync, syncRapidGossip, type RgsHandle } from './rapid-gossip-sync'
-import { txidBytesToHex } from '../utils'
+import { txidBytesToHex, bytesToHex } from '../utils'
 import { idbPut } from '../storage/idb'
 
 export async function syncOnce(
@@ -45,49 +45,80 @@ export async function syncOnce(
     confirmable.best_block_updated(tipHeader, tipHeight)
   }
 
-  // 3. Check watched txids for new confirmations
-  for (const [txidHex] of watchState.watchedTxids) {
-    const status = await esplora.getTxStatus(txidHex)
-    if (status.confirmed && status.block_hash && status.block_height != null) {
-      const header = await esplora.getBlockHeader(status.block_hash)
-      const rawTx = await esplora.getTxHex(txidHex)
-      const proof = await esplora.getTxMerkleProof(txidHex)
-      const txdata = [TwoTuple_usizeTransactionZ.constructor_new(proof.pos, rawTx)]
-      for (const confirmable of confirmables) {
-        confirmable.transactions_confirmed(header, txdata, status.block_height)
-      }
-    }
-  }
-
-  // 4. Check watched outputs for spends
-  for (const [key] of watchState.watchedOutputs) {
-    const colonIdx = key.indexOf(':')
-    if (colonIdx === -1) {
-      console.error(`[LDK Sync] Malformed watched output key: ${key}`)
-      continue
-    }
-    const txid = key.slice(0, colonIdx)
-    const vout = parseInt(key.slice(colonIdx + 1), 10)
-    if (isNaN(vout)) {
-      console.error(`[LDK Sync] Invalid vout in watched output key: ${key}`)
-      continue
-    }
-    const spend = await esplora.getOutspend(txid, vout)
-    if (spend.spent && spend.txid) {
-      const status = await esplora.getTxStatus(spend.txid)
-      if (status.confirmed && status.block_hash && status.block_height != null) {
-        const header = await esplora.getBlockHeader(status.block_hash)
-        const rawTx = await esplora.getTxHex(spend.txid)
-        const proof = await esplora.getTxMerkleProof(spend.txid)
-        const txdata = [TwoTuple_usizeTransactionZ.constructor_new(proof.pos, rawTx)]
-        for (const confirmable of confirmables) {
-          confirmable.transactions_confirmed(header, txdata, status.block_height)
+  // 3. Check watched txids for new confirmations (parallel)
+  const txidEntries = [...watchState.watchedTxids.entries()]
+  if (txidEntries.length > 0) {
+    const txResults = await Promise.allSettled(
+      txidEntries.map(async ([txidHex]) => {
+        const status = await esplora.getTxStatus(txidHex)
+        if (status.confirmed && status.block_hash && status.block_height != null) {
+          const header = await esplora.getBlockHeader(status.block_hash)
+          const rawTx = await esplora.getTxHex(txidHex)
+          const proof = await esplora.getTxMerkleProof(txidHex)
+          const txdata = [TwoTuple_usizeTransactionZ.constructor_new(proof.pos, rawTx)]
+          for (const confirmable of confirmables) {
+            confirmable.transactions_confirmed(header, txdata, status.block_height)
+          }
         }
-      }
+      })
+    )
+    const failedTxChecks = txResults.filter((r) => r.status === 'rejected')
+    if (failedTxChecks.length > 0) {
+      console.warn(`[LDK Sync] ${failedTxChecks.length}/${txidEntries.length} txid checks failed`)
     }
   }
 
-  // 5. Verify tip didn't change mid-sync
+  // 4. Check watched outputs for spends (parallel)
+  const outputEntries = [...watchState.watchedOutputs.entries()]
+  if (outputEntries.length > 0) {
+    const outputResults = await Promise.allSettled(
+      outputEntries.map(async ([key]) => {
+        const colonIdx = key.indexOf(':')
+        if (colonIdx === -1) {
+          console.error(`[LDK Sync] Malformed watched output key: ${key}`)
+          return
+        }
+        const txid = key.slice(0, colonIdx)
+        const vout = parseInt(key.slice(colonIdx + 1), 10)
+        if (isNaN(vout)) {
+          console.error(`[LDK Sync] Invalid vout in watched output key: ${key}`)
+          return
+        }
+        const spend = await esplora.getOutspend(txid, vout)
+        if (spend.spent && spend.txid) {
+          const status = await esplora.getTxStatus(spend.txid)
+          if (status.confirmed && status.block_hash && status.block_height != null) {
+            const header = await esplora.getBlockHeader(status.block_hash)
+            const rawTx = await esplora.getTxHex(spend.txid)
+            const proof = await esplora.getTxMerkleProof(spend.txid)
+            const txdata = [TwoTuple_usizeTransactionZ.constructor_new(proof.pos, rawTx)]
+            for (const confirmable of confirmables) {
+              confirmable.transactions_confirmed(header, txdata, status.block_height)
+            }
+          }
+        }
+      })
+    )
+    const failedOutputChecks = outputResults.filter((r) => r.status === 'rejected')
+    if (failedOutputChecks.length > 0) {
+      console.warn(`[LDK Sync] ${failedOutputChecks.length}/${outputEntries.length} output checks failed`)
+    }
+  }
+
+  // 5. Prune confirmed items no longer tracked by LDK
+  const allRelevantTxids = new Set<string>()
+  for (const confirmable of confirmables) {
+    for (const tuple of confirmable.get_relevant_txids()) {
+      allRelevantTxids.add(bytesToHex(tuple.get_a()))
+    }
+  }
+  for (const txid of watchState.watchedTxids.keys()) {
+    if (!allRelevantTxids.has(txid)) {
+      watchState.watchedTxids.delete(txid)
+    }
+  }
+
+  // 6. Verify tip didn't change mid-sync
   const postSyncTip = await esplora.getTipHash()
   if (postSyncTip !== tipHash) {
     console.warn('[LDK Sync] Tip changed during sync, will retry next tick')
@@ -95,6 +126,8 @@ export async function syncOnce(
 
   return tipHash
 }
+
+export type SyncStatus = 'syncing' | 'synced' | 'stale'
 
 export interface SyncLoopHandle {
   stop: () => void
@@ -112,7 +145,11 @@ export interface SyncLoopConfig {
   intervalMs: number
   rgsUrl?: string
   rgsSyncIntervalTicks?: number
+  onStatusChange?: (status: SyncStatus) => void
 }
+
+const MAX_BACKOFF_MS = 5 * 60 * 1_000 // 5 minutes
+const STALE_THRESHOLD = 3 // consecutive errors before 'stale'
 
 export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
   let lastTipHash: string | null = null
@@ -122,6 +159,8 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
   let cmNeedsPersist = false
   let rgsHandle: RgsHandle | null = null
   let rgsInitStarted = false
+  let consecutiveErrors = 0
+  let currentBackoff = config.intervalMs
 
   async function ensureRgs() {
     if (!config.rgsUrl || rgsHandle || rgsInitStarted) return
@@ -185,12 +224,20 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       }
 
       tickCount++
+      consecutiveErrors = 0
+      currentBackoff = config.intervalMs
+      config.onStatusChange?.('synced')
     } catch (err) {
       console.error('[LDK Sync] Sync error:', err)
+      consecutiveErrors++
+      currentBackoff = Math.min(currentBackoff * 2, MAX_BACKOFF_MS)
+      if (consecutiveErrors >= STALE_THRESHOLD) {
+        config.onStatusChange?.('stale')
+      }
     }
 
     if (!stopped) {
-      timeoutId = setTimeout(tick, config.intervalMs)
+      timeoutId = setTimeout(tick, currentBackoff)
     }
   }
 

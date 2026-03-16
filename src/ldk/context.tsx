@@ -342,6 +342,11 @@ export function LdkProvider({
           intervalMs: SIGNET_CONFIG.chainPollIntervalMs,
           rgsUrl: SIGNET_CONFIG.rgsUrl,
           rgsSyncIntervalTicks: SIGNET_CONFIG.rgsSyncIntervalTicks,
+          onStatusChange: (syncStatus) => {
+            setState((prev) =>
+              prev.status === 'ready' ? { ...prev, syncStatus } : prev,
+            )
+          },
         })
 
         // PeerManager timer + LDK event processing every ~10s
@@ -447,8 +452,24 @@ export function LdkProvider({
         })
       })
 
+    // Best-effort persist on tab hide (visibilitychange is more reliable than beforeunload)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && nodeRef.current) {
+        const { channelManager, networkGraph, scorer } = nodeRef.current
+        void Promise.all([
+          idbPut('ldk_channel_manager', 'primary', channelManager.write()),
+          idbPut('ldk_network_graph', 'primary', networkGraph.write()),
+          idbPut('ldk_scorer', 'primary', scorer.write()),
+        ]).catch((err: unknown) =>
+          console.error('[LDK] Visibility-change persist failed:', err),
+        )
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       syncHandle?.stop()
       cleanupEventHandlerFn?.()
       if (peerTimerId !== null) clearInterval(peerTimerId)
