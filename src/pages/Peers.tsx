@@ -42,8 +42,7 @@ export function Peers() {
     // Get channels to check which peers have open channels
     const channels = ldk.node.channelManager.list_channels()
     const channelPeerPubkeys = new Set(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- LDK WASM bindings have unresolved types
-      channels.map((ch) => bytesToHex(ch.get_counterparty().get_node_id().write() as Uint8Array))
+      channels.map((ch) => bytesToHex(ch.get_counterparty().get_node_id()))
     )
 
     // Merge: all known peers + any connected peers not in known list
