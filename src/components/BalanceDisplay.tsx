@@ -6,11 +6,12 @@ interface BalanceDisplayProps {
   balance: bigint
   pending?: bigint
   breakdown?: string
+  loading?: boolean
 }
 
 const STORAGE_KEY = 'balance-visible'
 
-export function BalanceDisplay({ balance, pending, breakdown }: BalanceDisplayProps) {
+export function BalanceDisplay({ balance, pending, breakdown, loading }: BalanceDisplayProps) {
   const [visible, setVisible] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) !== 'false'
@@ -33,7 +34,9 @@ export function BalanceDisplay({ balance, pending, breakdown }: BalanceDisplayPr
 
   return (
     <div className="flex flex-1 flex-col items-start justify-start pt-[20vh]">
-      {visible ? (
+      {loading ? (
+        <div className="h-[clamp(2.5rem,12vw,5rem)] w-48 animate-pulse rounded-lg bg-on-accent/20" />
+      ) : visible ? (
         <div
           className="max-w-full break-all font-display font-bold leading-none tracking-tight text-on-accent"
           style={{ fontSize: 'clamp(2.5rem, 12vw, 5rem)' }}

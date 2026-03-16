@@ -13,16 +13,6 @@ export function Home() {
 
   const hasError = onchain.status === 'error' || ldk.status === 'error'
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-dvh flex-col items-center justify-center bg-accent pb-(--spacing-tab-bar)">
-        <p className="text-[var(--color-on-accent-muted)]">
-          Loading wallet...
-        </p>
-      </div>
-    )
-  }
-
   if (hasError) {
     const errorMsg =
       onchain.status === 'error'
@@ -44,7 +34,7 @@ export function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col justify-between bg-accent px-6 pt-4 text-on-accent">
-      <BalanceDisplay balance={total} pending={pending} />
+      <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
 
       <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+0.75rem+env(safe-area-inset-bottom,0px))]">
         <button

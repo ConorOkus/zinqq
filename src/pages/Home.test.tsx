@@ -64,9 +64,12 @@ function renderHome(
 }
 
 describe('Home', () => {
-  it('shows loading state when wallet is loading', () => {
+  it('shows loading shimmer when wallet is loading', () => {
     renderHome(defaultLdkContextValue, defaultOnchainContextValue)
-    expect(screen.getByText(/loading wallet/i)).toBeInTheDocument()
+    // Balance area shows a pulse/shimmer placeholder instead of a number
+    expect(screen.queryByText(/₿/)).not.toBeInTheDocument()
+    // Send/Request buttons are still visible
+    expect(screen.getByText(/send/i)).toBeInTheDocument()
   })
 
   it('shows error state when onchain fails', () => {
