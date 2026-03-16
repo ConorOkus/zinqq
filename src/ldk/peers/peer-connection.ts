@@ -11,12 +11,16 @@ import { SIGNET_CONFIG } from '../config'
 
 const CONNECTION_TIMEOUT_MS = 15_000
 
+export interface PeerConnection {
+  disconnect: () => void
+}
+
 export function connectToPeer(
   peerManager: PeerManager,
   pubkeyHex: string,
   host: string,
   port: number
-): Promise<void> {
+): Promise<PeerConnection> {
   if (!/^[0-9a-f]{66}$/.test(pubkeyHex)) {
     return Promise.reject(new Error('Invalid pubkey: must be 66 lowercase hex characters'))
   }
@@ -36,9 +40,19 @@ export function connectToPeer(
     let descriptor: SocketDescriptor | null = null
     let resolved = false
 
+    const peerConnection: PeerConnection = {
+      disconnect: () => {
+        if (descriptor) {
+          peerManager.socket_disconnected(descriptor)
+        }
+        ws.close()
+      },
+    }
+
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true
+        // ws.close() triggers onclose, which calls socket_disconnected if descriptor exists
         ws.close()
         reject(new Error('Connection timed out'))
       }
@@ -97,7 +111,7 @@ export function connectToPeer(
           if (peerPubkey === pubkeyHex) {
             cleanup()
             resolved = true
-            resolve()
+            resolve(peerConnection)
             return
           }
         }

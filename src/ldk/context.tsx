@@ -16,7 +16,7 @@ import { LdkContext, defaultLdkContextValue, type LdkContextValue, type PaymentR
 import { SIGNET_CONFIG } from './config'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
-import { connectToPeer as doConnectToPeer } from './peers/peer-connection'
+import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
 import { idbPut } from './storage/idb'
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
 import { bytesToHex } from './utils'
@@ -32,11 +32,13 @@ export function LdkProvider({
   const [state, setState] = useState<LdkContextValue>(defaultLdkContextValue)
   const nodeRef = useRef<LdkNode | null>(null)
   const lightningBalanceSatsRef = useRef(0n)
+  const activeConnections = useRef<Map<string, PeerConnection>>(new Map())
 
   const connectToPeer = useCallback(
     async (pubkey: string, host: string, port: number): Promise<void> => {
       if (!nodeRef.current) throw new Error('Node not initialized')
-      await doConnectToPeer(nodeRef.current.peerManager, pubkey, host, port)
+      const conn = await doConnectToPeer(nodeRef.current.peerManager, pubkey, host, port)
+      activeConnections.current.set(pubkey, conn)
       putKnownPeer(pubkey, host, port).catch((err: unknown) =>
         console.warn('[ldk] failed to persist known peer:', err)
       )
@@ -430,9 +432,10 @@ export function LdkProvider({
             if (peers.size === 0) return
             console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
             const results = await Promise.allSettled(
-              Array.from(peers.entries()).map(([pubkey, { host, port }]) =>
-                doConnectToPeer(node.peerManager, pubkey, host, port)
-              )
+              Array.from(peers.entries()).map(async ([pubkey, { host, port }]) => {
+                const conn = await doConnectToPeer(node.peerManager, pubkey, host, port)
+                activeConnections.current.set(pubkey, conn)
+              })
             )
             const succeeded = results.filter((r) => r.status === 'fulfilled').length
             const failed = results.filter((r) => r.status === 'rejected').length
@@ -473,6 +476,10 @@ export function LdkProvider({
       syncHandle?.stop()
       cleanupEventHandlerFn?.()
       if (peerTimerId !== null) clearInterval(peerTimerId)
+      for (const [, conn] of activeConnections.current) {
+        conn.disconnect()
+      }
+      activeConnections.current.clear()
       nodeRef.current = null
     }
   }, [connectToPeer, forgetPeer, createChannel, closeChannel, forceCloseChannel, listChannels, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, ldkSeed])
