@@ -251,6 +251,11 @@ export function LdkProvider({
 
         nodeRef.current = node
 
+        // Expose node on window for dev console debugging
+        if (import.meta.env.DEV) {
+          ;(window as unknown as Record<string, unknown>).__ldkNode = node
+        }
+
         // Wire payment event callback to update the result store
         setPaymentCallback((event) => {
           if (event.type === 'sent') {
