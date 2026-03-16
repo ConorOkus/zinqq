@@ -39,7 +39,7 @@ import { createFeeEstimator } from './traits/fee-estimator'
 import { createBroadcaster } from './traits/broadcaster'
 import { createPersister } from './traits/persist'
 import { createFilter, type WatchState } from './traits/filter'
-import { createEventHandler, type PaymentEventCallback } from './traits/event-handler'
+import { createEventHandler, type PaymentEventCallback, type ChannelClosedCallback } from './traits/event-handler'
 import { SIGNET_CONFIG } from './config'
 import { idbGet, idbGetAll } from './storage/idb'
 import { bytesToHex, hexToBytes } from './utils'
@@ -67,6 +67,7 @@ export interface InitResult {
   cleanupEventHandler: () => void
   setBdkWallet: (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => void
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
+  setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -323,11 +324,13 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
 
   // 14. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
+  let channelClosedCallback: ChannelClosedCallback | undefined
   const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet } =
     createEventHandler(
       channelManager,
       keysManager,
       (...args) => paymentCallback?.(...args),
+      (...args) => channelClosedCallback?.(...args),
     )
 
   const node: LdkNode = {
@@ -353,6 +356,9 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     setBdkWallet,
     setPaymentCallback: (cb: PaymentEventCallback | undefined) => {
       paymentCallback = cb
+    },
+    setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => {
+      channelClosedCallback = cb
     },
   }
 }
