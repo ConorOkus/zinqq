@@ -21,7 +21,8 @@ export function extractTxBytes(psbtBase64: string): Uint8Array {
   }
 }
 
-/** Broadcast a raw transaction hex to Esplora POST /tx, returns the txid */
+/** Broadcast a raw transaction hex to Esplora POST /tx, returns the txid.
+ * Idempotent: treats "already in chain" / "already known" as success. */
 export async function broadcastTransaction(
   txHex: string,
   esploraUrl: string,
@@ -32,6 +33,16 @@ export async function broadcastTransaction(
   })
   const body = await response.text()
   if (!response.ok) {
+    // Treat already-broadcast transactions as success (idempotent)
+    const lower = body.toLowerCase()
+    if (
+      lower.includes('transaction already in block chain') ||
+      lower.includes('txn-already-known') ||
+      lower.includes('txn-already-confirmed')
+    ) {
+      console.log('[tx-bridge] Transaction already broadcast, treating as success')
+      return body
+    }
     throw new Error(`Esplora broadcast failed: ${response.status} ${body}`)
   }
   return body

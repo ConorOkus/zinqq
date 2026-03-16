@@ -5,9 +5,8 @@ import {
   Option_u64Z,
   Option_u64Z_Some,
   Option_StrZ,
-  Option_ThirtyTwoBytesZ_Some,
-  Option_PaymentFailureReasonZ_Some,
   Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK,
+  type ChannelId,
   type Bolt11Invoice,
   type Offer,
   type HumanReadableName,
@@ -73,6 +72,47 @@ export function LdkProvider({
     },
     [],
   )
+
+  const closeChannel = useCallback(
+    (channelId: ChannelId, counterpartyNodeId: Uint8Array): boolean => {
+      if (!nodeRef.current) throw new Error('Node not initialized')
+      const result = nodeRef.current.channelManager.close_channel(
+        channelId,
+        counterpartyNodeId,
+      )
+      if (!result.is_ok()) {
+        console.error('[ldk] close_channel failed:', result)
+        return false
+      }
+      console.log('[ldk] close_channel initiated')
+      return true
+    },
+    [],
+  )
+
+  const forceCloseChannel = useCallback(
+    (channelId: ChannelId, counterpartyNodeId: Uint8Array): boolean => {
+      if (!nodeRef.current) throw new Error('Node not initialized')
+      const result = nodeRef.current.channelManager.force_close_broadcasting_latest_txn(
+        channelId,
+        counterpartyNodeId,
+        'User-initiated force close',
+      )
+      if (!result.is_ok()) {
+        console.error('[ldk] force_close failed:', result)
+        return false
+      }
+      console.log('[ldk] force_close initiated')
+      return true
+    },
+    [],
+  )
+
+  const listChannels = useCallback(() => {
+    const node = nodeRef.current
+    if (!node) return []
+    return node.channelManager.list_channels()
+  }, [])
 
   const forgetPeer = useCallback(async (pubkey: string): Promise<void> => {
     const node = nodeRef.current
@@ -246,7 +286,7 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk(ldkSeed)
-      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback }) => {
+      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelCallback }) => {
         if (cancelled) return
 
         nodeRef.current = node
@@ -269,6 +309,12 @@ export function LdkProvider({
               status: 'failed',
               reason: event.reason,
             })
+          }
+        })
+        // Wire channel event callback (currently used for logging; UI can observe via context)
+        setChannelCallback((event) => {
+          if (event.type === 'closed') {
+            console.log('[ldk] Channel closed via callback:', event.channelId, event.reason)
           }
         })
         cleanupEventHandlerFn = cleanupEventHandler
@@ -332,6 +378,9 @@ export function LdkProvider({
           connectToPeer,
           forgetPeer,
           createChannel,
+          closeChannel,
+          forceCloseChannel,
+          listChannels,
           setBdkWallet,
           sendBolt11Payment,
           sendBolt12Payment,
@@ -377,7 +426,7 @@ export function LdkProvider({
       if (peerTimerId !== null) clearInterval(peerTimerId)
       nodeRef.current = null
     }
-  }, [connectToPeer, forgetPeer, createChannel, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, ldkSeed])
+  }, [connectToPeer, forgetPeer, createChannel, closeChannel, forceCloseChannel, listChannels, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }

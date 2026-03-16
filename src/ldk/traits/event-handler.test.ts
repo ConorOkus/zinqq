@@ -41,9 +41,10 @@ vi.mock('lightningdevkit', () => {
   class Event_ChannelReady extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
   }
+  class ClosureReason_CooperativeClosure {}
   class Event_ChannelClosed extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
-    reason = 'CooperativeClosure'
+    reason = new ClosureReason_CooperativeClosure()
   }
   class Event_ConnectionNeeded extends MockEvent {
     node_id = new Uint8Array([9, 10, 11])
@@ -161,6 +162,10 @@ vi.mock('../../onchain/storage/changeset', () => ({
   putChangeset: vi.fn(() => Promise.resolve()),
 }))
 
+vi.mock('../sweep', () => ({
+  sweepSpendableOutputs: vi.fn(() => Promise.resolve({ swept: 0, skipped: 0, txid: null })),
+}))
+
 const mockPsbt = {
   toString: () => 'base64psbt',
 }
@@ -172,6 +177,9 @@ const mockBdkWallet = {
   build_tx: vi.fn(() => mockTxBuilder),
   sign: vi.fn(),
   take_staged: vi.fn(() => ({ is_empty: () => true, to_json: () => '{}' })),
+  next_unused_address: vi.fn(() => ({
+    address: { script_pubkey: { as_bytes: () => new Uint8Array([0x00, 0x14]) } },
+  })),
 }
 vi.mock('@bitcoindevkit/bdk-wallet-web', () => ({
   Wallet: class {},
@@ -212,6 +220,14 @@ import {
   Option_ThirtyTwoBytesZ_None,
 } from 'lightningdevkit'
 
+function createMockKeysManager() {
+  return {
+    as_OutputSpender: vi.fn(() => ({
+      spend_spendable_outputs: vi.fn(() => ({ is_ok: () => false })),
+    })),
+  } as never
+}
+
 function createMockChannelManager() {
   return {
     claim_funds: mockClaimFunds,
@@ -234,7 +250,8 @@ describe('createEventHandler', () => {
     vi.useFakeTimers()
 
     const cm = createMockChannelManager()
-    const result = createEventHandler(cm)
+    const km = createMockKeysManager()
+    const result = createEventHandler(cm, km)
     cleanup = result.cleanup
     handleEvent = (
       result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
@@ -359,7 +376,7 @@ describe('createEventHandler', () => {
       expect.stringContaining('ChannelClosed'),
       expect.any(String),
       'reason:',
-      'CooperativeClosure',
+      expect.anything(),
     )
   })
 
@@ -382,7 +399,7 @@ describe('createEventHandler', () => {
 
   it('builds funding tx and calls funding_transaction_generated with BDK wallet', () => {
     const cm = createMockChannelManager()
-    const result = createEventHandler(cm)
+    const result = createEventHandler(cm, createMockKeysManager())
     result.setBdkWallet(mockBdkWallet as never)
     const handler = (
       result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
@@ -412,7 +429,7 @@ describe('createEventHandler', () => {
   it('does not persist tx when funding_transaction_generated fails', () => {
     mockFundingTransactionGenerated.mockReturnValueOnce({ is_ok: () => false })
     const cm = createMockChannelManager()
-    const result = createEventHandler(cm)
+    const result = createEventHandler(cm, createMockKeysManager())
     result.setBdkWallet(mockBdkWallet as never)
     const handler = (
       result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
@@ -431,7 +448,7 @@ describe('createEventHandler', () => {
     mockIdbGet.mockResolvedValueOnce('dead')
 
     const cm = createMockChannelManager()
-    const result = createEventHandler(cm)
+    const result = createEventHandler(cm, createMockKeysManager())
     const handler = (
       result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
     )._impl.handle_event

@@ -1,6 +1,6 @@
 import { createContext } from 'react'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
-import type { Bolt11Invoice, Offer, HumanReadableName, RecentPaymentDetails } from 'lightningdevkit'
+import type { Bolt11Invoice, Offer, HumanReadableName, RecentPaymentDetails, ChannelDetails, ChannelId } from 'lightningdevkit'
 import type { LdkNode } from './init'
 
 export type SyncStatus = 'syncing' | 'synced' | 'stale'
@@ -21,6 +21,9 @@ export type LdkContextValue =
       connectToPeer: (pubkey: string, host: string, port: number) => Promise<void>
       forgetPeer: (pubkey: string) => Promise<void>
       createChannel: (counterpartyPubkey: Uint8Array, channelValueSats: bigint) => boolean
+      closeChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
+      forceCloseChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
+      listChannels: () => ChannelDetails[]
       setBdkWallet: (wallet: Wallet | null) => void
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
       sendBolt12Payment: (offer: Offer, amountMsat?: bigint, payerNote?: string) => Uint8Array

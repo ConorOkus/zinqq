@@ -23,7 +23,7 @@ const ADVANCED_ITEMS = [
         <line x1="8" y1="12" x2="16" y2="12" />
       </svg>
     ),
-    route: null,
+    route: '/settings/advanced/close-channel',
   },
   {
     label: 'Peers',

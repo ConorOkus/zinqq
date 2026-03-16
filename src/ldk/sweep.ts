@@ -1,0 +1,127 @@
+import {
+  SpendableOutputDescriptor,
+  Result_SpendableOutputDescriptorDecodeErrorZ_OK,
+  Result_TransactionNoneZ_OK,
+  Option_u32Z,
+  type KeysManager,
+} from 'lightningdevkit'
+import { idbGetAll, idbDelete } from './storage/idb'
+import { bytesToHex } from './utils'
+import { broadcastTransaction } from '../onchain/tx-bridge'
+
+const FEE_TARGET_BLOCKS = 6
+const DEFAULT_FEE_RATE_SAT_VB = 1
+
+/**
+ * Fetch the fee rate (sat/vB) from Esplora's fee-estimates endpoint.
+ * Falls back to 1 sat/vB on failure.
+ */
+async function fetchFeeRate(esploraUrl: string): Promise<number> {
+  try {
+    const res = await fetch(`${esploraUrl}/fee-estimates`)
+    const estimates = (await res.json()) as Record<string, number>
+    const satPerVb = estimates[String(FEE_TARGET_BLOCKS)]
+    if (typeof satPerVb === 'number' && satPerVb > 0) {
+      return Math.ceil(satPerVb)
+    }
+  } catch (err: unknown) {
+    console.warn('[Sweep] Fee estimation failed, using default:', err)
+  }
+  return DEFAULT_FEE_RATE_SAT_VB
+}
+
+export interface SweepResult {
+  swept: number
+  skipped: number
+  txid: string | null
+}
+
+/**
+ * Sweep all persisted SpendableOutputDescriptors from IDB back to an on-chain
+ * address. Uses KeysManager.as_OutputSpender().spend_spendable_outputs() to
+ * handle all descriptor types, key derivation, and signing internally.
+ *
+ * @param keysManager - LDK KeysManager for signing
+ * @param destinationScript - Script pubkey bytes for the sweep destination address
+ * @param esploraUrl - Esplora API URL for fee estimation and broadcast
+ * @returns Summary of swept and skipped outputs
+ */
+export async function sweepSpendableOutputs(
+  keysManager: KeysManager,
+  destinationScript: Uint8Array,
+  esploraUrl: string,
+): Promise<SweepResult> {
+  const entries = await idbGetAll<Uint8Array[]>('ldk_spendable_outputs')
+  if (entries.size === 0) return { swept: 0, skipped: 0, txid: null }
+
+  const allDescriptors: SpendableOutputDescriptor[] = []
+  const idbKeys: string[] = []
+  let skipped = 0
+
+  for (const [key, serializedArray] of entries) {
+    const descriptors: SpendableOutputDescriptor[] = []
+    let valid = true
+
+    for (const bytes of serializedArray) {
+      const result = SpendableOutputDescriptor.constructor_read(bytes)
+      if (result instanceof Result_SpendableOutputDescriptorDecodeErrorZ_OK) {
+        descriptors.push(result.res)
+      } else {
+        console.error('[Sweep] Failed to deserialize SpendableOutputDescriptor for key:', key)
+        valid = false
+        break
+      }
+    }
+
+    if (valid && descriptors.length > 0) {
+      allDescriptors.push(...descriptors)
+      idbKeys.push(key)
+    } else {
+      skipped += serializedArray.length
+    }
+  }
+
+  if (allDescriptors.length === 0) {
+    return { swept: 0, skipped, txid: null }
+  }
+
+  // Fetch fee rate and convert from sat/vB to sat/kw (×250)
+  const feeRateSatVb = await fetchFeeRate(esploraUrl)
+  const feeRateSatPer1000Weight = feeRateSatVb * 250
+
+  // Build + sign sweep tx via LDK's OutputSpender
+  const outputSpender = keysManager.as_OutputSpender()
+  const result = outputSpender.spend_spendable_outputs(
+    allDescriptors,
+    [], // no additional TxOut
+    destinationScript,
+    feeRateSatPer1000Weight,
+    Option_u32Z.constructor_none(), // no locktime preference
+  )
+
+  if (!(result instanceof Result_TransactionNoneZ_OK)) {
+    // spend_spendable_outputs can fail if outputs are dust or uneconomical
+    console.warn(
+      '[Sweep] spend_spendable_outputs failed — outputs may be dust or timelocked',
+      'descriptors:', allDescriptors.length,
+    )
+    return { swept: 0, skipped: skipped + allDescriptors.length, txid: null }
+  }
+
+  const txHex = bytesToHex(result.res)
+  const txid = await broadcastTransaction(txHex, esploraUrl)
+
+  // Clean up IDB entries only after successful broadcast
+  for (const key of idbKeys) {
+    await idbDelete('ldk_spendable_outputs', key)
+  }
+
+  console.log(
+    '[Sweep] Successfully swept',
+    allDescriptors.length,
+    'output(s), txid:',
+    txid,
+  )
+
+  return { swept: allDescriptors.length, skipped, txid }
+}
