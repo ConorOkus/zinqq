@@ -5,11 +5,12 @@ import { EyeIcon, EyeOffIcon } from './icons'
 interface BalanceDisplayProps {
   balance: bigint
   pending?: bigint
+  breakdown?: string
 }
 
 const STORAGE_KEY = 'balance-visible'
 
-export function BalanceDisplay({ balance, pending }: BalanceDisplayProps) {
+export function BalanceDisplay({ balance, pending, breakdown }: BalanceDisplayProps) {
   const [visible, setVisible] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) !== 'false'
@@ -47,6 +48,11 @@ export function BalanceDisplay({ balance, pending }: BalanceDisplayProps) {
       {pending !== undefined && pending > 0n && visible && (
         <div className="mt-1 text-sm text-[var(--color-on-accent-muted)]">
           +{formatBtc(pending)} pending
+        </div>
+      )}
+      {breakdown && visible && (
+        <div className="mt-1 text-sm text-[var(--color-on-accent-muted)]">
+          {breakdown}
         </div>
       )}
       <button

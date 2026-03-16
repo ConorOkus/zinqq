@@ -9,7 +9,7 @@ ALLOWED_PORTS = "9735"
 [env.dev]
 name = "ln-ws-proxy-dev"
 [env.dev.vars]
-ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,https://VERCEL_URL_HERE.vercel.app"
 ALLOWED_PORTS = "9735"
 
 [env.production]

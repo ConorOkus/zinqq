@@ -20,7 +20,7 @@ function readyOnchain(overrides: Partial<Extract<OnchainContextValue, { status: 
   }
 }
 
-function readyLdk(): LdkContextValue {
+function readyLdk(overrides?: Partial<Extract<LdkContextValue, { status: 'ready' }>>): LdkContextValue {
   return {
     status: 'ready',
     node: {} as never,
@@ -31,6 +31,8 @@ function readyLdk(): LdkContextValue {
     forgetPeer: async () => {},
     createChannel: () => true,
     setBdkWallet: () => {},
+    lightningBalanceSats: 0n,
+    ...overrides,
   }
 }
 
@@ -98,5 +100,42 @@ describe('Home', () => {
       balance: { confirmed: 0n, trustedPending: 0n, untrustedPending: 0n },
     }))
     expect(screen.getByText('₿0')).toBeInTheDocument()
+  })
+
+  it('shows unified balance including Lightning', () => {
+    renderHome(
+      readyLdk({ lightningBalanceSats: 50_000n }),
+      readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
+    )
+    expect(screen.getByText('₿150,000')).toBeInTheDocument()
+  })
+
+  it('shows breakdown when both rails have funds', () => {
+    renderHome(
+      readyLdk({ lightningBalanceSats: 50_000n }),
+      readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
+    )
+    expect(screen.getByText('₿100,000 onchain · ₿50,000 lightning')).toBeInTheDocument()
+  })
+
+  it('hides breakdown when only onchain has funds', () => {
+    renderHome(
+      readyLdk({ lightningBalanceSats: 0n }),
+      readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
+    )
+    expect(screen.queryByText(/onchain/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/lightning/)).not.toBeInTheDocument()
+  })
+
+  it('hides breakdown when balance is hidden', async () => {
+    const user = userEvent.setup()
+    renderHome(
+      readyLdk({ lightningBalanceSats: 50_000n }),
+      readyOnchain({ balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n } }),
+    )
+    expect(screen.getByText(/onchain/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /hide balance/i }))
+    expect(screen.queryByText(/onchain/)).not.toBeInTheDocument()
   })
 })

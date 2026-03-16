@@ -109,7 +109,6 @@ export function Send() {
     onchain.status === 'ready'
       ? onchain.balance.confirmed + onchain.balance.trustedPending
       : 0n
-
   const lnCapacityMsat = ldk.status === 'ready' ? ldk.outboundCapacityMsat() : 0n
 
   // Cleanup polling on unmount
@@ -163,18 +162,19 @@ export function Send() {
       setInputValue(pasted)
       setInputError(null)
 
-      if (parsed.type === 'bolt11' && parsed.amountMsat !== null) {
-        // BOLT 11 with amount — skip to review
-        setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat })
-      } else if (parsed.type === 'bolt12' && parsed.amountMsat !== null) {
-        // BOLT 12 with fixed amount — skip to review
+      if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
+        // Fixed-amount invoice — check capacity before review
+        if (parsed.amountMsat > lnCapacityMsat) {
+          setInputError('Amount exceeds Lightning channel capacity')
+          return
+        }
         setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat })
       } else {
         // Needs amount input
         setSendStep({ step: 'ln-amount', parsed })
       }
     },
-    [],
+    [lnCapacityMsat],
   )
 
   // --- Input next button (manual entry) ---
@@ -201,11 +201,15 @@ export function Send() {
     setInputError(null)
 
     if ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null) {
+      if (parsed.amountMsat > lnCapacityMsat) {
+        setInputError('Amount exceeds Lightning channel capacity')
+        return
+      }
       setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat })
     } else {
       setSendStep({ step: 'ln-amount', parsed })
     }
-  }, [inputValue])
+  }, [inputValue, lnCapacityMsat])
 
   // --- On-chain: Send max ---
   const handleSendMax = useCallback(async () => {

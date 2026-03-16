@@ -31,7 +31,10 @@ export type LdkContextValue =
       abandonPayment: (paymentId: Uint8Array) => void
       getPaymentResult: (paymentId: Uint8Array) => PaymentResult | null
       listRecentPayments: () => RecentPaymentDetails[]
+      /** Real-time outbound capacity in millisatoshis. Use for payment validation. */
       outboundCapacityMsat: () => bigint
+      /** Cached outbound capacity in sats, updated every ~10s. Use for balance display. */
+      lightningBalanceSats: bigint
     }
   | { status: 'error'; node: null; nodeId: null; error: Error }
 

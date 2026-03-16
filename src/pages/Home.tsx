@@ -1,24 +1,23 @@
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
+import { useUnifiedBalance } from '../hooks/use-unified-balance'
 import { BalanceDisplay } from '../components/BalanceDisplay'
+import { formatBtc } from '../utils/format-btc'
 import { ArrowUpRight, ArrowDownLeft } from '../components/icons'
 
 export function Home() {
   const navigate = useNavigate()
   const onchain = useOnchain()
   const ldk = useLdk()
+  const { total, onchain: onchainBal, lightning, pending, isLoading } = useUnifiedBalance()
 
-  const isLoading = onchain.status === 'loading' || ldk.status === 'loading'
   const hasError = onchain.status === 'error' || ldk.status === 'error'
 
-  // Unified balance: on-chain confirmed + trusted pending
-  const balance =
-    onchain.status === 'ready'
-      ? onchain.balance.confirmed + onchain.balance.trustedPending
-      : 0n
-  const untrustedPending =
-    onchain.status === 'ready' ? onchain.balance.untrustedPending : 0n
+  const breakdown =
+    onchainBal > 0n && lightning > 0n
+      ? `${formatBtc(onchainBal)} onchain · ${formatBtc(lightning)} lightning`
+      : undefined
 
   if (isLoading) {
     return (
@@ -51,7 +50,7 @@ export function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col justify-between bg-accent px-6 pt-4 text-on-accent">
-      <BalanceDisplay balance={balance} pending={untrustedPending} />
+      <BalanceDisplay balance={total} pending={pending} breakdown={breakdown} />
 
       <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+1rem)]">
         <button
