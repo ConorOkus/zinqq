@@ -465,7 +465,19 @@ export function LdkProvider({
             const failed = results.filter((r) => r.status === 'rejected').length
             console.log(`[ldk] peer reconnection: ${succeeded} connected, ${failed} failed`)
 
-            // Recompute lightning balance now that peers are connected and channels usable
+            // Wait for channels to become usable after reconnection.
+            // connectToPeer resolves after the noise handshake, but LDK still
+            // needs to exchange channel_reestablish messages before channels
+            // are marked usable. Poll briefly (up to 5s) so the balance is
+            // accurate before we dismiss the loading spinner.
+            if (succeeded > 0) {
+              for (let attempt = 0; attempt < 10; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 500))
+                node.peerManager.process_events()
+                if (node.channelManager.list_usable_channels().length > 0) break
+              }
+            }
+
             const cap = node.channelManager
               .list_usable_channels()
               .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
