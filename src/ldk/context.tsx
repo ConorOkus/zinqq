@@ -286,7 +286,7 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
 
     initializeLdk(ldkSeed)
-      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelCallback }) => {
+      .then(({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback }) => {
         if (cancelled) return
 
         nodeRef.current = node
@@ -309,12 +309,6 @@ export function LdkProvider({
               status: 'failed',
               reason: event.reason,
             })
-          }
-        })
-        // Wire channel event callback (currently used for logging; UI can observe via context)
-        setChannelCallback((event) => {
-          if (event.type === 'closed') {
-            console.log('[ldk] Channel closed via callback:', event.channelId, event.reason)
           }
         })
         cleanupEventHandlerFn = cleanupEventHandler

@@ -104,6 +104,21 @@ export async function idbDelete(store: StoreName, key: string): Promise<void> {
   })
 }
 
+export async function idbDeleteBatch(store: StoreName, keys: string[]): Promise<void> {
+  if (keys.length === 0) return
+  const db = await openDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite')
+    const objectStore = tx.objectStore(store)
+    for (const key of keys) {
+      objectStore.delete(key)
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () =>
+      reject(new Error(`IndexedDB batch delete failed: ${tx.error?.message ?? 'unknown'}`))
+  })
+}
+
 export function closeDb(): void {
   if (dbInstance) {
     dbInstance.close()

@@ -20,6 +20,21 @@ import {
   Option_PaymentFailureReasonZ_Some,
   PaymentFailureReason,
   Result_NoneReplayEventZ,
+  type ClosureReason,
+  ClosureReason_CounterpartyForceClosed,
+  ClosureReason_HolderForceClosed,
+  ClosureReason_LegacyCooperativeClosure,
+  ClosureReason_CounterpartyInitiatedCooperativeClosure,
+  ClosureReason_LocallyInitiatedCooperativeClosure,
+  ClosureReason_CommitmentTxConfirmed,
+  ClosureReason_FundingTimedOut,
+  ClosureReason_ProcessingError,
+  ClosureReason_DisconnectedPeer,
+  ClosureReason_OutdatedChannelManager,
+  ClosureReason_CounterpartyCoopClosedUnfundedChannel,
+  ClosureReason_FundingBatchClosure,
+  ClosureReason_HTLCsTimedOut,
+  ClosureReason_PeerFeerateTooLow,
   type ChannelManager,
   type KeysManager,
   type Event,
@@ -45,15 +60,10 @@ export type PaymentEventCallback = (event:
   | { type: 'failed'; paymentHash: string; reason: string }
 ) => void
 
-export type ChannelEventCallback = (event:
-  | { type: 'closed'; channelId: string; reason: string }
-) => void
-
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
   onPaymentEvent?: PaymentEventCallback,
-  onChannelEvent?: ChannelEventCallback,
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -68,7 +78,7 @@ export function createEventHandler(
         handleEvent(event, channelManager, keysManager, bdkWallet, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
-        }, onPaymentEvent, onChannelEvent)
+        }, onPaymentEvent)
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
       }
@@ -114,7 +124,6 @@ function handleEvent(
   bdkWallet: Wallet | null,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
-  onChannelEvent?: ChannelEventCallback,
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -215,9 +224,8 @@ function handleEvent(
 
   if (event instanceof Event_ChannelClosed) {
     const channelIdHex = bytesToHex(event.channel_id.write())
-    const reason = event.reason.constructor.name
+    const reason = describeClosureReason(event.reason)
     console.log('[LDK Event] ChannelClosed:', channelIdHex, 'reason:', reason)
-    onChannelEvent?.({ type: 'closed', channelId: channelIdHex, reason })
     return
   }
 
@@ -389,6 +397,24 @@ async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<vo
   const txid = await broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
   void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
   console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
+}
+
+function describeClosureReason(reason: ClosureReason): string {
+  if (reason instanceof ClosureReason_CounterpartyForceClosed) return 'Counterparty force closed'
+  if (reason instanceof ClosureReason_HolderForceClosed) return 'Force closed by you'
+  if (reason instanceof ClosureReason_LegacyCooperativeClosure) return 'Cooperative close'
+  if (reason instanceof ClosureReason_CounterpartyInitiatedCooperativeClosure) return 'Cooperative close (initiated by peer)'
+  if (reason instanceof ClosureReason_LocallyInitiatedCooperativeClosure) return 'Cooperative close'
+  if (reason instanceof ClosureReason_CommitmentTxConfirmed) return 'Commitment transaction confirmed'
+  if (reason instanceof ClosureReason_FundingTimedOut) return 'Funding timed out'
+  if (reason instanceof ClosureReason_ProcessingError) return 'Processing error'
+  if (reason instanceof ClosureReason_DisconnectedPeer) return 'Peer disconnected'
+  if (reason instanceof ClosureReason_OutdatedChannelManager) return 'Outdated channel manager'
+  if (reason instanceof ClosureReason_CounterpartyCoopClosedUnfundedChannel) return 'Counterparty closed unfunded channel'
+  if (reason instanceof ClosureReason_FundingBatchClosure) return 'Funding batch closure'
+  if (reason instanceof ClosureReason_HTLCsTimedOut) return 'HTLCs timed out'
+  if (reason instanceof ClosureReason_PeerFeerateTooLow) return 'Peer feerate too low'
+  return 'Channel closed'
 }
 
 function describePaymentFailure(reason: PaymentFailureReason): string {

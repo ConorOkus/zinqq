@@ -5,12 +5,13 @@ import {
   Option_u32Z,
   type KeysManager,
 } from 'lightningdevkit'
-import { idbGetAll, idbDelete } from './storage/idb'
+import { idbGetAll, idbDeleteBatch } from './storage/idb'
 import { bytesToHex } from './utils'
 import { broadcastTransaction } from '../onchain/tx-bridge'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = 1
+const MAX_FEE_RATE_SAT_VB = 500
 
 /**
  * Fetch the fee rate (sat/vB) from Esplora's fee-estimates endpoint.
@@ -22,7 +23,11 @@ async function fetchFeeRate(esploraUrl: string): Promise<number> {
     const estimates = (await res.json()) as Record<string, number>
     const satPerVb = estimates[String(FEE_TARGET_BLOCKS)]
     if (typeof satPerVb === 'number' && satPerVb > 0) {
-      return Math.ceil(satPerVb)
+      const capped = Math.min(Math.ceil(satPerVb), MAX_FEE_RATE_SAT_VB)
+      if (capped < Math.ceil(satPerVb)) {
+        console.warn('[Sweep] Fee rate capped from', Math.ceil(satPerVb), 'to', MAX_FEE_RATE_SAT_VB, 'sat/vB')
+      }
+      return capped
     }
   } catch (err: unknown) {
     console.warn('[Sweep] Fee estimation failed, using default:', err)
@@ -36,10 +41,14 @@ export interface SweepResult {
   txid: string | null
 }
 
+let sweepInProgress = false
+
 /**
  * Sweep all persisted SpendableOutputDescriptors from IDB back to an on-chain
  * address. Uses KeysManager.as_OutputSpender().spend_spendable_outputs() to
  * handle all descriptor types, key derivation, and signing internally.
+ *
+ * Guarded against concurrent execution — only one sweep can run at a time.
  *
  * @param keysManager - LDK KeysManager for signing
  * @param destinationScript - Script pubkey bytes for the sweep destination address
@@ -51,6 +60,9 @@ export async function sweepSpendableOutputs(
   destinationScript: Uint8Array,
   esploraUrl: string,
 ): Promise<SweepResult> {
+  if (sweepInProgress) return { swept: 0, skipped: 0, txid: null }
+  sweepInProgress = true
+  try {
   const entries = await idbGetAll<Uint8Array[]>('ldk_spendable_outputs')
   if (entries.size === 0) return { swept: 0, skipped: 0, txid: null }
 
@@ -111,10 +123,8 @@ export async function sweepSpendableOutputs(
   const txHex = bytesToHex(result.res)
   const txid = await broadcastTransaction(txHex, esploraUrl)
 
-  // Clean up IDB entries only after successful broadcast
-  for (const key of idbKeys) {
-    await idbDelete('ldk_spendable_outputs', key)
-  }
+  // Clean up IDB entries atomically after successful broadcast
+  await idbDeleteBatch('ldk_spendable_outputs', idbKeys)
 
   console.log(
     '[Sweep] Successfully swept',
@@ -124,4 +134,7 @@ export async function sweepSpendableOutputs(
   )
 
   return { swept: allDescriptors.length, skipped, txid }
+  } finally {
+    sweepInProgress = false
+  }
 }

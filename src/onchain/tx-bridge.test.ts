@@ -77,6 +77,34 @@ describe('tx-bridge', () => {
       expect(txid).toBe('abc123txid')
     })
 
+    it('returns sentinel for already-in-chain response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 400,
+          text: () => Promise.resolve('Transaction already in block chain'),
+        }),
+      )
+
+      const result = await broadcastTransaction('deadbeef', 'https://example.com/api')
+      expect(result).toBe('already-broadcast')
+    })
+
+    it('returns sentinel for txn-already-known response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 400,
+          text: () => Promise.resolve('txn-already-known'),
+        }),
+      )
+
+      const result = await broadcastTransaction('deadbeef', 'https://example.com/api')
+      expect(result).toBe('already-broadcast')
+    })
+
     it('throws on non-ok response', async () => {
       vi.stubGlobal(
         'fetch',

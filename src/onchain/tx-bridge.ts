@@ -41,7 +41,7 @@ export async function broadcastTransaction(
       lower.includes('txn-already-confirmed')
     ) {
       console.log('[tx-bridge] Transaction already broadcast, treating as success')
-      return body
+      return 'already-broadcast'
     }
     throw new Error(`Esplora broadcast failed: ${response.status} ${body}`)
   }

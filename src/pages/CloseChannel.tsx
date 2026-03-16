@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useLdk } from '../ldk/use-ldk'
 import { bytesToHex } from '../ldk/utils'
@@ -30,7 +30,6 @@ export function CloseChannel() {
   const ldk = useLdk()
   const [currentStep, setCurrentStep] = useState<CloseChannelStep>({ step: 'select-channel' })
   const [channels, setChannels] = useState<ChannelInfo[]>([])
-  const closingRef = useRef(false)
 
   const refreshChannels = useCallback(() => {
     if (ldk.status !== 'ready') return
@@ -61,10 +60,8 @@ export function CloseChannel() {
   }, [])
 
   const handleConfirm = useCallback(() => {
-    if (closingRef.current) return
     if (ldk.status !== 'ready' || currentStep.step !== 'confirm') return
 
-    closingRef.current = true
     const { channel, closeType } = currentStep
 
     try {
@@ -94,8 +91,6 @@ export function CloseChannel() {
         canForceClose: currentStep.closeType === 'cooperative',
         channel,
       })
-    } finally {
-      closingRef.current = false
     }
   }, [ldk, currentStep])
 

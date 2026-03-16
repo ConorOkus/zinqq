@@ -41,10 +41,23 @@ vi.mock('lightningdevkit', () => {
   class Event_ChannelReady extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
   }
-  class ClosureReason_CooperativeClosure {}
+  class ClosureReason_CounterpartyForceClosed {}
+  class ClosureReason_HolderForceClosed {}
+  class ClosureReason_LegacyCooperativeClosure {}
+  class ClosureReason_CounterpartyInitiatedCooperativeClosure {}
+  class ClosureReason_LocallyInitiatedCooperativeClosure {}
+  class ClosureReason_CommitmentTxConfirmed {}
+  class ClosureReason_FundingTimedOut {}
+  class ClosureReason_ProcessingError {}
+  class ClosureReason_DisconnectedPeer {}
+  class ClosureReason_OutdatedChannelManager {}
+  class ClosureReason_CounterpartyCoopClosedUnfundedChannel {}
+  class ClosureReason_FundingBatchClosure {}
+  class ClosureReason_HTLCsTimedOut {}
+  class ClosureReason_PeerFeerateTooLow {}
   class Event_ChannelClosed extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
-    reason = new ClosureReason_CooperativeClosure()
+    reason = new ClosureReason_LegacyCooperativeClosure()
   }
   class Event_ConnectionNeeded extends MockEvent {
     node_id = new Uint8Array([9, 10, 11])
@@ -134,6 +147,20 @@ vi.mock('lightningdevkit', () => {
     Option_u64Z_Some,
     Option_PaymentFailureReasonZ_Some,
     PaymentFailureReason,
+    ClosureReason_CounterpartyForceClosed,
+    ClosureReason_HolderForceClosed,
+    ClosureReason_LegacyCooperativeClosure,
+    ClosureReason_CounterpartyInitiatedCooperativeClosure,
+    ClosureReason_LocallyInitiatedCooperativeClosure,
+    ClosureReason_CommitmentTxConfirmed,
+    ClosureReason_FundingTimedOut,
+    ClosureReason_ProcessingError,
+    ClosureReason_DisconnectedPeer,
+    ClosureReason_OutdatedChannelManager,
+    ClosureReason_CounterpartyCoopClosedUnfundedChannel,
+    ClosureReason_FundingBatchClosure,
+    ClosureReason_HTLCsTimedOut,
+    ClosureReason_PeerFeerateTooLow,
     Result_NoneReplayEventZ: {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
     },
@@ -376,7 +403,7 @@ describe('createEventHandler', () => {
       expect.stringContaining('ChannelClosed'),
       expect.any(String),
       'reason:',
-      expect.anything(),
+      'Cooperative close',
     )
   })
 
