@@ -7,6 +7,11 @@ import {
   type OnchainContextValue,
   defaultOnchainContextValue,
 } from '../onchain/onchain-context'
+import {
+  LdkContext,
+  defaultLdkContextValue,
+  type LdkContextValue,
+} from '../ldk/ldk-context'
 import { Receive } from './Receive'
 
 function readyContext(
@@ -25,12 +30,43 @@ function readyContext(
   }
 }
 
-function renderReceive(contextValue?: OnchainContextValue) {
+function readyLdkContext(): LdkContextValue {
+  return {
+    ...defaultLdkContextValue,
+    status: 'ready' as const,
+    node: {} as never,
+    nodeId: 'test',
+    error: null,
+    syncStatus: 'synced' as const,
+    peersReconnected: true,
+    connectToPeer: vi.fn(),
+    forgetPeer: vi.fn(),
+    createChannel: vi.fn(),
+    setBdkWallet: vi.fn(),
+    createInvoice: vi.fn(() => 'lntbs1fakeinvoice'),
+    sendBolt11Payment: vi.fn(),
+    sendBolt12Payment: vi.fn(),
+    sendBip353Payment: vi.fn(),
+    closeChannel: vi.fn(),
+    forceCloseChannel: vi.fn(),
+    listChannels: vi.fn(() => []),
+    abandonPayment: vi.fn(),
+    getPaymentResult: vi.fn(() => null),
+    listRecentPayments: vi.fn(() => []),
+    outboundCapacityMsat: vi.fn(() => 1_000_000_000n),
+    lightningBalanceSats: 1_000_000n,
+    channelChangeCounter: 0,
+  }
+}
+
+function renderReceive(contextValue?: OnchainContextValue, ldkValue?: LdkContextValue) {
   return render(
     <MemoryRouter>
-      <OnchainContext value={contextValue ?? readyContext()}>
-        <Receive />
-      </OnchainContext>
+      <LdkContext value={ldkValue ?? readyLdkContext()}>
+        <OnchainContext value={contextValue ?? readyContext()}>
+          <Receive />
+        </OnchainContext>
+      </LdkContext>
     </MemoryRouter>,
   )
 }
@@ -56,9 +92,6 @@ describe('Receive', () => {
   it('QR code uses uppercase BIP21 URI format', () => {
     renderReceive()
     const qrContainer = screen.getByLabelText(/qr code for bitcoin address/i)
-    // QRCodeSVG renders the value as a data attribute or we check the aria-label
-    // The QR value is built as `BITCOIN:${address.toUpperCase()}` in the component
-    // Verify the address is displayed (BIP21 compliance is in the component logic)
     expect(qrContainer).toBeInTheDocument()
   })
 
@@ -75,7 +108,7 @@ describe('Receive', () => {
 
   it('shows truncated address', () => {
     renderReceive()
-    expect(screen.getByText(/tb1qw508d6qe\.\.\.7kxpjzsx/)).toBeInTheDocument()
+    expect(screen.getByText(/bitcoin:tb1qw508\.\.\.xpjzsx/)).toBeInTheDocument()
   })
 
   it('shows Request heading', () => {
@@ -83,9 +116,9 @@ describe('Receive', () => {
     expect(screen.getByText('Request')).toBeInTheDocument()
   })
 
-  it('has a close button', () => {
+  it('has a back button', () => {
     renderReceive()
-    expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
   })
 
   it('has a copy button', () => {
@@ -96,31 +129,28 @@ describe('Receive', () => {
   describe('focus trap', () => {
     it('focuses the first focusable element on mount', () => {
       renderReceive(readyContext())
-      // The close button in ScreenHeader is the first focusable element
-      const closeButton = screen.getByRole('button', { name: /close/i })
-      expect(closeButton).toHaveFocus()
+      const backButton = screen.getByRole('button', { name: /back/i })
+      expect(backButton).toHaveFocus()
     })
 
     it('wraps focus from last to first element on Tab', async () => {
       const user = userEvent.setup()
       renderReceive(readyContext())
 
-      // Tab past the last focusable element should wrap to first
-      const closeButton = screen.getByRole('button', { name: /close/i })
+      const backButton = screen.getByRole('button', { name: /back/i })
       const copyButton = screen.getByRole('button', { name: /copy/i })
       copyButton.focus()
       await user.keyboard('{Tab}')
-      expect(closeButton).toHaveFocus()
+      expect(backButton).toHaveFocus()
     })
 
     it('wraps focus from first to last element on Shift+Tab', async () => {
       const user = userEvent.setup()
       renderReceive(readyContext())
 
-      const closeButton = screen.getByRole('button', { name: /close/i })
-      closeButton.focus()
+      const backButton = screen.getByRole('button', { name: /back/i })
+      backButton.focus()
       await user.keyboard('{Shift>}{Tab}{/Shift}')
-      // Should wrap to last focusable element (Copy button)
       const copyButton = screen.getByRole('button', { name: /copy/i })
       expect(copyButton).toHaveFocus()
     })

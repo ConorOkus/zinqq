@@ -25,6 +25,7 @@ export type LdkContextValue =
       forceCloseChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
       listChannels: () => ChannelDetails[]
       setBdkWallet: (wallet: Wallet | null) => void
+      createInvoice: (description?: string) => string
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
       sendBolt12Payment: (offer: Offer, amountMsat?: bigint, payerNote?: string) => Uint8Array
       sendBip353Payment: (name: HumanReadableName, amountMsat: bigint) => Uint8Array

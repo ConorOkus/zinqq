@@ -2,16 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useOnchain } from '../onchain/use-onchain'
+import { useLdk } from '../ldk/use-ldk'
 import { ScreenHeader } from '../components/ScreenHeader'
 
 export function Receive() {
   const navigate = useNavigate()
   const onchain = useOnchain()
+  const ldk = useLdk()
   const [address, setAddress] = useState<string | null>(null)
+  const [invoice, setInvoice] = useState<string | null>(null)
   const [addressError, setAddressError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const overlayRef = useRef<HTMLDivElement>(null)
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
+  const createInvoice = ldk.status === 'ready' ? ldk.createInvoice : null
 
   useEffect(() => {
     if (generateAddress && address === null && addressError === null) {
@@ -23,6 +27,17 @@ export function Receive() {
       }
     }
   }, [generateAddress, address, addressError])
+
+  useEffect(() => {
+    if (createInvoice && invoice === null) {
+      try {
+        setInvoice(createInvoice())
+      } catch (err) {
+        // Lightning invoice is optional — onchain fallback still works
+        console.warn('[Receive] Failed to create invoice:', err)
+      }
+    }
+  }, [createInvoice, invoice])
 
   // Focus trap: keep focus within overlay
   useEffect(() => {
@@ -51,15 +66,22 @@ export function Receive() {
     return () => el.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // Build BIP 321 URI: bitcoin:<ADDRESS>?lightning=<BOLT11>
+  const bip321Uri = address
+    ? invoice
+      ? `bitcoin:${address.toUpperCase()}?lightning=${invoice}`
+      : `bitcoin:${address.toUpperCase()}`
+    : ''
+
   const handleCopy = useCallback(async () => {
-    if (!address) return
+    if (!bip321Uri) return
     try {
-      await navigator.clipboard.writeText(address)
+      await navigator.clipboard.writeText(bip321Uri)
       setCopied(true)
     } catch {
       // Address is displayed and selectable as fallback
     }
-  }, [address])
+  }, [bip321Uri])
 
   useEffect(() => {
     if (!copied) return
@@ -67,11 +89,7 @@ export function Receive() {
     return () => clearTimeout(id)
   }, [copied])
 
-  const handleClose = useCallback(() => {
-    void navigate('/')
-  }, [navigate])
-
-  if (onchain.status === 'loading') {
+  if (onchain.status === 'loading' || ldk.status === 'loading') {
     return (
       <div className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col items-center justify-center bg-dark">
         <p className="text-[var(--color-on-dark-muted)]">Loading wallet...</p>
@@ -86,7 +104,7 @@ export function Receive() {
         <p className="mt-2 text-sm text-red-400">{onchain.error.message}</p>
         <button
           className="mt-6 text-sm text-accent"
-          onClick={handleClose}
+          onClick={() => void navigate('/')}
         >
           Close
         </button>
@@ -94,17 +112,18 @@ export function Receive() {
     )
   }
 
-  const qrValue = address ? `BITCOIN:${address.toUpperCase()}` : ''
+  // QR uses uppercase for optimal alphanumeric QR encoding
+  const qrValue = bip321Uri.toUpperCase()
   const truncated = address
-    ? `${address.slice(0, 12)}...${address.slice(-8)}`
+    ? `bitcoin:${address.slice(0, 8)}...${address.slice(-6)}`
     : ''
 
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col items-center bg-dark text-on-dark"
+      className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col bg-dark text-on-dark"
     >
-      <ScreenHeader title="Request" onClose={handleClose} />
+      <ScreenHeader title="Request" backTo="/" />
 
       <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">
         {addressError && (
@@ -118,10 +137,6 @@ export function Receive() {
             >
               <QRCodeSVG value={qrValue} size={220} />
             </div>
-
-            <p className="max-w-[280px] text-center font-display text-2xl font-bold leading-snug">
-              Request money by letting someone scan this
-            </p>
 
             <div className="flex max-w-full items-center gap-3 rounded-full bg-dark-elevated px-5 py-3">
               <span className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm text-[var(--color-on-dark-muted)]">

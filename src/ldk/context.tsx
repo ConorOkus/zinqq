@@ -4,8 +4,11 @@ import {
   Retry,
   Option_u64Z,
   Option_u64Z_Some,
+  Option_u64Z_None,
+  Option_u16Z_None,
   Option_StrZ,
   Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK,
+  Result_Bolt11InvoiceSignOrCreationErrorZ_OK,
   type ChannelId,
   type Bolt11Invoice,
   type Offer,
@@ -152,6 +155,29 @@ export function LdkProvider({
     }
     map.set(key, value)
   }
+
+  const createInvoice = useCallback(
+    (description = 'Zinq Wallet'): string => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+
+      const result = UtilMethods.constructor_create_invoice_from_channelmanager(
+        node.channelManager,
+        Option_u64Z_None.constructor_none(),
+        description,
+        3600, // 1 hour expiry
+        Option_u16Z_None.constructor_none(),
+      )
+
+      if (!(result instanceof Result_Bolt11InvoiceSignOrCreationErrorZ_OK)) {
+        console.error('[ldk] create_invoice failed:', result)
+        throw new Error('Failed to create invoice')
+      }
+
+      return result.res.to_str()
+    },
+    [],
+  )
 
   const sendBolt11Payment = useCallback(
     (invoice: Bolt11Invoice, amountMsat?: bigint): Uint8Array => {
@@ -434,6 +460,7 @@ export function LdkProvider({
           forceCloseChannel,
           listChannels,
           setBdkWallet,
+          createInvoice,
           sendBolt11Payment,
           sendBolt12Payment,
           sendBip353Payment,
@@ -536,7 +563,7 @@ export function LdkProvider({
       activeConnections.current.clear()
       nodeRef.current = null
     }
-  }, [connectToPeer, forgetPeer, createChannel, closeChannel, forceCloseChannel, listChannels, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, ldkSeed])
+  }, [connectToPeer, forgetPeer, createChannel, closeChannel, forceCloseChannel, listChannels, createInvoice, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, ldkSeed])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }
