@@ -155,6 +155,22 @@ export function OnchainProvider({
         await esplora.broadcast(tx)
         persistChangeset(wallet)
 
+        // Immediately update displayed balance so the UI reflects the
+        // send without waiting for the next sync tick.
+        const b = wallet.balance
+        setState((prev) =>
+          prev.status === 'ready'
+            ? {
+                ...prev,
+                balance: {
+                  confirmed: b.confirmed.to_sat(),
+                  trustedPending: b.trusted_pending.to_sat(),
+                  untrustedPending: b.untrusted_pending.to_sat(),
+                },
+              }
+            : prev,
+        )
+
         return txid
       } catch (err: unknown) {
         throw mapSendError(err)
