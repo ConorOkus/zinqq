@@ -33,7 +33,7 @@ export function LdkProvider({
   const createChannel = useCallback(
     (counterpartyPubkey: Uint8Array, channelValueSats: bigint): boolean => {
       if (!nodeRef.current) throw new Error('Node not initialized')
-      const bytes = new Uint8Array(16)
+      const bytes = new Uint8Array(8)
       crypto.getRandomValues(bytes)
       const userChannelId = bytes.reduce(
         (acc, byte) => (acc << 8n) | BigInt(byte),
