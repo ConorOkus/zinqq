@@ -2,6 +2,9 @@ import {
   RapidGossipSync,
   Option_u64Z,
   Result_u32GraphSyncErrorZ_OK,
+  Result_u32GraphSyncErrorZ_Err,
+  GraphSyncError_DecodeError,
+  GraphSyncError_LightningError,
   type NetworkGraph,
   type Logger,
 } from 'lightningdevkit'
@@ -88,7 +91,16 @@ async function applyRgsUpdate(
   )
 
   if (!(result instanceof Result_u32GraphSyncErrorZ_OK)) {
-    throw new Error('[RGS] Failed to apply gossip sync update')
+    let detail = 'unknown error'
+    if (result instanceof Result_u32GraphSyncErrorZ_Err) {
+      const err = result.err
+      if (err instanceof GraphSyncError_DecodeError) {
+        detail = `DecodeError: ${JSON.stringify(err.decode_error)}`
+      } else if (err instanceof GraphSyncError_LightningError) {
+        detail = `LightningError: ${err.lightning_error.get_err()}`
+      }
+    }
+    throw new Error(`[RGS] Failed to apply gossip sync update: ${detail}`)
   }
 
   const newTimestamp = result.res
