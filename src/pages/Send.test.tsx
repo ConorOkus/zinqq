@@ -48,8 +48,8 @@ function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextVal
     listRecentPayments: vi.fn(() => []),
     outboundCapacityMsat: vi.fn(() => 1_000_000_000n),
     lightningBalanceSats: 1_000_000n,
+    createInvoice: vi.fn(() => 'lnbc1test'),
     channelChangeCounter: 0,
-    peersReconnected: true,
   }
   return render(
     <MemoryRouter>
