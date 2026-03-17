@@ -20,7 +20,7 @@ export function useUnifiedBalance(): UnifiedBalance {
 
   const onchainBalance =
     onchain.status === 'ready'
-      ? onchain.balance.confirmed + onchain.balance.trustedPending
+      ? onchain.balance.confirmed + onchain.balance.trustedPending + onchain.balance.untrustedPending
       : 0n
 
   const lightningBalance =

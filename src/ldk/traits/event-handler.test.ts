@@ -434,6 +434,19 @@ describe('createEventHandler', () => {
     expect(mockOnChannelClosed).not.toHaveBeenCalled()
   })
 
+  it('calls onSyncNeeded when channel closes', () => {
+    const mockSyncNeeded = vi.fn()
+    const cm = createMockChannelManager()
+    const result = createEventHandler(cm, createMockKeysManager(), undefined, undefined, mockSyncNeeded)
+    const handler = (
+      result.handler as unknown as { _impl: { handle_event: HandleEventFn } }
+    )._impl.handle_event
+
+    handler(new Event_ChannelClosed())
+    expect(mockSyncNeeded).toHaveBeenCalledOnce()
+    result.cleanup()
+  })
+
   it('warns on ConnectionNeeded (not yet implemented)', () => {
     handleEvent(new Event_ConnectionNeeded())
     expect(warnSpy).toHaveBeenCalledWith(

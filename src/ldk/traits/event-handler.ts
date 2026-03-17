@@ -66,11 +66,14 @@ export type PaymentEventCallback = (event:
 
 export type ChannelClosedCallback = (counterpartyPubkeyHex: string) => void
 
+export type SyncNeededCallback = () => void
+
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
+  onSyncNeeded?: SyncNeededCallback,
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -85,7 +88,7 @@ export function createEventHandler(
         handleEvent(event, channelManager, keysManager, bdkWallet, (id) => {
           if (forwardTimerId !== null) clearTimeout(forwardTimerId)
           forwardTimerId = id
-        }, onPaymentEvent, onChannelClosed)
+        }, onPaymentEvent, onChannelClosed, onSyncNeeded)
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
       }
@@ -139,6 +142,7 @@ function handleEvent(
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
+  onSyncNeeded?: SyncNeededCallback,
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -263,6 +267,11 @@ function handleEvent(
     if (!hasRemainingChannels) {
       onChannelClosed?.(peerPubkeyHex)
     }
+
+    // Trigger immediate BDK wallet sync so on-chain balance reflects
+    // the closing transaction output (cooperative close pays directly
+    // to BDK's shutdown script address).
+    onSyncNeeded?.()
     return
   }
 

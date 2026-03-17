@@ -89,13 +89,25 @@ export function OnchainProvider({
   // The ldk context object changes reference on every LDK state update —
   // depending on it directly would tear down and rebuild BDK on each change.
   const setBdkWalletRef = useRef<((wallet: Wallet | null) => void) | null>(null)
+  const setSyncNeededRef = useRef<((cb: (() => void) | undefined) => void) | null>(null)
+
+  // Stable syncNow callback that delegates to the sync handle.
+  // Exposed via context so the LDK layer can trigger immediate BDK sync after channel close.
+  const syncNow = useCallback(() => {
+    syncHandleRef.current?.syncNow()
+  }, [])
   useEffect(() => {
     setBdkWalletRef.current = ldk.status === 'ready' ? ldk.setBdkWallet : null
+    setSyncNeededRef.current = ldk.status === 'ready' ? ldk.setSyncNeeded : null
     // If BDK wallet initialized before LDK became ready, register it now
     if (walletRef.current && setBdkWalletRef.current) {
       setBdkWalletRef.current(walletRef.current)
     }
-  }, [ldk])
+    // Register syncNow callback so LDK's ChannelClosed handler can trigger BDK sync
+    if (syncHandleRef.current && setSyncNeededRef.current) {
+      setSyncNeededRef.current(syncNow)
+    }
+  }, [ldk, syncNow])
 
   const listTransactions = useCallback(() => {
     const wallet = walletRef.current
@@ -312,11 +324,15 @@ export function OnchainProvider({
               estimateMaxSendable,
               sendToAddress,
               sendMax,
+              syncNow,
               error: null,
             })
           },
         )
         syncHandleRef.current = handle
+
+        // Register syncNow with LDK if it became ready before the sync loop started
+        setSyncNeededRef.current?.(syncNow)
       })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -333,10 +349,12 @@ export function OnchainProvider({
       syncHandleRef.current = null
       // Unregister BDK wallet from LDK event handler
       setBdkWalletRef.current?.(null)
+      // Unregister syncNow callback from LDK
+      setSyncNeededRef.current?.(undefined)
       walletRef.current = null
       esploraRef.current = null
     }
-  }, [bdkDescriptors, listTransactions, generateAddress, estimateFee, estimateMaxSendable, sendToAddress, sendMax])
+  }, [bdkDescriptors, listTransactions, generateAddress, estimateFee, estimateMaxSendable, sendToAddress, sendMax, syncNow])
 
   return <OnchainContext value={state}>{children}</OnchainContext>
 }

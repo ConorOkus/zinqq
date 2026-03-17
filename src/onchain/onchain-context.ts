@@ -32,6 +32,8 @@ export type OnchainContextValue =
       estimateMaxSendable: (address: string) => Promise<MaxSendEstimate>
       sendToAddress: (address: string, amountSats: bigint, feeRateSatVb?: bigint) => Promise<string>
       sendMax: (address: string, feeRateSatVb?: bigint) => Promise<string>
+      /** Trigger an immediate BDK wallet sync with retries. Used after channel close. */
+      syncNow: () => void
       error: null
     }
   | { status: 'error'; balance: null; error: Error }

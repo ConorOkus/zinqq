@@ -40,7 +40,7 @@ import { createFeeEstimator } from './traits/fee-estimator'
 import { createBroadcaster } from './traits/broadcaster'
 import { createPersister } from './traits/persist'
 import { createFilter, type WatchState } from './traits/filter'
-import { createEventHandler, type PaymentEventCallback, type ChannelClosedCallback } from './traits/event-handler'
+import { createEventHandler, type PaymentEventCallback, type ChannelClosedCallback, type SyncNeededCallback } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { SIGNET_CONFIG } from './config'
 import { idbGet, idbGetAll } from './storage/idb'
@@ -70,6 +70,7 @@ export interface InitResult {
   setBdkWallet: (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => void
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
+  setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -332,12 +333,14 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   // 14. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
   let channelClosedCallback: ChannelClosedCallback | undefined
+  let syncNeededCallback: SyncNeededCallback | undefined
   const { handler: eventHandler, cleanup: cleanupEventHandler, setBdkWallet: setEventHandlerBdkWallet } =
     createEventHandler(
       channelManager,
       keysManager,
       (...args) => paymentCallback?.(...args),
       (...args) => channelClosedCallback?.(...args),
+      () => syncNeededCallback?.(),
     )
 
   // Unified setBdkWallet that wires both the event handler and signer provider
@@ -372,6 +375,9 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     },
     setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => {
       channelClosedCallback = cb
+    },
+    setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => {
+      syncNeededCallback = cb
     },
   }
 }

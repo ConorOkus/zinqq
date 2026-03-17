@@ -14,6 +14,7 @@ function readyOnchain(overrides?: Partial<Extract<OnchainContextValue, { status:
     estimateMaxSendable: async () => ({ amount: 99_000n, fee: 1_000n, feeRate: 2n }),
     sendToAddress: async () => 'txid123',
     sendMax: async () => 'txid123',
+    syncNow: () => {},
     listTransactions: () => [],
     error: null,
     ...overrides,
@@ -34,6 +35,7 @@ function readyLdk(overrides?: Partial<Extract<LdkContextValue, { status: 'ready'
     forceCloseChannel: () => true,
     listChannels: () => [],
     setBdkWallet: () => {},
+    setSyncNeeded: () => {},
     sendBolt11Payment: () => new Uint8Array(32),
     sendBolt12Payment: () => new Uint8Array(32),
     sendBip353Payment: () => new Uint8Array(32),
@@ -64,9 +66,9 @@ describe('useUnifiedBalance', () => {
     const { result } = renderHook(() => useUnifiedBalance(), {
       wrapper: wrapper(readyLdk(), readyOnchain()),
     })
-    expect(result.current.onchain).toBe(105_000n) // confirmed + trustedPending
+    expect(result.current.onchain).toBe(105_500n) // confirmed + trustedPending + untrustedPending
     expect(result.current.lightning).toBe(50_000n)
-    expect(result.current.total).toBe(155_000n)
+    expect(result.current.total).toBe(155_500n)
     expect(result.current.pending).toBe(500n)
     expect(result.current.isLoading).toBe(false)
   })
@@ -79,7 +81,7 @@ describe('useUnifiedBalance', () => {
       ),
     })
     expect(result.current.lightning).toBe(0n)
-    expect(result.current.total).toBe(105_000n)
+    expect(result.current.total).toBe(105_500n)
   })
 
   it('returns zero onchain when only lightning funded', () => {
@@ -119,7 +121,7 @@ describe('useUnifiedBalance', () => {
       wrapper: wrapper(defaultLdkContextValue, readyOnchain()),
     })
     expect(result.current.isLoading).toBe(true)
-    expect(result.current.total).toBe(105_000n) // onchain still contributes
+    expect(result.current.total).toBe(105_500n) // onchain still contributes
   })
 
   it('shows loading when both are loading', () => {
@@ -128,5 +130,19 @@ describe('useUnifiedBalance', () => {
     })
     expect(result.current.isLoading).toBe(true)
     expect(result.current.total).toBe(0n)
+  })
+
+  it('includes untrustedPending in total after channel close', () => {
+    // After cooperative close, closing tx funds land as untrustedPending
+    // (BDK did not sign the closing tx — LDK did)
+    const { result } = renderHook(() => useUnifiedBalance(), {
+      wrapper: wrapper(
+        readyLdk({ lightningBalanceSats: 0n }),
+        readyOnchain({ balance: { confirmed: 0n, trustedPending: 0n, untrustedPending: 50_000n } }),
+      ),
+    })
+    expect(result.current.onchain).toBe(50_000n)
+    expect(result.current.total).toBe(50_000n)
+    expect(result.current.pending).toBe(50_000n)
   })
 })
