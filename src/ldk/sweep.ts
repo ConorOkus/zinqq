@@ -7,7 +7,7 @@ import {
 } from 'lightningdevkit'
 import { idbGetAll, idbDeleteBatch } from './storage/idb'
 import { bytesToHex } from './utils'
-import { broadcastTransaction } from '../onchain/tx-bridge'
+import { broadcastWithRetry } from './traits/broadcaster'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = 1
@@ -121,7 +121,7 @@ export async function sweepSpendableOutputs(
   }
 
   const txHex = bytesToHex(result.res)
-  const txid = await broadcastTransaction(txHex, esploraUrl)
+  const txid = await broadcastWithRetry(esploraUrl, txHex)
 
   // Clean up IDB entries atomically after successful broadcast
   await idbDeleteBatch('ldk_spendable_outputs', idbKeys)

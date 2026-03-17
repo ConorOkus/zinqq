@@ -52,7 +52,7 @@ import { idbPut, idbGet, idbDelete } from '../storage/idb'
 import { persistPayment, updatePaymentStatus } from '../storage/payment-history'
 import { bytesToHex } from '../utils'
 import { putChangeset } from '../../onchain/storage/changeset'
-import { extractTxBytes, broadcastTransaction } from '../../onchain/tx-bridge'
+import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
 import { sweepSpendableOutputs } from '../sweep'
 
@@ -332,8 +332,8 @@ function handleEvent(
     return
   }
 
-  // Channel funding — build funding tx with BDK wallet, extract raw bytes via
-  // tx-bridge, and pass to LDK's funding_transaction_generated()
+  // Channel funding — build funding tx with BDK wallet, extract raw bytes,
+  // and pass to LDK's funding_transaction_generated()
   if (event instanceof Event_FundingGenerationReady) {
     if (!bdkWallet) {
       console.warn(
@@ -351,8 +351,8 @@ function handleEvent(
       const psbt = bdkWallet.build_tx().add_recipient(recipient).finish()
       bdkWallet.sign(psbt, new SignOptions())
 
-      // Extract raw tx bytes from signed PSBT via @scure/btc-signer bridge
-      const rawTxBytes = extractTxBytes(psbt.toString())
+      // Extract raw tx bytes from the signed PSBT via native BDK API
+      const rawTxBytes = psbt.extract_tx().to_bytes()
 
       // Notify LDK of the funding transaction
       const result = channelManager.funding_transaction_generated(
@@ -453,7 +453,7 @@ async function broadcastPersistedFundingTx(tempChannelIdHex: string): Promise<vo
     )
     return
   }
-  const txid = await broadcastTransaction(txHex, ONCHAIN_CONFIG.esploraUrl)
+  const txid = await broadcastWithRetry(ONCHAIN_CONFIG.esploraUrl, txHex)
   void idbDelete('ldk_funding_txs', tempChannelIdHex).catch(() => {})
   console.log('[LDK Event] FundingTxBroadcastSafe: broadcast tx:', txid)
 }

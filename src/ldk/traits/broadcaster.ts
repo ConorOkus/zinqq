@@ -6,10 +6,10 @@ const RETRY_DELAY_MS = 1_000
 
 const inflightTxs = new Set<string>()
 
-export async function broadcastWithRetry(esploraUrl: string, txHex: string): Promise<void> {
+export async function broadcastWithRetry(esploraUrl: string, txHex: string): Promise<string> {
   if (inflightTxs.has(txHex)) {
     console.info('[LDK Broadcaster] Skipping duplicate in-flight broadcast')
-    return
+    return 'in-flight'
   }
   inflightTxs.add(txHex)
   try {
@@ -22,15 +22,17 @@ export async function broadcastWithRetry(esploraUrl: string, txHex: string): Pro
         if (res.ok) {
           const txid = await res.text()
           console.info(`[LDK Broadcaster] Broadcast tx: ${txid}`)
-          return
+          return txid
         }
         const body = await res.text()
+        const lower = body.toLowerCase()
         if (
-          body.includes('Transaction already in block chain') ||
-          body.includes('txn-already-known')
+          lower.includes('transaction already in block chain') ||
+          lower.includes('txn-already-known') ||
+          lower.includes('txn-already-confirmed')
         ) {
           console.info('[LDK Broadcaster] Tx already known, skipping retry')
-          return
+          return 'already-broadcast'
         }
         throw new Error(`HTTP ${res.status.toString()}: ${body}`)
       } catch (err: unknown) {
@@ -43,7 +45,7 @@ export async function broadcastWithRetry(esploraUrl: string, txHex: string): Pro
         }
       }
     }
-    console.error(`[LDK Broadcaster] CRITICAL: All broadcast attempts failed for tx ${txHex.slice(0, 16)}...`)
+    throw new Error(`All ${MAX_BROADCAST_RETRIES.toString()} broadcast attempts failed for tx ${txHex.slice(0, 16)}...`)
   } finally {
     inflightTxs.delete(txHex)
   }
@@ -54,7 +56,9 @@ export function createBroadcaster(esploraUrl: string): BroadcasterInterface {
     broadcast_transactions(txs: Uint8Array[]): void {
       for (const tx of txs) {
         const txHex = bytesToHex(tx)
-        void broadcastWithRetry(esploraUrl, txHex)
+        void broadcastWithRetry(esploraUrl, txHex).catch((err: unknown) => {
+          console.error('[LDK Broadcaster] CRITICAL: broadcast failed:', err)
+        })
       }
     },
   })

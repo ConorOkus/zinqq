@@ -182,11 +182,9 @@ vi.mock('../storage/idb', () => ({
   idbGetAll: vi.fn(() => Promise.resolve(new Map())),
 }))
 
-const mockExtractTxBytes = vi.fn((_psbt: string) => new Uint8Array([0xde, 0xad]))
-const mockBroadcastTransaction = vi.fn((_txHex: string, _url: string) => Promise.resolve('txid123'))
-vi.mock('../../onchain/tx-bridge', () => ({
-  extractTxBytes: (psbt: string) => mockExtractTxBytes(psbt),
-  broadcastTransaction: (txHex: string, url: string) => mockBroadcastTransaction(txHex, url),
+const mockBroadcastWithRetry = vi.fn((_url: string, _txHex: string) => Promise.resolve('txid123'))
+vi.mock('./broadcaster', () => ({
+  broadcastWithRetry: (url: string, txHex: string) => mockBroadcastWithRetry(url, txHex),
 }))
 
 vi.mock('../../onchain/config', () => ({
@@ -201,7 +199,9 @@ vi.mock('../sweep', () => ({
   sweepSpendableOutputs: vi.fn(() => Promise.resolve({ swept: 0, skipped: 0, txid: null })),
 }))
 
+const mockExtractedTxBytes = new Uint8Array([0xde, 0xad])
 const mockPsbt = {
+  extract_tx: () => ({ to_bytes: () => mockExtractedTxBytes }),
   toString: () => 'base64psbt',
 }
 const mockTxBuilder = {
@@ -476,11 +476,10 @@ describe('createEventHandler', () => {
 
     expect(mockBdkWallet.build_tx).toHaveBeenCalled()
     expect(mockBdkWallet.sign).toHaveBeenCalled()
-    expect(mockExtractTxBytes).toHaveBeenCalledWith('base64psbt')
     expect(mockFundingTransactionGenerated).toHaveBeenCalledWith(
       expect.anything(), // temporary_channel_id
       expect.any(Uint8Array), // counterparty_node_id
-      new Uint8Array([0xde, 0xad]), // raw tx bytes from bridge
+      mockExtractedTxBytes, // raw tx bytes from psbt.extract_tx().to_bytes()
     )
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('funding tx registered'),
@@ -524,9 +523,9 @@ describe('createEventHandler', () => {
 
     // Allow the async IDB read + broadcast to resolve
     await vi.waitFor(() => {
-      expect(mockBroadcastTransaction).toHaveBeenCalledWith(
-        'dead',
+      expect(mockBroadcastWithRetry).toHaveBeenCalledWith(
         'https://test.esplora/api',
+        'dead',
       )
     })
     result.cleanup()

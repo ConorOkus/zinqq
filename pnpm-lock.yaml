@@ -9,15 +9,12 @@ importers:
   .:
     dependencies:
       '@bitcoindevkit/bdk-wallet-web':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.3.0
+        version: 0.3.0
       '@scure/bip32':
         specifier: ^2.0.1
         version: 2.0.1
       '@scure/bip39':
-        specifier: ^2.0.1
-        version: 2.0.1
-      '@scure/btc-signer':
         specifier: ^2.0.1
         version: 2.0.1
       lightningdevkit:
@@ -197,8 +194,8 @@ packages:
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
 
-  '@bitcoindevkit/bdk-wallet-web@0.2.0':
-    resolution: {integrity: sha512-aa6AOJeYMpGakrA/a2JKMkIp6YF87RDILmFJ6CMHNq3zYKVZKkP6MQacyO7unMgME3uhxwHM9Fd97rvmY5XVSg==}
+  '@bitcoindevkit/bdk-wallet-web@0.3.0':
+    resolution: {integrity: sha512-PutiQYKkjT4x9ydM0Y3JfaTLaFpcFUw5yQam8lPbOi1Z1EUiDRw+nfU3u+45oOgaGg9ZrzuIAWkwx/9Y0RxxMw==}
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -625,9 +622,6 @@ packages:
 
   '@scure/bip39@2.0.1':
     resolution: {integrity: sha512-PsxdFj/d2AcJcZDX1FXN3dDgitDDTmwf78rKZq1a6c1P1Nan1X/Sxc7667zU3U+AN60g7SxxP0YCVw2H/hBycg==}
-
-  '@scure/btc-signer@2.0.1':
-    resolution: {integrity: sha512-vk5a/16BbSFZkhh1JIJ0+4H9nceZVo5WzKvJGGWiPp3sQOExeW+L53z3dI6u0adTPoE8ZbL+XEb6hEGzVZSvvQ==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -1785,10 +1779,6 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  micro-packed@0.8.0:
-    resolution: {integrity: sha512-AKb8znIvg9sooythbXzyFeChEY0SkW0C6iXECpy/ls0e5BtwXO45J9wD9SLzBztnS4XmF/5kwZknsq+jyynd/A==}
-    engines: {node: '>= 20.19.0'}
-
   min-indent@1.0.1:
     resolution: {integrity: sha512-I9jwMn07Sy/IwOj3zVkVik2JTvgpaykDZEigL6Rx6N9LbMywwUSMtxET+7lVoDLLd3O3IXwJwvuuns8UB/HeAg==}
     engines: {node: '>=4'}
@@ -2501,7 +2491,7 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
-  '@bitcoindevkit/bdk-wallet-web@0.2.0': {}
+  '@bitcoindevkit/bdk-wallet-web@0.3.0': {}
 
   '@csstools/color-helpers@5.1.0': {}
 
@@ -2780,13 +2770,6 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.0.1
       '@scure/base': 2.0.0
-
-  '@scure/btc-signer@2.0.1':
-    dependencies:
-      '@noble/curves': 2.0.1
-      '@noble/hashes': 2.0.1
-      '@scure/base': 2.0.0
-      micro-packed: 0.8.0
 
   '@standard-schema/spec@1.1.0': {}
 
@@ -4063,10 +4046,6 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   math-intrinsics@1.1.0: {}
-
-  micro-packed@0.8.0:
-    dependencies:
-      '@scure/base': 2.0.0
 
   min-indent@1.0.1: {}
 
