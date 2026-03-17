@@ -432,10 +432,70 @@ export function LdkProvider({
           },
         })
 
+        // Periodic reconnection: check every 3rd tick (~30s) for channel
+        // peers that have dropped and reconnect them from known peers.
+        let peerTickCount = 0
+        let reconnecting = false
+
+        const maybeReconnectPeers = () => {
+          if (reconnecting) return
+          const channels = node.channelManager.list_channels()
+          if (channels.length === 0) return
+
+          // Build set of pubkeys that have channels
+          const channelPeerPubkeys = new Set<string>()
+          for (const ch of channels) {
+            channelPeerPubkeys.add(bytesToHex(ch.get_counterparty().get_node_id()))
+          }
+
+          // Build set of currently connected peers
+          const connectedPubkeys = new Set<string>()
+          for (const peer of node.peerManager.list_peers()) {
+            connectedPubkeys.add(bytesToHex(peer.get_counterparty_node_id()))
+          }
+
+          // Find channel peers that are disconnected
+          const disconnected = [...channelPeerPubkeys].filter((pk) => !connectedPubkeys.has(pk))
+          if (disconnected.length === 0) return
+
+          reconnecting = true
+          console.log(`[ldk] ${disconnected.length} channel peer(s) disconnected, attempting reconnect`)
+
+          getKnownPeers()
+            .then(async (known) => {
+              const results = await Promise.allSettled(
+                disconnected
+                  .filter((pk) => known.has(pk))
+                  .map(async (pk) => {
+                    const { host, port } = known.get(pk)!
+                    const conn = await doConnectToPeer(node.peerManager, pk, host, port)
+                    activeConnections.current.set(pk, conn)
+                  })
+              )
+              const succeeded = results.filter((r) => r.status === 'fulfilled').length
+              const failed = results.filter((r) => r.status === 'rejected').length
+              if (succeeded > 0 || failed > 0) {
+                console.log(`[ldk] peer reconnect: ${succeeded} reconnected, ${failed} failed`)
+              }
+            })
+            .catch((err: unknown) => {
+              console.warn('[ldk] peer reconnect failed:', err)
+            })
+            .finally(() => {
+              reconnecting = false
+            })
+        }
+
         // PeerManager timer + LDK event processing every ~10s
         peerTimerId = setInterval(() => {
           node.peerManager.timer_tick_occurred()
           node.peerManager.process_events()
+
+          // Check for disconnected channel peers every ~30s
+          peerTickCount += 1
+          if (peerTickCount % 3 === 0) {
+            maybeReconnectPeers()
+          }
 
           // Drain LDK events from ChannelManager, ChainMonitor, and OnionMessenger
           node.channelManager
