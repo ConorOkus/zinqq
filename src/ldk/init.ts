@@ -407,6 +407,11 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
         if (items.length > 0) {
           await vssClient.putObjects(items)
+          // Seed version refs — putObjects writes version 0, server increments to 1
+          cmVersionRef.current = 1
+          for (const [key] of monitorEntries) {
+            versionCache.set(key, 1)
+          }
           console.log(`[LDK Init] Migrated ${items.length} item(s) to VSS`)
         }
       }

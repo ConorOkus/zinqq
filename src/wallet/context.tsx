@@ -4,7 +4,7 @@ import { generateMnemonic, getMnemonic, storeMnemonic } from './mnemonic'
 import { deriveLdkSeed, deriveBdkDescriptors, deriveVssEncryptionKey, deriveVssStoreId } from './keys'
 
 // Deduplicate concurrent calls from React StrictMode double-mount.
-let walletInitPromise: Promise<{ ldkSeed: Uint8Array; bdkDescriptors: { external: string; internal: string } }> | null = null
+let walletInitPromise: ReturnType<typeof doInitializeWallet> | null = null
 
 async function doInitializeWallet() {
   let mnemonic = await getMnemonic()
