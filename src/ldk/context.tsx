@@ -28,6 +28,11 @@ import { persistPayment, loadAllPayments } from './storage/payment-history'
 import { bytesToHex } from './utils'
 import { msatToSatFloor } from '../utils/msat'
 
+function getOutboundCapacitySats(cm: import('lightningdevkit').ChannelManager): bigint {
+  const msat = cm.list_usable_channels().reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
+  return msatToSatFloor(msat)
+}
+
 export function LdkProvider({
   children,
   ldkSeed,
@@ -364,9 +369,7 @@ export function LdkProvider({
   const outboundCapacityMsat = useCallback((): bigint => {
     const node = nodeRef.current
     if (!node) return 0n
-    return node.channelManager
-      .list_usable_channels()
-      .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
+    return node.channelManager.list_usable_channels().reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
   }, [])
 
   useEffect(() => {
@@ -540,10 +543,7 @@ export function LdkProvider({
             .process_pending_events(node.eventHandler)
 
           // Recompute Lightning balance and update context if changed
-          const capacityMsat = node.channelManager
-            .list_usable_channels()
-            .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
-          const newBalanceSats = msatToSatFloor(capacityMsat)
+          const newBalanceSats = getOutboundCapacitySats(node.channelManager)
           const balanceChanged = newBalanceSats !== lightningBalanceSatsRef.current
 
           // Detect channel state changes (count, ready, usable status)
@@ -581,10 +581,7 @@ export function LdkProvider({
 
         // Compute initial Lightning balance eagerly so Home screen
         // does not show 0 for up to 10s before the first timer tick.
-        const initialCapacityMsat = node.channelManager
-          .list_usable_channels()
-          .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
-        const initialBalanceSats = msatToSatFloor(initialCapacityMsat)
+        const initialBalanceSats = getOutboundCapacitySats(node.channelManager)
         lightningBalanceSatsRef.current = initialBalanceSats
 
         // Load persisted Lightning payment history
@@ -654,10 +651,7 @@ export function LdkProvider({
               }
             }
 
-            const cap = node.channelManager
-              .list_usable_channels()
-              .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
-            const bal = msatToSatFloor(cap)
+            const bal = getOutboundCapacitySats(node.channelManager)
             lightningBalanceSatsRef.current = bal
             setState((prev) =>
               prev.status === 'ready'

@@ -10,7 +10,6 @@ import { getChangeset, putChangeset } from './storage/changeset'
 export interface BdkWallet {
   wallet: Wallet
   esploraClient: EsploraClient
-  isNewWallet: boolean
 }
 
 let bdkInitPromise: Promise<BdkWallet> | null = null
@@ -40,22 +39,18 @@ async function doInitializeBdkWallet(
   // Try to restore from persisted ChangeSet, otherwise create fresh
   const changesetJson = await getChangeset()
   let wallet: Wallet
-  let isNewWallet: boolean
 
   if (changesetJson) {
     try {
       const changeset = ChangeSet.from_json(changesetJson)
       wallet = Wallet.load(changeset, descriptors.external, descriptors.internal)
-      isNewWallet = false
       console.log('[BDK Init] Restored wallet from persisted ChangeSet')
     } catch (err) {
       console.warn('[BDK Init] Failed to restore from ChangeSet, creating fresh wallet:', err)
       wallet = Wallet.create(network, descriptors.external, descriptors.internal)
-      isNewWallet = true
     }
   } else {
     wallet = Wallet.create(network, descriptors.external, descriptors.internal)
-    isNewWallet = true
     console.log('[BDK Init] Created fresh wallet')
   }
 
@@ -86,5 +81,5 @@ async function doInitializeBdkWallet(
     }
   }
 
-  return { wallet, esploraClient, isNewWallet }
+  return { wallet, esploraClient }
 }

@@ -9,6 +9,8 @@ import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
 import { Check, XClose } from '../components/icons'
 
+const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/
+
 interface OpenChannelState {
   peerPubkey?: string
   peerHost?: string
@@ -35,8 +37,12 @@ export function OpenChannel() {
   const ldk = useLdk()
   const onchain = useOnchain()
 
-  const routeState = (location.state as OpenChannelState | null) ?? {}
-  const { peerPubkey, peerHost, peerPort } = routeState
+  const routeState = (location.state ?? {}) as OpenChannelState
+  const peerPubkey = typeof routeState.peerPubkey === 'string' && PUBKEY_HEX_RE.test(routeState.peerPubkey)
+    ? routeState.peerPubkey
+    : undefined
+  const peerHost = typeof routeState.peerHost === 'string' ? routeState.peerHost : undefined
+  const peerPort = typeof routeState.peerPort === 'number' ? routeState.peerPort : undefined
   const needsConnect = Boolean(peerHost && peerPort)
 
   const [currentStep, setCurrentStep] = useState<OpenChannelStep>({ step: 'amount' })

@@ -6,17 +6,7 @@ import { getKnownPeers, type KnownPeer } from '../ldk/storage/known-peers'
 import { bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
 import { ScreenHeader } from '../components/ScreenHeader'
-
-interface ChannelInfo {
-  channelIdHex: string
-  counterpartyNodeId: Uint8Array
-  counterpartyPubkey: string
-  capacitySats: bigint
-  outboundMsat: bigint
-  inboundMsat: bigint
-  isUsable: boolean
-  isReady: boolean
-}
+import type { ChannelInfo } from '../ldk/types'
 
 interface PeerEntry {
   pubkey: string
@@ -57,15 +47,13 @@ export function Peers() {
     const channelsByPeer = new Map<string, ChannelInfo[]>()
     for (const ch of channels) {
       const counterparty = ch.get_counterparty()
-      const counterpartyNodeId = counterparty.get_node_id()
-      const peerPubkey = bytesToHex(counterpartyNodeId)
+      const peerPubkey = bytesToHex(counterparty.get_node_id())
       const info: ChannelInfo = {
         channelIdHex: bytesToHex(ch.get_channel_id().write()),
-        counterpartyNodeId,
         counterpartyPubkey: peerPubkey,
         capacitySats: ch.get_channel_value_satoshis(),
-        outboundMsat: ch.get_outbound_capacity_msat(),
-        inboundMsat: ch.get_inbound_capacity_msat(),
+        outboundCapacityMsat: ch.get_outbound_capacity_msat(),
+        inboundCapacityMsat: ch.get_inbound_capacity_msat(),
         isUsable: ch.get_is_usable(),
         isReady: ch.get_is_channel_ready(),
       }
@@ -248,8 +236,8 @@ export function Peers() {
                       </button>
                     )}
                   </div>
-                  {peer.channels.map((ch, i) => (
-                    <div key={i} className="ml-5 flex flex-col gap-1 border-l border-dark-border pl-3">
+                  {peer.channels.map((ch) => (
+                    <div key={ch.channelIdHex} className="ml-5 flex flex-col gap-1 border-l border-dark-border pl-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-[var(--color-on-dark-muted)]">
                           {ch.isUsable ? 'Active' : ch.isReady ? 'Ready' : 'Pending'}
@@ -260,8 +248,8 @@ export function Peers() {
                       </div>
                       <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-on-dark-muted)]">
                         <div className="flex gap-3">
-                          <span>Send: {formatBtc(ch.outboundMsat / 1000n)}</span>
-                          <span>Receive: {formatBtc(ch.inboundMsat / 1000n)}</span>
+                          <span>Send: {formatBtc(ch.outboundCapacityMsat / 1000n)}</span>
+                          <span>Receive: {formatBtc(ch.inboundCapacityMsat / 1000n)}</span>
                         </div>
                         <button
                           className="shrink-0 text-xs font-semibold text-red-400 transition-colors active:text-red-300"

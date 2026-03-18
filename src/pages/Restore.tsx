@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { validateMnemonic } from '../wallet/mnemonic'
-import { deriveLdkSeed, deriveBdkDescriptors, deriveVssEncryptionKey, deriveVssStoreId } from '../wallet/keys'
+import { deriveLdkSeed, deriveVssEncryptionKey, deriveVssStoreId } from '../wallet/keys'
 import { VssClient, FixedHeaderProvider } from '../ldk/storage/vss-client'
 import { SIGNET_CONFIG } from '../ldk/config'
 import { clearAllStores, idbPut } from '../ldk/storage/idb'

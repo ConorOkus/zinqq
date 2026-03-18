@@ -5,19 +5,10 @@ import { bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { Check, XClose } from '../components/icons'
-import type { ChannelId } from 'lightningdevkit'
+import type { ChannelInfoWithId } from '../ldk/types'
 
-interface ChannelInfo {
-  channelId: ChannelId
-  channelIdHex: string
-  counterpartyNodeId: Uint8Array
-  counterpartyPubkey: string
-  capacitySats: bigint
-  outboundCapacityMsat: bigint
-  inboundCapacityMsat: bigint
-  isUsable: boolean
-  isReady: boolean
-}
+const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/
+const HEX_RE = /^[0-9a-f]+$/
 
 interface RouteState {
   channelIdHex?: string
@@ -25,17 +16,22 @@ interface RouteState {
 }
 
 type CloseChannelStep =
-  | { step: 'confirm'; channel: ChannelInfo; closeType: 'cooperative' | 'force' }
+  | { step: 'confirm'; channel: ChannelInfoWithId; closeType: 'cooperative' | 'force' }
   | { step: 'success'; closeType: 'cooperative' | 'force' }
-  | { step: 'error'; message: string; canForceClose: boolean; channel: ChannelInfo }
+  | { step: 'error'; message: string; canForceClose: boolean; channel: ChannelInfoWithId }
 
 export function CloseChannel() {
   const navigate = useNavigate()
   const location = useLocation()
   const ldk = useLdk()
 
-  const routeState = (location.state as RouteState | null) ?? {}
-  const { channelIdHex, counterpartyPubkey } = routeState
+  const routeState = (location.state ?? {}) as RouteState
+  const channelIdHex = typeof routeState.channelIdHex === 'string' && HEX_RE.test(routeState.channelIdHex)
+    ? routeState.channelIdHex
+    : undefined
+  const counterpartyPubkey = typeof routeState.counterpartyPubkey === 'string' && PUBKEY_HEX_RE.test(routeState.counterpartyPubkey)
+    ? routeState.counterpartyPubkey
+    : undefined
 
   const [currentStep, setCurrentStep] = useState<CloseChannelStep | null>(null)
   const closingRef = useRef(false)
@@ -61,10 +57,10 @@ export function CloseChannel() {
     }
 
     const counterparty = match.get_counterparty()
-    const channel: ChannelInfo = {
+    const channel: ChannelInfoWithId = {
       channelId: match.get_channel_id(),
       channelIdHex,
-      counterpartyNodeId: counterparty.get_node_id(),
+      counterpartyNodeId: new Uint8Array(counterparty.get_node_id()),
       counterpartyPubkey: bytesToHex(counterparty.get_node_id()),
       capacitySats: match.get_channel_value_satoshis(),
       outboundCapacityMsat: match.get_outbound_capacity_msat(),
