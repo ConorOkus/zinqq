@@ -3,9 +3,12 @@ import type { BlockStatus, TxStatus, MerkleProof, OutspendStatus } from './types
 
 const FETCH_TIMEOUT_MS = 10_000
 
-function assertHex(value: string, label: string): void {
+function assertHex(value: string, label: string, expectedLength?: number): void {
   if (!/^[0-9a-f]+$/.test(value)) {
     throw new Error(`[Esplora] Invalid hex in ${label}: ${value.slice(0, 20)}...`)
+  }
+  if (expectedLength !== undefined && value.length !== expectedLength) {
+    throw new Error(`[Esplora] Invalid hex length in ${label}: expected ${expectedLength}, got ${value.length}`)
   }
 }
 
@@ -32,22 +35,12 @@ export class EsploraClient {
     const res = await fetch(`${this.baseUrl}/blocks/tip/hash`, { signal: this.getSignal() })
     if (!res.ok) throw new Error(`[Esplora] GET /blocks/tip/hash failed: ${res.status}`)
     const hash = (await res.text()).trim()
-    assertHex(hash, 'tipHash')
+    assertHex(hash, 'tipHash', 64)
     return hash
   }
 
-  async getTipHeight(): Promise<number> {
-    const res = await fetch(`${this.baseUrl}/blocks/tip/height`, { signal: this.getSignal() })
-    if (!res.ok) throw new Error(`[Esplora] GET /blocks/tip/height failed: ${res.status}`)
-    const height = parseInt(await res.text(), 10)
-    if (!Number.isFinite(height) || height < 0) {
-      throw new Error(`[Esplora] Invalid tip height: ${String(height)}`)
-    }
-    return height
-  }
-
   async getBlockHeader(hash: string): Promise<Uint8Array> {
-    assertHex(hash, 'blockHash')
+    assertHex(hash, 'blockHash', 64)
     const res = await fetch(`${this.baseUrl}/block/${hash}/header`, { signal: this.getSignal() })
     if (!res.ok) throw new Error(`[Esplora] GET /block/${hash}/header failed: ${res.status}`)
     const hex = (await res.text()).trim()
@@ -61,7 +54,7 @@ export class EsploraClient {
   }
 
   async getBlockStatus(hash: string): Promise<BlockStatus> {
-    assertHex(hash, 'blockHash')
+    assertHex(hash, 'blockHash', 64)
     const res = await fetch(`${this.baseUrl}/block/${hash}/status`, { signal: this.getSignal() })
     if (!res.ok) throw new Error(`[Esplora] GET /block/${hash}/status failed: ${res.status}`)
     const data: unknown = await res.json()
@@ -72,7 +65,7 @@ export class EsploraClient {
   }
 
   async getTxStatus(txid: string): Promise<TxStatus> {
-    assertHex(txid, 'txid')
+    assertHex(txid, 'txid', 64)
     const res = await fetch(`${this.baseUrl}/tx/${txid}/status`, { signal: this.getSignal() })
     if (!res.ok) throw new Error(`[Esplora] GET /tx/${txid}/status failed: ${res.status}`)
     const data: unknown = await res.json()
@@ -83,7 +76,7 @@ export class EsploraClient {
   }
 
   async getTxHex(txid: string): Promise<Uint8Array> {
-    assertHex(txid, 'txid')
+    assertHex(txid, 'txid', 64)
     const res = await fetch(`${this.baseUrl}/tx/${txid}/hex`, { signal: this.getSignal() })
     if (!res.ok) throw new Error(`[Esplora] GET /tx/${txid}/hex failed: ${res.status}`)
     const hex = (await res.text()).trim()
@@ -92,7 +85,7 @@ export class EsploraClient {
   }
 
   async getTxMerkleProof(txid: string): Promise<MerkleProof> {
-    assertHex(txid, 'txid')
+    assertHex(txid, 'txid', 64)
     const res = await fetch(`${this.baseUrl}/tx/${txid}/merkle-proof`, { signal: this.getSignal() })
     if (!res.ok)
       throw new Error(`[Esplora] GET /tx/${txid}/merkle-proof failed: ${res.status}`)
@@ -104,7 +97,7 @@ export class EsploraClient {
   }
 
   async getOutspend(txid: string, vout: number): Promise<OutspendStatus> {
-    assertHex(txid, 'txid')
+    assertHex(txid, 'txid', 64)
     const res = await fetch(`${this.baseUrl}/tx/${txid}/outspend/${vout}`, { signal: this.getSignal() })
     if (!res.ok)
       throw new Error(`[Esplora] GET /tx/${txid}/outspend/${vout} failed: ${res.status}`)

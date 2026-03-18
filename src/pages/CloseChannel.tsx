@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router'
 import { useLdk } from '../ldk/use-ldk'
 import { bytesToHex } from '../ldk/utils'
@@ -38,6 +38,7 @@ export function CloseChannel() {
   const { channelIdHex, counterpartyPubkey } = routeState
 
   const [currentStep, setCurrentStep] = useState<CloseChannelStep | null>(null)
+  const closingRef = useRef(false)
 
   // Redirect if missing route state
   useEffect(() => {
@@ -76,8 +77,10 @@ export function CloseChannel() {
   }, [ldk.status, channelIdHex, counterpartyPubkey, navigate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConfirm = useCallback(() => {
+    if (closingRef.current) return
     if (ldk.status !== 'ready' || !currentStep || currentStep.step !== 'confirm') return
 
+    closingRef.current = true
     const { channel, closeType } = currentStep
 
     try {
@@ -107,6 +110,8 @@ export function CloseChannel() {
         canForceClose: currentStep.closeType === 'cooperative',
         channel: currentStep.channel,
       })
+    } finally {
+      closingRef.current = false
     }
   }, [ldk, currentStep])
 

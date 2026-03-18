@@ -25,21 +25,6 @@ describe('EsploraClient', () => {
     )
   })
 
-  it('getTipHeight returns parsed number', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('42000', { status: 200 })
-    )
-    const height = await client.getTipHeight()
-    expect(height).toBe(42000)
-  })
-
-  it('getTipHeight rejects non-integer response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('not-a-number', { status: 200 })
-    )
-    await expect(client.getTipHeight()).rejects.toThrow('Invalid tip height')
-  })
-
   it('getBlockHeader returns decoded hex bytes', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response('0a0b0c', { status: 200 })

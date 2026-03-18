@@ -29,7 +29,6 @@ function createMockEsplora(tipHash = 'newtip'): EsploraClient {
   return {
     setSignal: vi.fn(),
     getTipHash: vi.fn().mockResolvedValue(tipHash),
-    getTipHeight: vi.fn().mockResolvedValue(100),
     getBlockHeight: vi.fn().mockResolvedValue(100),
     getBlockHeader: vi.fn().mockResolvedValue(new Uint8Array(80)),
     getBlockStatus: vi.fn().mockResolvedValue({ in_best_chain: true, height: 100 }),
