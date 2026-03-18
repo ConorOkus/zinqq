@@ -51,7 +51,9 @@ type SendStep =
     }
   | { step: 'ln-success'; preimage: Uint8Array; amountMsat: bigint }
   // Shared
-  | { step: 'error'; message: string; canRetry: boolean }
+  | { step: 'error'; message: string; retryStep: ReviewStep | null }
+
+type ReviewStep = Extract<SendStep, { step: 'oc-review' } | { step: 'ln-review' }>
 
 const MIN_DUST_SATS = 294n
 const TXID_RE = /^[0-9a-f]{64}$/i
@@ -107,13 +109,12 @@ export function Send() {
   const [amountDigits, setAmountDigits] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
   const [isSendMax, setIsSendMax] = useState(false)
+  const [pendingQrInput, setPendingQrInput] = useState<string | null>(null)
   const sendingRef = useRef(false)
   const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Store amount step data so we can restore it when navigating back from review
   const amountStepDataRef = useRef<{ parsedInput: ParsedPaymentInput; rawInput: string } | null>(null)
-  // Store last review step so error retry can return to it
-  const lastReviewStepRef = useRef<SendStep | null>(null)
 
   const onchainBalance =
     onchain.status === 'ready'
@@ -126,34 +127,6 @@ export function Send() {
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
     }
-  }, [])
-
-  // QR scanner integration: consume scannedInput from location.state
-  useEffect(() => {
-    const state = location.state as Record<string, unknown> | null
-    const raw = typeof state?.scannedInput === 'string' ? state.scannedInput : null
-    if (!raw) return
-
-    // Clear location state to prevent re-processing on navigation
-    void navigate('/send', { replace: true, state: null })
-
-    const parsed = classifyPaymentInput(raw)
-    if (parsed.type === 'error') return
-
-    // Check if input has an embedded amount
-    const hasAmount =
-      (parsed.type === 'onchain' && parsed.amountSats !== null) ||
-      (parsed.type === 'bolt11' && parsed.amountMsat !== null) ||
-      (parsed.type === 'bolt12' && parsed.amountMsat !== null)
-
-    if (hasAmount) {
-      // Skip recipient and numpad — go straight to review
-      void processRecipientInput(raw, 'recipient')
-    } else {
-      // Skip recipient — go to numpad with parsed input
-      setSendStep({ step: 'amount', parsedInput: parsed, rawInput: raw })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // --- Numpad handlers ---
@@ -276,18 +249,24 @@ export function Send() {
     }
 
     // Lightning types (bolt11, bolt12, bip353)
-    const hasEmbeddedAmount = parsed.type !== 'bip353' && parsed.amountMsat !== null
+    // Fixed-amount: use embedded amount, skip numpad
+    if (parsed.type !== 'bip353' && parsed.amountMsat !== null) {
+      if (parsed.amountMsat > lnCapacityMsat) {
+        setInputError('Amount exceeds Lightning channel capacity')
+        return
+      }
+      setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat, fromStep })
+      return
+    }
 
-    // If no amount and coming from recipient, go to numpad
-    if (!hasEmbeddedAmount && fromStep === 'recipient') {
+    // No embedded amount — need numpad
+    if (fromStep === 'recipient') {
       setSendStep({ step: 'amount', parsedInput: parsed, rawInput: trimmed })
       return
     }
 
-    // Fixed-amount inputs use their own amount, discarding numpad amount
-    const effectiveMsat = hasEmbeddedAmount
-      ? parsed.amountMsat!
-      : amountSats * 1000n
+    // Coming from numpad — use user-entered amount
+    const effectiveMsat = amountSats * 1000n
     if (effectiveMsat > lnCapacityMsat) {
       setInputError('Amount exceeds Lightning channel capacity')
       return
@@ -323,6 +302,36 @@ export function Send() {
     void processRecipientInput(sendStep.rawInput, 'amount')
   }, [amountSats, sendStep, processRecipientInput])
 
+  // QR scanner integration: consume scannedInput from location.state
+  useEffect(() => {
+    const state = location.state as Record<string, unknown> | null
+    const raw = typeof state?.scannedInput === 'string' ? state.scannedInput : null
+    if (!raw || raw.length > 2000) return
+    void navigate('/send', { replace: true, state: null })
+    setPendingQrInput(raw)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Process pending QR input once wallet is ready
+  useEffect(() => {
+    if (!pendingQrInput) return
+    if (onchain.status !== 'ready') return
+    const raw = pendingQrInput
+    setPendingQrInput(null)
+    setInputValue(raw)
+    void processRecipientInput(raw, 'recipient')
+  }, [pendingQrInput, onchain.status, processRecipientInput])
+
+  // --- Review: Back navigation (shared by oc-review and ln-review) ---
+  const handleReviewBack = useCallback(() => {
+    if (sendStep.step !== 'oc-review' && sendStep.step !== 'ln-review') return
+    if (sendStep.fromStep === 'amount' && amountStepDataRef.current) {
+      setSendStep({ step: 'amount', ...amountStepDataRef.current })
+    } else {
+      setSendStep({ step: 'recipient' })
+    }
+  }, [sendStep])
+
   // --- On-chain: Confirm send ---
   const handleOcConfirm = useCallback(async () => {
     if (sendingRef.current) return
@@ -330,7 +339,7 @@ export function Send() {
 
     sendingRef.current = true
     const sentAmount = sendStep.amount
-    lastReviewStepRef.current = sendStep
+    const reviewStep = sendStep
     setSendStep({ step: 'oc-broadcasting' })
 
     try {
@@ -340,7 +349,7 @@ export function Send() {
       setSendStep({ step: 'oc-success', txid, amount: sentAmount })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setSendStep({ step: 'error', message, canRetry: true })
+      setSendStep({ step: 'error', message, retryStep: reviewStep })
     } finally {
       sendingRef.current = false
     }
@@ -353,7 +362,6 @@ export function Send() {
 
     sendingRef.current = true
     const { parsed, amountMsat } = sendStep
-    lastReviewStepRef.current = sendStep
 
     try {
       let paymentId: Uint8Array
@@ -390,7 +398,7 @@ export function Send() {
         // Timeout after 5 minutes
         if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
           stopPolling()
-          setSendStep({ step: 'error', message: 'Payment timed out', canRetry: false })
+          setSendStep({ step: 'error', message: 'Payment timed out', retryStep: null })
           return
         }
 
@@ -403,7 +411,7 @@ export function Send() {
         }
         if (result && result.status === 'failed') {
           stopPolling()
-          setSendStep({ step: 'error', message: result.reason, canRetry: false })
+          setSendStep({ step: 'error', message: result.reason, retryStep: null })
           return
         }
 
@@ -420,7 +428,7 @@ export function Send() {
           }
           if (p instanceof RecentPaymentDetails_Abandoned && bytesToHex(p.payment_id) === paymentIdHex) {
             stopPolling()
-            setSendStep({ step: 'error', message: 'Payment was abandoned', canRetry: false })
+            setSendStep({ step: 'error', message: 'Payment was abandoned', retryStep: null })
             return
           }
         }
@@ -429,7 +437,7 @@ export function Send() {
     } catch (err) {
       sendingRef.current = false
       const message = err instanceof Error ? err.message : String(err)
-      setSendStep({ step: 'error', message, canRetry: false })
+      setSendStep({ step: 'error', message, retryStep: null })
     }
   }, [ldk, sendStep])
 
@@ -442,7 +450,7 @@ export function Send() {
       pollTimerRef.current = null
     }
     sendingRef.current = false
-    setSendStep({ step: 'error', message: 'Payment cancelled', canRetry: false })
+    setSendStep({ step: 'error', message: 'Payment cancelled', retryStep: null })
   }, [ldk, sendStep])
 
   // --- Loading / error gates ---
@@ -551,15 +559,14 @@ export function Send() {
         <button
           className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
           onClick={() => {
-            if (sendStep.canRetry && lastReviewStepRef.current) {
-              setSendStep(lastReviewStepRef.current)
-              lastReviewStepRef.current = null
+            if (sendStep.retryStep) {
+              setSendStep(sendStep.retryStep)
             } else {
               void navigate('/')
             }
           }}
         >
-          {sendStep.canRetry ? 'Try Again' : 'Done'}
+          {sendStep.retryStep ? 'Try Again' : 'Done'}
         </button>
       </div>
     )
@@ -616,13 +623,7 @@ export function Send() {
     const total = sendStep.amount + sendStep.fee
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader title="Review" onBack={() => {
-          if (sendStep.fromStep === 'amount' && amountStepDataRef.current) {
-            setSendStep({ step: 'amount', ...amountStepDataRef.current })
-          } else {
-            setSendStep({ step: 'recipient' })
-          }
-        }} />
+        <ScreenHeader title="Review" onBack={handleReviewBack} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">To</span>
@@ -663,16 +664,7 @@ export function Send() {
     const { parsed, amountMsat } = sendStep
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
-        <ScreenHeader
-          title="Review"
-          onBack={() => {
-            if (sendStep.fromStep === 'amount' && amountStepDataRef.current) {
-              setSendStep({ step: 'amount', ...amountStepDataRef.current })
-            } else {
-              setSendStep({ step: 'recipient' })
-            }
-          }}
-        />
+        <ScreenHeader title="Review" onBack={handleReviewBack} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">To</span>
