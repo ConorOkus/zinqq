@@ -56,6 +56,7 @@ function readyLdkContext(): LdkContextValue {
     abandonPayment: vi.fn(),
     getPaymentResult: vi.fn(() => null),
     listRecentPayments: vi.fn(() => []),
+    checkReceivability: vi.fn(() => ({ canReceive: true })),
     outboundCapacityMsat: vi.fn(() => 1_000_000_000n),
     lightningBalanceSats: 1_000_000n,
     channelChangeCounter: 0,

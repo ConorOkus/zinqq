@@ -130,12 +130,6 @@ export async function syncOnce(
       }
     }
 
-    // 6. Verify tip didn't change mid-sync
-    const postSyncTip = await esplora.getTipHash()
-    if (postSyncTip !== tipHash) {
-      console.warn('[LDK Sync] Tip changed during sync, will retry next tick')
-    }
-
     return tipHash
   } finally {
     esplora.setSignal(undefined)

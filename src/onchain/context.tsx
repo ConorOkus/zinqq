@@ -22,6 +22,7 @@ import { ONCHAIN_CONFIG } from './config'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { useLdk } from '../ldk/use-ldk'
+import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = 1n
@@ -89,7 +90,7 @@ export function OnchainProvider({
   // The ldk context object changes reference on every LDK state update —
   // depending on it directly would tear down and rebuild BDK on each change.
   const setBdkWalletRef = useRef<((wallet: Wallet | null) => void) | null>(null)
-  const setSyncNeededRef = useRef<((cb: (() => void) | undefined) => void) | null>(null)
+  const setSyncNeededRef = useRef<((cb: SyncNeededCallback | undefined) => void) | null>(null)
 
   // Stable syncNow callback that delegates to the sync handle.
   // Exposed via context so the LDK layer can trigger immediate BDK sync after channel close.

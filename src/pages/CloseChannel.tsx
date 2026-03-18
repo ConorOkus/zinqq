@@ -64,7 +64,7 @@ export function CloseChannel() {
     const channel: ChannelInfo = {
       channelId: match.get_channel_id(),
       channelIdHex,
-      counterpartyNodeId: counterparty.get_node_id(),
+      counterpartyNodeId: new Uint8Array(counterparty.get_node_id()),
       counterpartyPubkey: bytesToHex(counterparty.get_node_id()),
       capacitySats: match.get_channel_value_satoshis(),
       outboundCapacityMsat: match.get_outbound_capacity_msat(),

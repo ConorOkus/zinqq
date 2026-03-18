@@ -248,8 +248,8 @@ export function Peers() {
                       </button>
                     )}
                   </div>
-                  {peer.channels.map((ch, i) => (
-                    <div key={i} className="ml-5 flex flex-col gap-1 border-l border-dark-border pl-3">
+                  {peer.channels.map((ch) => (
+                    <div key={ch.channelIdHex} className="ml-5 flex flex-col gap-1 border-l border-dark-border pl-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-[var(--color-on-dark-muted)]">
                           {ch.isUsable ? 'Active' : ch.isReady ? 'Ready' : 'Pending'}

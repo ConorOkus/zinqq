@@ -163,58 +163,82 @@ export function Send() {
 
     processingRef.current = true
     try {
-    const parsed = classifyPaymentInput(trimmed)
+      const parsed = classifyPaymentInput(trimmed)
 
-    if (parsed.type === 'error') {
-      setInputError(parsed.message)
-      return
-    }
-
-    setInputError(null)
-
-    // Save amount step data for back navigation from review
-    if (fromStep === 'amount') {
-      amountStepDataRef.current = { parsedInput: parsed, rawInput: trimmed }
-    } else {
-      amountStepDataRef.current = null
-    }
-
-    if (parsed.type === 'onchain') {
-      const hasEmbeddedAmount = parsed.amountSats !== null
-
-      // If no amount and coming from recipient, go to numpad
-      if (!hasEmbeddedAmount && fromStep === 'recipient') {
-        setSendStep({ step: 'amount', parsedInput: parsed, rawInput: trimmed })
+      if (parsed.type === 'error') {
+        setInputError(parsed.message)
         return
       }
 
-      // Use parsed amount if present (BIP 321 URI with ?amount=), otherwise use numpad amount
-      const effectiveAmount = parsed.amountSats ?? amountSats
-      const effectiveIsSendMax = parsed.amountSats ? false : isSendMax
+      setInputError(null)
 
-      // Phase 2 validation: dust limit
-      if (effectiveAmount < MIN_DUST_SATS) {
-        setInputError('Amount must be at least 294 sats (dust limit)')
-        return
+      // Save amount step data for back navigation from review
+      if (fromStep === 'amount') {
+        amountStepDataRef.current = { parsedInput: parsed, rawInput: trimmed }
+      } else {
+        amountStepDataRef.current = null
       }
 
-      if (onchain.status !== 'ready') return
+      if (parsed.type === 'onchain') {
+        const hasEmbeddedAmount = parsed.amountSats !== null
 
-      // Send max: recalculate exact amount with fee
-      if (effectiveIsSendMax) {
-        try {
-          const estimate = await onchain.estimateMaxSendable(parsed.address)
-          if (estimate.amount <= 0n) {
-            setInputError('Balance too low to cover fees')
-            return
+        // If no amount and coming from recipient, go to numpad
+        if (!hasEmbeddedAmount && fromStep === 'recipient') {
+          setSendStep({ step: 'amount', parsedInput: parsed, rawInput: trimmed })
+          return
+        }
+
+        // Use parsed amount if present (BIP 321 URI with ?amount=), otherwise use numpad amount
+        const effectiveAmount = parsed.amountSats ?? amountSats
+        const effectiveIsSendMax = parsed.amountSats ? false : isSendMax
+
+        // Phase 2 validation: dust limit
+        if (effectiveAmount < MIN_DUST_SATS) {
+          setInputError('Amount must be at least 294 sats (dust limit)')
+          return
+        }
+
+        if (onchain.status !== 'ready') return
+
+        // Send max: recalculate exact amount with fee
+        if (effectiveIsSendMax) {
+          try {
+            const estimate = await onchain.estimateMaxSendable(parsed.address)
+            if (estimate.amount <= 0n) {
+              setInputError('Balance too low to cover fees')
+              return
+            }
+            setSendStep({
+              step: 'oc-review',
+              address: parsed.address,
+              amount: estimate.amount,
+              fee: estimate.fee,
+              feeRate: estimate.feeRate,
+              isSendMax: true,
+              fromStep,
+            })
+          } catch (err) {
+            const message = classifyEstimateError(err)
+            setInputError(message)
           }
+          return
+        }
+
+        // Validate against on-chain balance
+        if (effectiveAmount > onchainBalance) {
+          setInputError('Amount exceeds available on-chain balance')
+          return
+        }
+
+        try {
+          const estimate = await onchain.estimateFee(parsed.address, effectiveAmount)
           setSendStep({
             step: 'oc-review',
             address: parsed.address,
-            amount: estimate.amount,
+            amount: effectiveAmount,
             fee: estimate.fee,
             feeRate: estimate.feeRate,
-            isSendMax: true,
+            isSendMax: false,
             fromStep,
           })
         } catch (err) {
@@ -224,54 +248,30 @@ export function Send() {
         return
       }
 
-      // Validate against on-chain balance
-      if (effectiveAmount > onchainBalance) {
-        setInputError('Amount exceeds available on-chain balance')
+      // Lightning types (bolt11, bolt12, bip353)
+      // Fixed-amount: use embedded amount, skip numpad
+      if (parsed.type !== 'bip353' && parsed.amountMsat !== null) {
+        if (parsed.amountMsat > lnCapacityMsat) {
+          setInputError('Amount exceeds Lightning channel capacity')
+          return
+        }
+        setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat, fromStep })
         return
       }
 
-      try {
-        const estimate = await onchain.estimateFee(parsed.address, effectiveAmount)
-        setSendStep({
-          step: 'oc-review',
-          address: parsed.address,
-          amount: effectiveAmount,
-          fee: estimate.fee,
-          feeRate: estimate.feeRate,
-          isSendMax: false,
-          fromStep,
-        })
-      } catch (err) {
-        const message = classifyEstimateError(err)
-        setInputError(message)
+      // No embedded amount — need numpad
+      if (fromStep === 'recipient') {
+        setSendStep({ step: 'amount', parsedInput: parsed, rawInput: trimmed })
+        return
       }
-      return
-    }
 
-    // Lightning types (bolt11, bolt12, bip353)
-    // Fixed-amount: use embedded amount, skip numpad
-    if (parsed.type !== 'bip353' && parsed.amountMsat !== null) {
-      if (parsed.amountMsat > lnCapacityMsat) {
+      // Coming from numpad — use user-entered amount
+      const effectiveMsat = amountSats * 1000n
+      if (effectiveMsat > lnCapacityMsat) {
         setInputError('Amount exceeds Lightning channel capacity')
         return
       }
-      setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat, fromStep })
-      return
-    }
-
-    // No embedded amount — need numpad
-    if (fromStep === 'recipient') {
-      setSendStep({ step: 'amount', parsedInput: parsed, rawInput: trimmed })
-      return
-    }
-
-    // Coming from numpad — use user-entered amount
-    const effectiveMsat = amountSats * 1000n
-    if (effectiveMsat > lnCapacityMsat) {
-      setInputError('Amount exceeds Lightning channel capacity')
-      return
-    }
-    setSendStep({ step: 'ln-review', parsed, amountMsat: effectiveMsat, fromStep })
+      setSendStep({ step: 'ln-review', parsed, amountMsat: effectiveMsat, fromStep })
     } finally {
       processingRef.current = false
     }
@@ -306,7 +306,11 @@ export function Send() {
   useEffect(() => {
     const state = location.state as Record<string, unknown> | null
     const raw = typeof state?.scannedInput === 'string' ? state.scannedInput : null
-    if (!raw || raw.length > 2000) return
+    if (!raw) return
+    if (raw.length > 2000) {
+      setInputError('Scanned input is too long')
+      return
+    }
     void navigate('/send', { replace: true, state: null })
     setPendingQrInput(raw)
   // eslint-disable-next-line react-hooks/exhaustive-deps
