@@ -12,6 +12,7 @@ import type { WatchState } from '../traits/filter'
 import { initRapidGossipSync, syncRapidGossip, type RgsHandle } from './rapid-gossip-sync'
 import { txidBytesToHex } from '../utils'
 import { idbPut } from '../storage/idb'
+import { persistChannelManager, type CmPersistContext } from '../storage/persist-cm'
 import type { SyncStatus } from '../ldk-context'
 
 export async function syncOnce(
@@ -158,6 +159,7 @@ export interface SyncLoopConfig {
   rgsUrl?: string
   rgsSyncIntervalTicks?: number
   onStatusChange?: (status: SyncStatus) => void
+  cmPersistCtx?: CmPersistContext
 }
 
 const MAX_BACKOFF_MS = 5 * 60 * 1_000 // 5 minutes
@@ -218,11 +220,11 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       config.channelManager.timer_tick_occurred()
       config.chainMonitor.rebroadcast_pending_claims()
 
-      // Persist ChannelManager if needed (cmNeedsPersist retries after prior idbPut failure)
+      // Persist ChannelManager if needed (cmNeedsPersist retries after prior failure)
       if (cmNeedsPersist || config.channelManager.get_and_clear_needs_persistence()) {
         cmNeedsPersist = false
         try {
-          await idbPut('ldk_channel_manager', 'primary', config.channelManager.write())
+          await persistChannelManager(config.channelManager, config.cmPersistCtx)
         } catch (err: unknown) {
           cmNeedsPersist = true
           throw err

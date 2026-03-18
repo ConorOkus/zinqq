@@ -239,12 +239,12 @@ Consolidate CM persist paths and add VSS writes.
 
 **Tasks:**
 
-- [ ] Create `src/ldk/storage/persist-cm.ts` with `persistChannelManager(cm, vssClient?)` function
-- [ ] Refactor `src/ldk/sync/chain-sync.ts:225` to call `persistChannelManager()`
-- [ ] Refactor `src/ldk/context.tsx:542` (event timer) to call `persistChannelManager()`
-- [ ] Keep `src/ldk/context.tsx:661` (visibility handler) as IDB-only — browser may kill tab before network request completes
-- [ ] ChannelManager uses a single VSS key: `"channel_manager"` (obfuscated by VssClient)
-- [ ] Track CM version in memory, same pattern as monitors
+- [x] Create `src/ldk/storage/persist-cm.ts` with `persistChannelManager(cm, vssClient?)` function
+- [x] Refactor `src/ldk/sync/chain-sync.ts:225` to call `persistChannelManager()`
+- [x] Refactor `src/ldk/context.tsx:542` (event timer) to call `persistChannelManager()`
+- [x] Keep `src/ldk/context.tsx:661` (visibility handler) as IDB-only — browser may kill tab before network request completes
+- [x] ChannelManager uses a single VSS key: `"channel_manager"` (obfuscated by VssClient)
+- [x] Track CM version in memory, same pattern as monitors
 
 **Success criteria:**
 - [ ] All three CM persist paths go through the consolidated function
@@ -257,15 +257,15 @@ Wire VSS into startup and handle existing users.
 
 **Tasks:**
 
-- [ ] Derive `vssEncryptionKey` and `vssStoreId` in `WalletProvider` alongside existing `ldkSeed` and `bdkDescriptors`
-- [ ] Pass `vssEncryptionKey` and `vssStoreId` through context to `LdkProvider`
-- [ ] Instantiate `VssClient` in `LdkProvider` before calling `initializeLdk()`
-- [ ] Pass `VssClient` to `createPersister()` and to the CM persist function
-- [ ] **Migration for existing users:** On first startup with VSS enabled, if IDB has channel state but VSS does not:
+- [x] Derive `vssEncryptionKey` and `vssStoreId` in `WalletProvider` alongside existing `ldkSeed` and `bdkDescriptors`
+- [x] Pass `vssEncryptionKey` and `vssStoreId` through context to `LdkProvider`
+- [x] Instantiate `VssClient` in `LdkProvider` before calling `initializeLdk()`
+- [x] Pass `VssClient` to `createPersister()` and to the CM persist function
+- [x] **Migration for existing users:** On first startup with VSS enabled, if IDB has channel state but VSS does not:
   - Upload all existing ChannelMonitors + ChannelManager to VSS as version 0 → 1
   - Track migration completion with `vss_migrated` flag in a new IDB store
   - If upload fails partway, retry from scratch on next startup (idempotent via version checks)
-- [ ] Initialize the in-memory version cache by fetching `listKeyVersions` from VSS at startup
+- [x] Initialize the in-memory version cache by fetching `listKeyVersions` from VSS at startup
 
 **Key integration point in `src/ldk/init.ts`:**
 ```typescript
