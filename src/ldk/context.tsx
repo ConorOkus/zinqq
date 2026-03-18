@@ -15,6 +15,7 @@ import {
   type HumanReadableName,
 } from 'lightningdevkit'
 import { initializeLdk, type LdkNode } from './init'
+import { VssClient, FixedHeaderProvider } from './storage/vss-client'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue, type PaymentResult } from './ldk-context'
 import { SIGNET_CONFIG } from './config'
 import { EsploraClient } from './sync/esplora-client'
@@ -30,9 +31,13 @@ import { msatToSatFloor } from '../utils/msat'
 export function LdkProvider({
   children,
   ldkSeed,
+  vssEncryptionKey,
+  vssStoreId,
 }: {
   children: ReactNode
   ldkSeed: Uint8Array
+  vssEncryptionKey: Uint8Array
+  vssStoreId: string
 }) {
   const [state, setState] = useState<LdkContextValue>(defaultLdkContextValue)
   const nodeRef = useRef<LdkNode | null>(null)
@@ -370,8 +375,31 @@ export function LdkProvider({
     let peerTimerId: ReturnType<typeof setInterval> | null = null
     let cleanupEventHandlerFn: (() => void) | null = null
 
-    initializeLdk(ldkSeed)
-      .then(async ({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelClosedCallback, setSyncNeededCallback }) => {
+    const vssClient = new VssClient(
+      SIGNET_CONFIG.vssUrl,
+      vssStoreId,
+      vssEncryptionKey,
+      new FixedHeaderProvider({}),
+    )
+
+    initializeLdk({
+      ldkSeed,
+      vssClient,
+      persisterOptions: {
+        vssClient,
+        onVssUnavailable: () => {
+          setState((prev) =>
+            prev.status === 'ready' ? { ...prev, vssStatus: 'degraded' } : prev,
+          )
+        },
+        onVssRecovered: () => {
+          setState((prev) =>
+            prev.status === 'ready' ? { ...prev, vssStatus: 'ok' } : prev,
+          )
+        },
+      },
+    })
+      .then(async ({ node, watchState, cleanupEventHandler, setBdkWallet, setPaymentCallback, setChannelClosedCallback, setSyncNeededCallback, cmPersistCtx }) => {
         if (cancelled) return
 
         nodeRef.current = node
@@ -431,6 +459,7 @@ export function LdkProvider({
               prev.status === 'ready' ? { ...prev, syncStatus } : prev,
             )
           },
+          cmPersistCtx,
         })
 
         // Periodic reconnection: check every 3rd tick (~30s) for channel
@@ -539,7 +568,7 @@ export function LdkProvider({
 
           // Flush ChannelManager state immediately after processing events
           if (node.channelManager.get_and_clear_needs_persistence()) {
-            void persistChannelManager(node.channelManager).catch(
+            void persistChannelManager(node.channelManager, cmPersistCtx).catch(
               (err: unknown) => {
                 console.error(
                   '[LDK Context] Failed to persist ChannelManager after events:',
@@ -681,7 +710,7 @@ export function LdkProvider({
       activeConnections.current.clear()
       nodeRef.current = null
     }
-  }, [connectToPeer, forgetPeer, createChannel, closeChannel, forceCloseChannel, listChannels, createInvoice, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, refreshPaymentHistory, ldkSeed])
+  }, [connectToPeer, forgetPeer, createChannel, closeChannel, forceCloseChannel, listChannels, createInvoice, sendBolt11Payment, sendBolt12Payment, sendBip353Payment, abandonPayment, getPaymentResult, listRecentPayments, outboundCapacityMsat, refreshPaymentHistory, ldkSeed, vssEncryptionKey, vssStoreId])
 
   return <LdkContext value={state}>{children}</LdkContext>
 }

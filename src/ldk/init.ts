@@ -38,7 +38,7 @@ import { getSeed, storeDerivedSeed } from './storage/seed'
 import { createLogger } from './traits/logger'
 import { createFeeEstimator } from './traits/fee-estimator'
 import { createBroadcaster } from './traits/broadcaster'
-import { createPersister } from './traits/persist'
+import { createPersister, type PersisterOptions } from './traits/persist'
 import { createFilter, type WatchState } from './traits/filter'
 import { createEventHandler, type PaymentEventCallback, type ChannelClosedCallback, type SyncNeededCallback } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
@@ -46,6 +46,8 @@ import { SIGNET_CONFIG } from './config'
 import { idbGet, idbGetAll } from './storage/idb'
 import { bytesToHex, hexToBytes } from './utils'
 import { EsploraClient } from './sync/esplora-client'
+import type { VssClient } from './storage/vss-client'
+import type { CmPersistContext } from './storage/persist-cm'
 
 export interface LdkNode {
   nodeId: string
@@ -71,6 +73,7 @@ export interface InitResult {
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
+  cmPersistCtx: CmPersistContext
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -112,9 +115,15 @@ async function acquireWalletLock(): Promise<void> {
 // The second mount reuses the in-flight promise instead of fighting for the Web Lock.
 let initPromise: Promise<InitResult> | null = null
 
-export function initializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
+export interface InitOptions {
+  ldkSeed: Uint8Array
+  vssClient?: VssClient | null
+  persisterOptions?: PersisterOptions
+}
+
+export function initializeLdk(options: InitOptions): Promise<InitResult> {
   if (!initPromise) {
-    initPromise = doInitializeLdk(ldkSeed).catch((err) => {
+    initPromise = doInitializeLdk(options).catch((err) => {
       initPromise = null
       throw err
     })
@@ -122,7 +131,8 @@ export function initializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   return initPromise
 }
 
-async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
+async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
+  const { ldkSeed, vssClient, persisterOptions } = options
   // 0. Safety: acquire multi-tab lock and init WASM
   await acquireWalletLock()
   await initWasm()
@@ -154,7 +164,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
   const logger = createLogger()
   const feeEstimator = createFeeEstimator(SIGNET_CONFIG.esploraUrl)
   const broadcaster = createBroadcaster(SIGNET_CONFIG.esploraUrl)
-  const { persist: persister, setChainMonitor, onPersistFailure } = createPersister()
+  const { persist: persister, setChainMonitor, onPersistFailure, versionCache } = createPersister(persisterOptions)
 
   // 4. Create Filter + ChainMonitor
   const { filter, watchState } = createFilter()
@@ -363,6 +373,49 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     setSignerBdkWallet(wallet)
   }
 
+  // ChannelManager VSS version ref — seeded below, updated by persistChannelManager
+  const cmVersionRef = { current: 0 }
+  const cmPersistCtx: CmPersistContext = {
+    vssClient: vssClient ?? null,
+    cmVersionRef,
+  }
+
+  // Version cache starts empty — conflict resolution handles version sync.
+  // On first write after restart, version 0 is sent. If the server has a higher
+  // version, CONFLICT_EXCEPTION fires, the conflict resolution re-fetches the
+  // server's version, and proceeds. One extra round trip per key on first write.
+  //
+  // Migration for existing users: if IDB has channel state but VSS has none,
+  // upload existing state. listKeyVersions returns obfuscated keys, so we use
+  // it only to detect whether VSS has any data for this wallet.
+  if (vssClient && restoredMonitors.length > 0) {
+    try {
+      const vssKeys = await vssClient.listKeyVersions()
+      if (vssKeys.length === 0) {
+        console.log('[LDK Init] Migrating existing IDB state to VSS...')
+        const items: Array<{ key: string; value: Uint8Array; version: number }> = []
+
+        // Upload ChannelManager
+        if (cmBytes && cmBytes instanceof Uint8Array) {
+          items.push({ key: 'channel_manager', value: cmBytes, version: 0 })
+        }
+
+        // Upload all ChannelMonitors
+        for (const [key, data] of monitorEntries) {
+          items.push({ key, value: data, version: 0 })
+        }
+
+        if (items.length > 0) {
+          await vssClient.putObjects(items)
+          console.log(`[LDK Init] Migrated ${items.length} item(s) to VSS`)
+        }
+      }
+    } catch (err: unknown) {
+      // Migration failure is non-fatal — VSS writes will begin on next persist
+      console.warn('[LDK Init] VSS migration failed (will retry on next startup):', err)
+    }
+  }
+
   const node: LdkNode = {
     nodeId,
     keysManager,
@@ -393,6 +446,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => {
       syncNeededCallback = cb
     },
+    cmPersistCtx,
   }
 }
 

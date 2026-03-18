@@ -16,7 +16,7 @@ export function WalletGate({ children }: { children: ReactNode }) {
 
   // status === 'ready' — render providers with derived keys, then children
   return (
-    <LdkProvider ldkSeed={wallet.ldkSeed}>
+    <LdkProvider ldkSeed={wallet.ldkSeed} vssEncryptionKey={wallet.vssEncryptionKey} vssStoreId={wallet.vssStoreId}>
       <OnchainProvider bdkDescriptors={wallet.bdkDescriptors}>{children}</OnchainProvider>
     </LdkProvider>
   )

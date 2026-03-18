@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { WalletContext, defaultWalletContextValue, type WalletContextValue } from './wallet-context'
 import { generateMnemonic, getMnemonic, storeMnemonic } from './mnemonic'
-import { deriveLdkSeed, deriveBdkDescriptors } from './keys'
+import { deriveLdkSeed, deriveBdkDescriptors, deriveVssEncryptionKey, deriveVssStoreId } from './keys'
 
 // Deduplicate concurrent calls from React StrictMode double-mount.
 let walletInitPromise: Promise<{ ldkSeed: Uint8Array; bdkDescriptors: { external: string; internal: string } }> | null = null
@@ -14,7 +14,9 @@ async function doInitializeWallet() {
   }
   const ldkSeed = deriveLdkSeed(mnemonic)
   const bdkDescriptors = deriveBdkDescriptors(mnemonic, 'signet')
-  return { ldkSeed, bdkDescriptors }
+  const vssEncryptionKey = deriveVssEncryptionKey(mnemonic)
+  const vssStoreId = await deriveVssStoreId(ldkSeed)
+  return { ldkSeed, bdkDescriptors, vssEncryptionKey, vssStoreId }
 }
 
 function initializeWallet() {
@@ -32,9 +34,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     initializeWallet()
-      .then(({ ldkSeed, bdkDescriptors }) => {
+      .then(({ ldkSeed, bdkDescriptors, vssEncryptionKey, vssStoreId }) => {
         walletInitPromise = null // Allow GC of mnemonic closure
-        setState({ status: 'ready', ldkSeed, bdkDescriptors })
+        setState({ status: 'ready', ldkSeed, bdkDescriptors, vssEncryptionKey, vssStoreId })
       })
       .catch((err: unknown) => {
         setState({
