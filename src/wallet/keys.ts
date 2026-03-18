@@ -37,14 +37,12 @@ export function deriveVssEncryptionKey(mnemonic: string): Uint8Array {
 
 /**
  * Derive a deterministic VSS store_id from an LDK seed.
- * Computes SHA-256 of the node public key (derived from the seed) and returns the hex string.
+ * Computes SHA-256 of the raw seed bytes and returns the hex string.
  * This is unique per wallet and reproducible from the mnemonic alone.
  */
 export async function deriveVssStoreId(ldkSeed: Uint8Array): Promise<string> {
-  // Derive the node public key from the seed using the same logic as KeysManager:
-  // The node pubkey is the compressed public key corresponding to the seed's secret key.
-  // We derive it via HDKey to get the public key without needing LDK WASM.
-  const hashBuffer = await crypto.subtle.digest('SHA-256', ldkSeed.buffer as ArrayBuffer)
+  // Copy to guarantee a fresh ArrayBuffer (avoids TypedArray view aliasing)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', new Uint8Array(ldkSeed).buffer)
   const hashArray = new Uint8Array(hashBuffer)
   return Array.from(hashArray)
     .map((b) => b.toString(16).padStart(2, '0'))

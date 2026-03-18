@@ -14,6 +14,7 @@ import {
 import { vssEncrypt, vssDecrypt, obfuscateKey } from './vss-crypto'
 
 const FETCH_TIMEOUT_MS = 15_000
+const MAX_LIST_PAGES = 100
 
 export interface VssHeaderProvider {
   getHeaders(): Promise<Record<string, string>>
@@ -22,16 +23,16 @@ export interface VssHeaderProvider {
 export class FixedHeaderProvider implements VssHeaderProvider {
   #headers: Record<string, string>
   constructor(headers: Record<string, string>) {
-    this.#headers = headers
+    this.#headers = { ...headers }
   }
   async getHeaders(): Promise<Record<string, string>> {
-    return this.#headers
+    return { ...this.#headers }
   }
 }
 
 export class VssError extends Error {
-  errorCode: ErrorCode
-  httpStatus: number
+  readonly errorCode: ErrorCode
+  readonly httpStatus: number
   constructor(message: string, errorCode: ErrorCode, httpStatus: number) {
     super(message)
     this.name = 'VssError'
@@ -67,26 +68,8 @@ export class VssClient {
       storeId: this.#storeId,
       key: obfuscatedKey,
     })
-    const body = toBinary(GetObjectRequestSchema, request)
 
-    let res: Response
-    try {
-      res = await fetch(`${this.#baseUrl}/getObject`, {
-        method: 'POST',
-        body,
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          ...(await this.#auth.getHeaders()),
-        },
-      })
-    } catch (err) {
-      throw new VssError(
-        `[VSS] getObject network error: ${err instanceof Error ? err.message : String(err)}`,
-        ErrorCode.UNKNOWN,
-        0,
-      )
-    }
+    const res = await this.#post('getObject', toBinary(GetObjectRequestSchema, request))
 
     if (res.status === 404) return null
     if (!res.ok) throw await this.#parseError(res)
@@ -103,6 +86,11 @@ export class VssClient {
     }
   }
 
+  /**
+   * Write a single object. Returns the new version number.
+   * The VSS protocol increments the server-side version by 1 on each successful write,
+   * so the returned value is `version + 1`.
+   */
   async putObject(
     key: string,
     value: Uint8Array,
@@ -120,29 +108,9 @@ export class VssClient {
     const request = create(PutObjectRequestSchema, {
       storeId: this.#storeId,
       transactionItems: [kv],
-      deleteItems: [],
     })
-    const body = toBinary(PutObjectRequestSchema, request)
 
-    let res: Response
-    try {
-      res = await fetch(`${this.#baseUrl}/putObjects`, {
-        method: 'POST',
-        body,
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          ...(await this.#auth.getHeaders()),
-        },
-      })
-    } catch (err) {
-      throw new VssError(
-        `[VSS] putObject network error: ${err instanceof Error ? err.message : String(err)}`,
-        ErrorCode.UNKNOWN,
-        0,
-      )
-    }
-
+    const res = await this.#post('putObjects', toBinary(PutObjectRequestSchema, request))
     if (!res.ok) throw await this.#parseError(res)
     return version + 1
   }
@@ -166,29 +134,9 @@ export class VssClient {
     const request = create(PutObjectRequestSchema, {
       storeId: this.#storeId,
       transactionItems,
-      deleteItems: [],
     })
-    const body = toBinary(PutObjectRequestSchema, request)
 
-    let res: Response
-    try {
-      res = await fetch(`${this.#baseUrl}/putObjects`, {
-        method: 'POST',
-        body,
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          ...(await this.#auth.getHeaders()),
-        },
-      })
-    } catch (err) {
-      throw new VssError(
-        `[VSS] putObjects network error: ${err instanceof Error ? err.message : String(err)}`,
-        ErrorCode.UNKNOWN,
-        0,
-      )
-    }
-
+    const res = await this.#post('putObjects', toBinary(PutObjectRequestSchema, request))
     if (!res.ok) throw await this.#parseError(res)
   }
 
@@ -202,27 +150,8 @@ export class VssClient {
         version: BigInt(version),
       }),
     })
-    const body = toBinary(DeleteObjectRequestSchema, request)
 
-    let res: Response
-    try {
-      res = await fetch(`${this.#baseUrl}/deleteObject`, {
-        method: 'POST',
-        body,
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          ...(await this.#auth.getHeaders()),
-        },
-      })
-    } catch (err) {
-      throw new VssError(
-        `[VSS] deleteObject network error: ${err instanceof Error ? err.message : String(err)}`,
-        ErrorCode.UNKNOWN,
-        0,
-      )
-    }
-
+    const res = await this.#post('deleteObject', toBinary(DeleteObjectRequestSchema, request))
     if (!res.ok) throw await this.#parseError(res)
   }
 
@@ -231,33 +160,23 @@ export class VssClient {
   > {
     const results: Array<{ key: string; version: number }> = []
     let pageToken: string | undefined
+    let pages = 0
 
     do {
-      const request = create(ListKeyVersionsRequestSchema, {
-        storeId: this.#storeId,
-        pageToken,
-      })
-      const body = toBinary(ListKeyVersionsRequestSchema, request)
-
-      let res: Response
-      try {
-        res = await fetch(`${this.#baseUrl}/listKeyVersions`, {
-          method: 'POST',
-          body,
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            ...(await this.#auth.getHeaders()),
-          },
-        })
-      } catch (err) {
+      if (++pages > MAX_LIST_PAGES) {
         throw new VssError(
-          `[VSS] listKeyVersions network error: ${err instanceof Error ? err.message : String(err)}`,
+          '[VSS] listKeyVersions exceeded max page limit',
           ErrorCode.UNKNOWN,
           0,
         )
       }
 
+      const request = create(ListKeyVersionsRequestSchema, {
+        storeId: this.#storeId,
+        pageToken,
+      })
+
+      const res = await this.#post('listKeyVersions', toBinary(ListKeyVersionsRequestSchema, request))
       if (!res.ok) throw await this.#parseError(res)
 
       const responseBytes = new Uint8Array(await res.arrayBuffer())
@@ -271,6 +190,26 @@ export class VssClient {
     } while (pageToken)
 
     return results
+  }
+
+  async #post(endpoint: string, body: Uint8Array): Promise<Response> {
+    try {
+      return await fetch(`${this.#baseUrl}/${endpoint}`, {
+        method: 'POST',
+        body,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          ...(await this.#auth.getHeaders()),
+        },
+      })
+    } catch (err) {
+      throw new VssError(
+        `[VSS] ${endpoint} network error: ${err instanceof Error ? err.message : String(err)}`,
+        ErrorCode.UNKNOWN,
+        0,
+      )
+    }
   }
 
   async #parseError(res: Response): Promise<VssError> {
