@@ -263,7 +263,7 @@ async function doInitializeLdk(ldkSeed: Uint8Array): Promise<InitResult> {
     // Fresh ChannelManager — fetch current chain tip from Esplora
     const esplora = new EsploraClient(SIGNET_CONFIG.esploraUrl)
     const tipHash = await esplora.getTipHash()
-    const tipHeight = await esplora.getTipHeight()
+    const tipHeight = await esplora.getBlockHeight(tipHash)
 
     const bestBlock = BestBlock.constructor_new(hexToBytes(tipHash), tipHeight)
     const chainParams = ChainParameters.constructor_new(SIGNET_CONFIG.network, bestBlock)
