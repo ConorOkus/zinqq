@@ -337,12 +337,15 @@ export function LdkProvider({
     let peerTimerId: ReturnType<typeof setInterval> | null = null
     let cleanupEventHandlerFn: (() => void) | null = null
 
-    const vssClient = new VssClient(
-      SIGNET_CONFIG.vssUrl,
-      vssStoreId,
-      vssEncryptionKey,
-      new FixedHeaderProvider({}),
-    )
+    const vssDisabled = import.meta.env.VITE_DISABLE_VSS === 'true'
+    const vssClient = vssDisabled
+      ? null
+      : new VssClient(
+          SIGNET_CONFIG.vssUrl,
+          vssStoreId,
+          vssEncryptionKey,
+          new FixedHeaderProvider({}),
+        )
 
     initializeLdk({
       ldkSeed,
