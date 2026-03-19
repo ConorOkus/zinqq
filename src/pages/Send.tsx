@@ -436,8 +436,16 @@ export function Send() {
       return
     }
 
+    // LNURL: fetch invoice directly from callback — don't re-parse the raw input
+    // (re-parsing would classify user@domain as bip353 and restart resolution)
+    if (sendStep.parsedInput.type === 'lnurl') {
+      const effectiveMsat = amountSats * 1000n
+      void fetchAndRouteInvoice(sendStep.parsedInput.metadata.callback, effectiveMsat, sendStep.parsedInput.raw)
+      return
+    }
+
     void processRecipientInput(sendStep.rawInput, 'amount')
-  }, [amountSats, sendStep, processRecipientInput])
+  }, [amountSats, sendStep, processRecipientInput, fetchAndRouteInvoice])
 
   // QR scanner integration: consume scannedInput from location.state
   useEffect(() => {
