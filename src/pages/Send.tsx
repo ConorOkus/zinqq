@@ -25,8 +25,6 @@ import {
 type SendStep =
   // Recipient entry (first screen)
   | { step: 'recipient' }
-  // Resolving user@domain address (BIP 353 / LNURL)
-  | { step: 'resolving'; raw: string }
   // Amount entry (shown only when input has no embedded amount)
   | { step: 'amount'; parsedInput: ParsedPaymentInput; rawInput: string; minSat?: bigint; maxSat?: bigint }
   // On-chain flow
@@ -114,6 +112,7 @@ export function Send() {
   const [inputError, setInputError] = useState<string | null>(null)
   const [isSendMax, setIsSendMax] = useState(false)
   const [pendingQrInput, setPendingQrInput] = useState<string | null>(null)
+  const [isResolving, setIsResolving] = useState(false)
   const sendingRef = useRef(false)
   const processingRef = useRef(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -167,7 +166,8 @@ export function Send() {
     const controller = new AbortController()
     resolveAbortRef.current = controller
 
-    setSendStep({ step: 'resolving', raw })
+    setIsResolving(true)
+    setInputError(null)
 
     try {
       // Each resolution step gets its own timeout so a slow DoH response
@@ -207,12 +207,14 @@ export function Send() {
         return
       }
 
-      setSendStep({ step: 'error', message: `No Lightning Address or BIP 353 record found for ${raw}`, retryStep: null })
+      setInputError(`No Lightning Address or BIP 353 record found for ${raw}`)
     } catch (err) {
       if (controller.signal.aborted) return
       const message = err instanceof Error ? err.message : String(err)
       console.warn('[Send] Address resolution failed:', message)
-      setSendStep({ step: 'error', message, retryStep: null })
+      setInputError(message)
+    } finally {
+      setIsResolving(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- routeResolvedInput and fetchAndRouteInvoice are stable setState wrappers
   }, [])
@@ -241,24 +243,26 @@ export function Send() {
   // Fetch LNURL invoice and route to ln-review
   const fetchAndRouteInvoice = useCallback(async (callback: string, amountMsat: bigint, label: string) => {
     const controller = resolveAbortRef.current
+    setIsResolving(true)
     try {
-      setSendStep({ step: 'resolving', raw: label })
       const invoiceStr = await fetchLnurlInvoice(callback, amountMsat, controller?.signal)
       const parsed = classifyPaymentInput(invoiceStr)
       if (parsed.type === 'bolt11') {
         // Verify invoice amount matches what we requested
         if (parsed.amountMsat !== null && parsed.amountMsat !== amountMsat) {
-          setSendStep({ step: 'error', message: 'Invoice amount does not match requested amount', retryStep: null })
+          setInputError('Invoice amount does not match requested amount')
           return
         }
         setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat ?? amountMsat, fromStep: 'amount', label })
       } else {
-        setSendStep({ step: 'error', message: 'Invalid invoice from Lightning Address provider', retryStep: null })
+        setInputError('Invalid invoice from Lightning Address provider')
       }
     } catch (err) {
       if (controller?.signal.aborted) return
       const message = err instanceof Error ? err.message : String(err)
-      setSendStep({ step: 'error', message, retryStep: null })
+      setInputError(message)
+    } finally {
+      setIsResolving(false)
     }
   }, [])
 
@@ -620,25 +624,6 @@ export function Send() {
     )
   }
 
-  // --- Resolving address ---
-  if (sendStep.step === 'resolving') {
-    return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-        <p className="text-[var(--color-on-dark-muted)]">Resolving {sendStep.raw}...</p>
-        <button
-          className="mt-4 text-sm text-red-400 transition-colors hover:text-red-300"
-          onClick={() => {
-            resolveAbortRef.current?.abort()
-            setSendStep({ step: 'recipient' })
-          }}
-        >
-          Cancel
-        </button>
-      </div>
-    )
-  }
-
   // --- On-chain success ---
   if (sendStep.step === 'oc-success') {
     return (
@@ -922,7 +907,8 @@ export function Send() {
             onPaste={handlePaste}
             placeholder="payment request or user@domain"
             maxLength={2000}
-            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-accent"
+            disabled={isResolving}
+            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
           />
           {inputError && <p className="text-sm text-red-400">{inputError}</p>}
         </div>
@@ -930,11 +916,20 @@ export function Send() {
       <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
         <button
           className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-white font-display text-lg font-bold uppercase tracking-wider text-dark transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
-          onClick={handleRecipientNext}
-          disabled={!inputValue.trim()}
+          onClick={isResolving ? () => { resolveAbortRef.current?.abort(); setIsResolving(false) } : handleRecipientNext}
+          disabled={!inputValue.trim() && !isResolving}
         >
-          Next
-          <ArrowRight className="h-5 w-5" />
+          {isResolving ? (
+            <>
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-dark/20 border-t-dark" />
+              Resolving...
+            </>
+          ) : (
+            <>
+              Next
+              <ArrowRight className="h-5 w-5" />
+            </>
+          )}
         </button>
       </div>
     </div>
