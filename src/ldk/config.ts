@@ -12,5 +12,5 @@ export const SIGNET_CONFIG = {
   rgsSyncIntervalTicks: 60, // ~30 min at 30s chain poll interval
   vssUrl:
     (import.meta.env.VITE_VSS_URL as string | undefined) ??
-    (import.meta.env.DEV ? '/__vss_proxy/vss' : undefined),
+    (import.meta.env.DEV ? '/__vss_proxy/vss' : 'https://vss.mutinynet.com/vss'),
 } as const
