@@ -208,10 +208,12 @@ export function Send() {
   // Fetch LNURL invoice and route to ln-review
   const fetchAndRouteInvoice = useCallback(
     async (callback: string, amountMsat: bigint, label: string) => {
-      const controller = resolveAbortRef.current
+      resolveAbortRef.current?.abort()
+      const controller = new AbortController()
+      resolveAbortRef.current = controller
       setIsResolving(true)
       try {
-        const invoiceStr = await fetchLnurlInvoice(callback, amountMsat, controller?.signal)
+        const invoiceStr = await fetchLnurlInvoice(callback, amountMsat, controller.signal)
         const parsed = classifyPaymentInput(invoiceStr)
         if (parsed.type === 'bolt11') {
           // Verify invoice amount matches what we requested
@@ -230,7 +232,7 @@ export function Send() {
           setInputError('Invalid invoice from Lightning Address provider')
         }
       } catch (err) {
-        if (controller?.signal.aborted) return
+        if (controller.signal.aborted) return
         const message = err instanceof Error ? err.message : String(err)
         setInputError(message)
       } finally {

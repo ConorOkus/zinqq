@@ -104,6 +104,10 @@ describe('satsToBtcString', () => {
     expect(satsToBtcString(2_100_000_000_000_001n)).toBe('21000000.00000001')
   })
 
+  it('throws RangeError for negative input', () => {
+    expect(() => satsToBtcString(-1n)).toThrow(RangeError)
+  })
+
   it('round-trips with parseBip21', () => {
     const sats = 123456n
     const btcStr = satsToBtcString(sats)
