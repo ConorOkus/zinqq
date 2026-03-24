@@ -42,12 +42,12 @@ async function syncPeersToVss(): Promise<void> {
     if (isVssConflict(err)) {
       // Re-fetch server version and retry once
       try {
-        const server = await vssClient!.getObject(KNOWN_PEERS_VSS_KEY)
+        const server = await vssClient.getObject(KNOWN_PEERS_VSS_KEY)
         vssVersion = server ? server.version : 0
         const peers = await getKnownPeers()
         const obj: Record<string, KnownPeer> = Object.fromEntries(peers)
         const value = new TextEncoder().encode(JSON.stringify(obj))
-        vssVersion = await vssClient!.putObject(KNOWN_PEERS_VSS_KEY, value, vssVersion)
+        vssVersion = await vssClient.putObject(KNOWN_PEERS_VSS_KEY, value, vssVersion)
       } catch (retryErr: unknown) {
         console.warn('[known-peers] VSS conflict retry failed:', retryErr)
       }

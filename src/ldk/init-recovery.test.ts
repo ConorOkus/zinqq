@@ -12,9 +12,8 @@ vi.mock('../storage/idb', () => ({
 
 // Mock known-peers module
 vi.mock('./storage/known-peers', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>
   return {
-    ...actual,
+    ...(await importOriginal()),
     setKnownPeersVssClient: vi.fn(),
     getKnownPeers: vi.fn().mockResolvedValue(new Map()),
   }
@@ -79,9 +78,8 @@ vi.mock('./storage/persist-cm', () => ({}))
 // Mock persist module
 const mockVersionCache = new Map<string, number>()
 vi.mock('./traits/persist', async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>
   return {
-    ...actual,
+    ...(await importOriginal()),
     createPersister: vi.fn(() => ({
       persist: {},
       setChainMonitor: vi.fn(),
@@ -222,7 +220,6 @@ Object.defineProperty(globalThis, 'navigator', {
   writable: true,
 })
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 let initModule: typeof import('./init')
 
 function makeVssClient(overrides: Partial<VssClient> = {}): VssClient {
@@ -250,7 +247,6 @@ function makeManifest(keys: string[]): { value: Uint8Array; version: number } {
   }
 }
 
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 
 describe('VSS recovery in initializeLdk', () => {
   beforeEach(async () => {
@@ -273,7 +269,7 @@ describe('VSS recovery in initializeLdk', () => {
 
   it('recovers monitors + CM + peers from VSS when IDB is empty', async () => {
     const vssClient = makeVssClient({
-      getObject: vi.fn().mockImplementation(async (key: string) => {
+      getObject: vi.fn().mockImplementation((key: string) => {
         if (key === MONITOR_MANIFEST_KEY) return makeManifest([monitorKey1, monitorKey2])
         if (key === monitorKey1) return { value: monitorData1, version: 1 }
         if (key === monitorKey2) return { value: monitorData2, version: 2 }
@@ -302,7 +298,7 @@ describe('VSS recovery in initializeLdk', () => {
 
   it('rolls back partial IDB writes when monitor fetch fails midway', async () => {
     const vssClient = makeVssClient({
-      getObject: vi.fn().mockImplementation(async (key: string) => {
+      getObject: vi.fn().mockImplementation((key: string) => {
         if (key === MONITOR_MANIFEST_KEY) return makeManifest([monitorKey1, monitorKey2])
         if (key === monitorKey1) return { value: monitorData1, version: 1 }
         if (key === monitorKey2) return null // missing!
@@ -320,7 +316,7 @@ describe('VSS recovery in initializeLdk', () => {
 
   it('rolls back monitors when ChannelManager is missing from VSS', async () => {
     const vssClient = makeVssClient({
-      getObject: vi.fn().mockImplementation(async (key: string) => {
+      getObject: vi.fn().mockImplementation((key: string) => {
         if (key === MONITOR_MANIFEST_KEY) return makeManifest([monitorKey1])
         if (key === monitorKey1) return { value: monitorData1, version: 1 }
         if (key === 'channel_manager') return null // missing CM
@@ -352,7 +348,7 @@ describe('VSS recovery in initializeLdk', () => {
   it('rolls back monitors and CM when CM is too small', async () => {
     const tinyData = new Uint8Array(10) // < 32 bytes
     const vssClient = makeVssClient({
-      getObject: vi.fn().mockImplementation(async (key: string) => {
+      getObject: vi.fn().mockImplementation((key: string) => {
         if (key === MONITOR_MANIFEST_KEY) return makeManifest([monitorKey1])
         if (key === monitorKey1) return { value: monitorData1, version: 1 }
         if (key === 'channel_manager') return { value: tinyData, version: 1 }
@@ -394,7 +390,7 @@ describe('VSS migration (backfill)', () => {
       [monitorKey2, monitorData2],
     ])
     vi.mocked(idbGetAll).mockResolvedValue(existingMonitors)
-    vi.mocked(idbGet).mockImplementation(async (store: string) => {
+    vi.mocked(idbGet).mockImplementation((store: string) => {
       if (store === 'ldk_channel_manager') return cmData
       return undefined
     })
@@ -409,8 +405,10 @@ describe('VSS migration (backfill)', () => {
     await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
 
     // putObjects called with CM, monitors, manifest, and known peers
-    expect(vssClient.putObjects).toHaveBeenCalledTimes(1)
-    const items = vi.mocked(vssClient.putObjects).mock.calls[0]![0]
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const putObjectsMock = vi.mocked(vssClient.putObjects)
+    expect(putObjectsMock).toHaveBeenCalledTimes(1)
+    const items = putObjectsMock.mock.calls[0]![0]
     const keys = items.map((i: { key: string }) => i.key)
     expect(keys).toContain('channel_manager')
     expect(keys).toContain(monitorKey1)
@@ -424,7 +422,7 @@ describe('VSS migration (backfill)', () => {
   it('skips migration when VSS already has data', async () => {
     const existingMonitors = new Map([[monitorKey1, monitorData1]])
     vi.mocked(idbGetAll).mockResolvedValue(existingMonitors)
-    vi.mocked(idbGet).mockImplementation(async (store: string) => {
+    vi.mocked(idbGet).mockImplementation((store: string) => {
       if (store === 'ldk_channel_manager') return cmData
       return undefined
     })
@@ -435,6 +433,7 @@ describe('VSS migration (backfill)', () => {
 
     await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
 
-    expect(vssClient.putObjects).not.toHaveBeenCalled()
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    expect(vi.mocked(vssClient.putObjects)).not.toHaveBeenCalled()
   })
 })
