@@ -11,7 +11,7 @@ vi.mock('lightningdevkit', () => ({
 }))
 
 // Mock idbPut
-vi.mock('../storage/idb', () => ({
+vi.mock('../../storage/idb', () => ({
   idbPut: vi.fn().mockResolvedValue(undefined),
 }))
 

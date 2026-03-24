@@ -5,7 +5,7 @@ import {
   Option_u32Z,
   type KeysManager,
 } from 'lightningdevkit'
-import { idbGetAll, idbDeleteBatch } from './storage/idb'
+import { idbGetAll, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex } from './utils'
 import { broadcastWithRetry } from './traits/broadcaster'
 

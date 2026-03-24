@@ -11,7 +11,7 @@ import type { EsploraClient } from './esplora-client'
 import type { WatchState } from '../traits/filter'
 import { initRapidGossipSync, syncRapidGossip, type RgsHandle } from './rapid-gossip-sync'
 import { txidBytesToHex } from '../utils'
-import { idbPut } from '../storage/idb'
+import { idbPut } from '../../storage/idb'
 import { persistChannelManager, type CmPersistContext } from '../storage/persist-cm'
 import type { SyncStatus } from '../ldk-context'
 

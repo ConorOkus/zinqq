@@ -175,7 +175,7 @@ vi.mock('lightningdevkit', () => {
 })
 
 const mockIdbGet = vi.fn((): Promise<string | undefined> => Promise.resolve(undefined))
-vi.mock('../storage/idb', () => ({
+vi.mock('../../storage/idb', () => ({
   idbPut: vi.fn(() => Promise.resolve()),
   idbGet: () => mockIdbGet(),
   idbDelete: vi.fn(() => Promise.resolve()),
@@ -236,7 +236,7 @@ vi.mock('../utils', () => ({
 }))
 
 import { createEventHandler } from './event-handler'
-import { idbPut } from '../storage/idb'
+import { idbPut } from '../../storage/idb'
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-argument */
 

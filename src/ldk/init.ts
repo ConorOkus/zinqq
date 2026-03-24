@@ -53,8 +53,14 @@ import {
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { SIGNET_CONFIG } from './config'
-import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from './storage/idb'
+import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex, hexToBytes } from './utils'
+import {
+  KNOWN_PEERS_VSS_KEY,
+  getKnownPeers,
+  parseKnownPeers,
+  setKnownPeersVssClient,
+} from './storage/known-peers'
 import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
 import type { CmPersistContext } from './storage/persist-cm'
@@ -222,6 +228,17 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
           wroteChannelManager = true
           initialCmVersion = cm.version
 
+          // Recover known peers if available
+          const peersObj = await vssClient.getObject(KNOWN_PEERS_VSS_KEY)
+          if (peersObj) {
+            const peers = parseKnownPeers(new TextDecoder().decode(peersObj.value))
+            for (const [pubkey, peer] of peers) {
+              await idbPut('ldk_known_peers', pubkey, peer)
+            }
+            recoveredVersions.set(KNOWN_PEERS_VSS_KEY, peersObj.version)
+            console.log(`[LDK Init] Recovered ${peers.size} known peer(s) from VSS`)
+          }
+
           recoveredVersions.set(MONITOR_MANIFEST_KEY, manifest.version)
           initialMonitorKeys = monitorKeys
           console.log(`[LDK Init] Recovered ${monitorKeys.length} monitor(s) + CM from VSS`)
@@ -257,6 +274,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   for (const [key, version] of recoveredVersions) {
     versionCache.set(key, version)
   }
+
+  // Wire known-peers VSS sync, seeded from recovery version if available
+  setKnownPeersVssClient(vssClient ?? null, recoveredVersions.get(KNOWN_PEERS_VSS_KEY) ?? 0)
 
   // Backfill manifest to VSS for wallets that predate the manifest feature.
   // Fire-and-forget: the persister's writeManifest will keep it in sync going forward.
@@ -512,6 +532,14 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
         const manifestValue = new TextEncoder().encode(JSON.stringify(manifestKeys))
         items.push({ key: MONITOR_MANIFEST_KEY, value: manifestValue, version: 0 })
 
+        // Include known peers in the migration
+        const knownPeers = await getKnownPeers()
+        if (knownPeers.size > 0) {
+          const peersObj = Object.fromEntries(knownPeers)
+          const peersValue = new TextEncoder().encode(JSON.stringify(peersObj))
+          items.push({ key: KNOWN_PEERS_VSS_KEY, value: peersValue, version: 0 })
+        }
+
         if (items.length > 0) {
           await vssClient.putObjects(items)
           // Seed version refs — putObjects writes version 0, server increments to 1
@@ -520,6 +548,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
             versionCache.set(key, 1)
           }
           versionCache.set(MONITOR_MANIFEST_KEY, 1)
+          if (knownPeers.size > 0) {
+            setKnownPeersVssClient(vssClient, 1)
+          }
           console.log(`[LDK Init] Migrated ${items.length} item(s) to VSS`)
         }
       }

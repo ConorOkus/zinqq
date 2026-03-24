@@ -1,4 +1,4 @@
-import { idbPut, idbGet, idbGetAll, type StoreName } from './idb'
+import { idbPut, idbGet, idbGetAll, type StoreName } from '../../storage/idb'
 
 const STORE: StoreName = 'ldk_payment_history'
 

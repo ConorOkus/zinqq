@@ -1,4 +1,4 @@
-import { idbGet, idbPut } from './idb'
+import { idbGet, idbPut } from '../../storage/idb'
 
 const STORE = 'ldk_bolt12_offer' as const
 const KEY = 'default'

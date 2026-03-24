@@ -3,7 +3,7 @@ import {
   validateMnemonic as validateBip39Mnemonic,
 } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english.js'
-import { idbGet, openDb } from '../ldk/storage/idb'
+import { idbGet, openDb } from '../storage/idb'
 
 const MNEMONIC_KEY = 'primary'
 

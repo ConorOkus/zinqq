@@ -9,7 +9,7 @@ import { VssError, type VssClient } from '../storage/vss-client'
 import { ErrorCode } from '../storage/proto/vss_pb'
 
 // Mock IDB storage
-vi.mock('../storage/idb', () => ({
+vi.mock('../../storage/idb', () => ({
   idbPut: vi.fn().mockResolvedValue(undefined),
   idbDelete: vi.fn().mockResolvedValue(undefined),
 }))
@@ -27,7 +27,7 @@ vi.mock('lightningdevkit', () => {
   }
 })
 
-import { idbPut, idbDelete } from '../storage/idb'
+import { idbPut, idbDelete } from '../../storage/idb'
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-assertion */
 
