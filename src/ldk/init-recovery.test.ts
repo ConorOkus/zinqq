@@ -394,10 +394,9 @@ describe('VSS migration (backfill)', () => {
       [monitorKey2, monitorData2],
     ])
     vi.mocked(idbGetAll).mockResolvedValue(existingMonitors)
-    vi.mocked(idbGet).mockImplementation((store: string) => {
-      if (store === 'ldk_channel_manager') return cmData
-      return undefined
-    })
+    vi.mocked(idbGet).mockImplementation((store: string) =>
+      Promise.resolve(store === 'ldk_channel_manager' ? cmData : undefined)
+    )
 
     const peerMap = new Map([['abc123', { host: '127.0.0.1', port: 9735 }]])
     vi.mocked(getKnownPeers).mockResolvedValue(peerMap)
@@ -426,10 +425,9 @@ describe('VSS migration (backfill)', () => {
   it('skips migration when VSS already has data', async () => {
     const existingMonitors = new Map([[monitorKey1, monitorData1]])
     vi.mocked(idbGetAll).mockResolvedValue(existingMonitors)
-    vi.mocked(idbGet).mockImplementation((store: string) => {
-      if (store === 'ldk_channel_manager') return cmData
-      return undefined
-    })
+    vi.mocked(idbGet).mockImplementation((store: string) =>
+      Promise.resolve(store === 'ldk_channel_manager' ? cmData : undefined)
+    )
 
     const vssClient = makeVssClient({
       listKeyVersions: vi.fn().mockResolvedValue([{ key: 'obfuscated', version: 1 }]),
