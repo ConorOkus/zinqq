@@ -27,6 +27,7 @@ import { SIGNET_CONFIG } from './config'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
+import { reconnectDisconnectedPeers } from './peers/peer-reconnect'
 import { idbPut } from './storage/idb'
 import { persistChannelManager, persistChannelManagerIdbOnly } from './storage/persist-cm'
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
@@ -432,48 +433,12 @@ export function LdkProvider({
 
           const maybeReconnectPeers = () => {
             if (reconnecting) return
-            const channels = node.channelManager.list_channels()
-            if (channels.length === 0) return
-
-            // Build set of pubkeys that have channels
-            const channelPeerPubkeys = new Set<string>()
-            for (const ch of channels) {
-              channelPeerPubkeys.add(bytesToHex(ch.get_counterparty().get_node_id()))
-            }
-
-            // Build set of currently connected peers
-            const connectedPubkeys = new Set<string>()
-            for (const peer of node.peerManager.list_peers()) {
-              connectedPubkeys.add(bytesToHex(peer.get_counterparty_node_id()))
-            }
-
-            // Find channel peers that are disconnected
-            const disconnected = [...channelPeerPubkeys].filter((pk) => !connectedPubkeys.has(pk))
-            if (disconnected.length === 0) return
-
             reconnecting = true
-            console.log(
-              `[ldk] ${disconnected.length} channel peer(s) disconnected, attempting reconnect`
+            reconnectDisconnectedPeers(
+              node.channelManager,
+              node.peerManager,
+              activeConnections.current
             )
-
-            getKnownPeers()
-              .then(async (known) => {
-                const results = await Promise.allSettled(
-                  disconnected
-                    .filter((pk) => known.has(pk))
-                    .map(async (pk) => {
-                      const { host, port } = known.get(pk)!
-                      activeConnections.current.get(pk)?.disconnect()
-                      const conn = await doConnectToPeer(node.peerManager, pk, host, port)
-                      activeConnections.current.set(pk, conn)
-                    })
-                )
-                const succeeded = results.filter((r) => r.status === 'fulfilled').length
-                const failed = results.filter((r) => r.status === 'rejected').length
-                if (succeeded > 0 || failed > 0) {
-                  console.log(`[ldk] peer reconnect: ${succeeded} reconnected, ${failed} failed`)
-                }
-              })
               .catch((err: unknown) => {
                 console.warn('[ldk] peer reconnect failed:', err)
               })

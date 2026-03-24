@@ -7,7 +7,7 @@ import {
   ShutdownScript,
 } from 'lightningdevkit'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
-import { putChangeset } from '../../onchain/storage/changeset'
+import { revealNextAddress } from '../../onchain/address-utils'
 
 /**
  * Create a custom SignerProvider that delegates to KeysManager for signing
@@ -28,18 +28,7 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
   function getScriptFromBdkWallet(): Uint8Array | null {
     if (!bdkWallet) return null
     try {
-      const addressInfo = bdkWallet.next_unused_address('external')
-      const scriptBytes = addressInfo.address.script_pubkey.as_bytes()
-
-      // Persist the address reveal so BDK syncs this address after restart
-      const staged = bdkWallet.take_staged()
-      if (staged && !staged.is_empty()) {
-        void putChangeset(staged.to_json()).catch((err: unknown) =>
-          console.warn('[BdkSignerProvider] Failed to persist address reveal:', err)
-        )
-      }
-
-      return scriptBytes
+      return revealNextAddress(bdkWallet, 'BdkSignerProvider')
     } catch (err) {
       console.warn(
         '[BdkSignerProvider] Failed to get BDK address, falling back to KeysManager:',
