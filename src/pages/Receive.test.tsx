@@ -59,6 +59,7 @@ function readyLdkContext(
     paymentHistory: [],
     bolt12Offer: null,
     vssStatus: 'ok' as const,
+    shutdown: () => {},
     ...overrides,
   }
 }

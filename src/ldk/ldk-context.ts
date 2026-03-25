@@ -57,6 +57,8 @@ export type LdkContextValue =
       bolt12Offer: string | null
       /** VSS backup service status. 'degraded' means writes are failing and Lightning ops are paused. */
       vssStatus: VssStatus
+      /** Stop all background tasks and prevent further IDB writes. Used by Restore flow. */
+      shutdown: () => void
     }
   | { status: 'error'; node: null; nodeId: null; error: Error }
 

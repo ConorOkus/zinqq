@@ -1,5 +1,5 @@
 import type { ChannelManager } from 'lightningdevkit'
-import { idbPut } from './idb'
+import { idbPut } from '../../storage/idb'
 import { VssError, type VssClient } from './vss-client'
 import { ErrorCode } from './proto/vss_pb'
 

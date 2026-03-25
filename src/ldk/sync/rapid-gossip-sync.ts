@@ -8,7 +8,7 @@ import {
   type NetworkGraph,
   type Logger,
 } from 'lightningdevkit'
-import { idbGet, idbPut } from '../storage/idb'
+import { idbGet, idbPut } from '../../storage/idb'
 
 const IDB_KEY = 'ldk_rgs_last_sync_timestamp'
 

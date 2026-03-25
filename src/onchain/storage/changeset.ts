@@ -1,5 +1,5 @@
 import { ChangeSet } from '@bitcoindevkit/bdk-wallet-web'
-import { idbGet, idbPut } from '../../ldk/storage/idb'
+import { idbGet, idbPut } from '../../storage/idb'
 
 const CHANGESET_KEY = 'primary'
 

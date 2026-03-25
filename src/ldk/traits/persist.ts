@@ -6,7 +6,7 @@ import {
   type ChannelMonitorUpdate,
   type ChainMonitor,
 } from 'lightningdevkit'
-import { idbPut, idbDelete } from '../storage/idb'
+import { idbPut, idbDelete } from '../../storage/idb'
 import { bytesToHex } from '../utils'
 import { VssError, type VssClient } from '../storage/vss-client'
 import { ErrorCode } from '../storage/proto/vss_pb'

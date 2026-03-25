@@ -1,4 +1,4 @@
-import { idbGet, idbPut } from './idb'
+import { idbGet, idbPut } from '../../storage/idb'
 
 const SEED_KEY = 'primary'
 const SEED_LENGTH = 32

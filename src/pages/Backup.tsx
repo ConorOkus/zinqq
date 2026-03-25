@@ -128,6 +128,14 @@ export function Backup() {
               </span>
             </div>
             <MnemonicWordGrid words={state.words} />
+            {import.meta.env.DEV && (
+              <button
+                onClick={() => void navigator.clipboard.writeText(state.words.join(' '))}
+                className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm font-semibold text-amber-400 active:scale-[0.98]"
+              >
+                Copy to Clipboard (dev only)
+              </button>
+            )}
             <button
               onClick={() => void navigate('/settings')}
               className="mt-4 w-full rounded-xl bg-dark-elevated px-6 py-4 font-display font-bold text-white active:scale-[0.98]"

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { getSeed, storeDerivedSeed } from './seed'
-import { idbDelete } from './idb'
+import { idbDelete } from '../../storage/idb'
 
 beforeEach(async () => {
   await idbDelete('ldk_seed', 'primary')

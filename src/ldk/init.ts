@@ -53,10 +53,17 @@ import {
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { SIGNET_CONFIG } from './config'
-import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from './storage/idb'
+import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex, hexToBytes } from './utils'
+import {
+  KNOWN_PEERS_VSS_KEY,
+  getKnownPeers,
+  parseKnownPeers,
+  setKnownPeersVssClient,
+} from './storage/known-peers'
 import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
+
 import type { CmPersistContext } from './storage/persist-cm'
 
 export interface LdkNode {
@@ -159,7 +166,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     )
   }
 
-  // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness
+  // 2. Initialize KeysManager with current timestamp for ephemeral key uniqueness.
+  // The timestamp only seeds generate_channel_keys_id for NEW channels.
+  // Existing channels carry their channel_keys_id in serialized data and
+  // re-derive keys from seed + channel_keys_id (timestamp-independent).
   const nowMs = Date.now()
   const startingTimeSecs = BigInt(Math.floor(nowMs / 1000))
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
@@ -222,6 +232,17 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
           wroteChannelManager = true
           initialCmVersion = cm.version
 
+          // Recover known peers if available
+          const peersObj = await vssClient.getObject(KNOWN_PEERS_VSS_KEY)
+          if (peersObj) {
+            const peers = parseKnownPeers(new TextDecoder().decode(peersObj.value))
+            for (const [pubkey, peer] of peers) {
+              await idbPut('ldk_known_peers', pubkey, peer)
+            }
+            recoveredVersions.set(KNOWN_PEERS_VSS_KEY, peersObj.version)
+            console.log(`[LDK Init] Recovered ${peers.size} known peer(s) from VSS`)
+          }
+
           recoveredVersions.set(MONITOR_MANIFEST_KEY, manifest.version)
           initialMonitorKeys = monitorKeys
           console.log(`[LDK Init] Recovered ${monitorKeys.length} monitor(s) + CM from VSS`)
@@ -257,6 +278,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   for (const [key, version] of recoveredVersions) {
     versionCache.set(key, version)
   }
+
+  // Wire known-peers VSS sync, seeded from recovery version if available
+  setKnownPeersVssClient(vssClient ?? null, recoveredVersions.get(KNOWN_PEERS_VSS_KEY) ?? 0)
 
   // Backfill manifest to VSS for wallets that predate the manifest feature.
   // Fire-and-forget: the persister's writeManifest will keep it in sync going forward.
@@ -335,9 +359,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // 9. Restore or create ChannelManager
   const cmBytes = await idbGet<Uint8Array>('ldk_channel_manager', 'primary')
-  let channelManager: ChannelManager
+  let channelManager: ChannelManager | null = null
 
-  if (cmBytes && cmBytes instanceof Uint8Array) {
+  if (cmBytes instanceof Uint8Array) {
     const result = UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelManagerZ_read(
       cmBytes,
       keysManager.as_EntropySource(),
@@ -352,11 +376,23 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       UserConfig.constructor_default(),
       restoredMonitors
     )
-    if (!(result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK)) {
+    if (result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK) {
+      channelManager = result.res.get_b()
+    } else if (restoredMonitors.length === 0) {
+      // Defense-in-depth: if deserialization fails (e.g., stale CM from a
+      // previous wallet that survived an IDB clear race), discard and create
+      // fresh rather than crashing. Only safe when there are no monitors.
+      console.warn(
+        '[LDK Init] ChannelManager deserialization failed with no monitors — ' +
+          'discarding stale CM and creating fresh. This can happen after a wallet restore.'
+      )
+      await idbDelete('ldk_channel_manager', 'primary')
+    } else {
       throw new Error('[LDK Init] Failed to deserialize ChannelManager')
     }
-    channelManager = result.res.get_b()
+  }
 
+  if (channelManager) {
     const restoredChannels = channelManager.list_channels()
     console.log(
       `[LDK Init] Restored ChannelManager from IDB with ${restoredMonitors.length} monitor(s) and ${restoredChannels.length} channel(s)`
@@ -369,7 +405,6 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
           `capacity=${ch.get_channel_value_satoshis()} sats`
       )
     }
-
     // Register restored monitors with ChainMonitor
     const watch = chainMonitor.as_Watch()
     for (const monitor of restoredMonitors) {
@@ -512,6 +547,14 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
         const manifestValue = new TextEncoder().encode(JSON.stringify(manifestKeys))
         items.push({ key: MONITOR_MANIFEST_KEY, value: manifestValue, version: 0 })
 
+        // Include known peers in the migration
+        const knownPeers = await getKnownPeers()
+        if (knownPeers.size > 0) {
+          const peersObj = Object.fromEntries(knownPeers)
+          const peersValue = new TextEncoder().encode(JSON.stringify(peersObj))
+          items.push({ key: KNOWN_PEERS_VSS_KEY, value: peersValue, version: 0 })
+        }
+
         if (items.length > 0) {
           await vssClient.putObjects(items)
           // Seed version refs — putObjects writes version 0, server increments to 1
@@ -520,6 +563,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
             versionCache.set(key, 1)
           }
           versionCache.set(MONITOR_MANIFEST_KEY, 1)
+          if (knownPeers.size > 0) {
+            setKnownPeersVssClient(vssClient, 1)
+          }
           console.log(`[LDK Init] Migrated ${items.length} item(s) to VSS`)
         }
       }

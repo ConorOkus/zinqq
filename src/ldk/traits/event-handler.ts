@@ -43,7 +43,7 @@ import {
   type Event,
 } from 'lightningdevkit'
 import { Wallet, Recipient, ScriptBuf, Amount, SignOptions } from '@bitcoindevkit/bdk-wallet-web'
-import { idbPut, idbGet, idbDelete } from '../storage/idb'
+import { idbPut, idbGet, idbDelete } from '../../storage/idb'
 import { persistPayment, updatePaymentStatus } from '../storage/payment-history'
 import { bytesToHex } from '../utils'
 import { revealNextAddress } from '../../onchain/address-utils'

@@ -3,11 +3,11 @@ import { persistChannelManager, persistChannelManagerIdbOnly } from './persist-c
 import { VssError, type VssClient } from './vss-client'
 import { ErrorCode } from './proto/vss_pb'
 
-vi.mock('./idb', () => ({
+vi.mock('../../storage/idb', () => ({
   idbPut: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { idbPut } from './idb'
+import { idbPut } from '../../storage/idb'
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/require-await */
 

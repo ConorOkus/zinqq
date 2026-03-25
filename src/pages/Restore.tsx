@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { useLdk } from '../ldk/use-ldk'
 import { validateMnemonic } from '../wallet/mnemonic'
 import { deriveLdkSeed, deriveVssEncryptionKey, deriveVssStoreId } from '../wallet/keys'
 import { VssClient, FixedHeaderProvider } from '../ldk/storage/vss-client'
 import { SIGNET_CONFIG } from '../ldk/config'
-import { clearAllStores, idbPut } from '../ldk/storage/idb'
+import { clearAllStores, idbPut } from '../storage/idb'
+import { MONITOR_MANIFEST_KEY, parseMonitorManifest } from '../ldk/traits/persist'
+import { KNOWN_PEERS_VSS_KEY, parseKnownPeers } from '../ldk/storage/known-peers'
 
 type RestoreState =
   | { status: 'input' }
@@ -13,6 +16,7 @@ type RestoreState =
   | { status: 'error'; message: string }
 
 export function Restore() {
+  const ldk = useLdk()
   const [state, setState] = useState<RestoreState>({ status: 'input' })
   const [words, setWords] = useState<string[]>(Array(12).fill(''))
 
@@ -71,56 +75,46 @@ export function Restore() {
 
       setState({ status: 'restoring', message: `Downloading ${keys.length} item(s)...` })
 
-      // Fetch all objects — separate CM from monitors
+      // Fetch channel_manager
       let cmData: Uint8Array | null = null
-      const monitors: Array<{ key: string; value: Uint8Array }> = []
-
-      // We need to fetch each key. Since listKeyVersions returns obfuscated keys,
-      // we fetch using known plaintext keys. First try 'channel_manager'.
       const cmObj = await vssClient.getObject('channel_manager')
       if (cmObj) {
         cmData = cmObj.value
       }
 
-      // For monitors, we don't know the plaintext keys. We need to fetch all
-      // remaining objects. Use the obfuscated keys from listKeyVersions and
-      // try getObject with the obfuscated key directly — but VssClient.getObject
-      // re-obfuscates the key, so we can't use obfuscated keys.
-      //
-      // Alternative approach: the monitor keys are txid:vout format, which we
-      // don't know without the IDB data. Instead, fetch all objects by iterating
-      // the key list and using a bulk approach.
-      //
-      // For now, we use a pragmatic approach: the VSS client obfuscates keys,
-      // so listKeyVersions gives us obfuscated keys we can't use directly.
-      // We know channel_manager is one key. The rest are monitors.
-      // We need a way to fetch by obfuscated key — add a raw fetch method.
-      //
-      // Actually, the simplest approach: fetch ALL values from VSS by getting
-      // each key from listKeyVersions. We need to extend VssClient or use the
-      // raw obfuscated keys. For Phase 1E, let's store the plaintext key alongside
-      // the encrypted value in the VSS value itself, OR use a well-known prefix.
-      //
-      // The cleanest solution: during persist, we already know the plaintext keys.
-      // We can store a manifest in VSS with a known key that lists all monitor keys.
-      // But that's a schema change.
-      //
-      // Pragmatic Phase 1E solution: since we know the number of items from
-      // listKeyVersions, and we already fetched channel_manager, the remaining
-      // items are monitors. We need to fetch them somehow.
-      //
-      // Let's add a getObjectByObfuscatedKey method or use listKeyVersions
-      // result to drive fetches with a raw endpoint. For now, we'll document
-      // this limitation and fetch what we can.
+      // Fetch monitors via the _monitor_keys manifest
+      const monitors: Array<{ key: string; value: Uint8Array }> = []
+      const manifest = await vssClient.getObject(MONITOR_MANIFEST_KEY)
+      if (manifest) {
+        const monitorKeys = parseMonitorManifest(new TextDecoder().decode(manifest.value))
+        for (const key of monitorKeys) {
+          const obj = await vssClient.getObject(key)
+          if (obj) {
+            monitors.push({ key, value: obj.value })
+          } else {
+            console.warn(`[Restore] Monitor "${key}" listed in manifest but missing from VSS`)
+          }
+        }
+      }
 
-      // For the initial implementation: if we have just a CM and no way to
-      // fetch monitors by their obfuscated keys, we restore what we can.
-      // The node will start with the CM and no monitors — channels will be
-      // force-closed on-chain by the counterparty after timeout, and funds
-      // will be recovered via the justice/timeout path. This is not ideal
-      // but is safe.
-      //
-      // TODO: Phase 2 — add a manifest key or raw fetch to support full monitor recovery.
+      // Fetch known peers
+      const peersObj = await vssClient.getObject(KNOWN_PEERS_VSS_KEY)
+      let knownPeers: Map<string, { host: string; port: number }> | null = null
+      if (peersObj) {
+        knownPeers = parseKnownPeers(new TextDecoder().decode(peersObj.value))
+      }
+
+      // Stop all LDK background tasks BEFORE clearing IDB.
+      // Without this, the running LDK node's persist loop and visibilitychange
+      // handler would overwrite the restored data with the old ChannelManager.
+      setState({ status: 'restoring', message: 'Stopping wallet...' })
+      if (ldk.status === 'ready') {
+        ldk.shutdown()
+      }
+      // Flush microtasks so in-flight async IDB writes from the old node
+      // settle before we clear. Without this, a persist that was already
+      // awaiting its IDB transaction could land after clearAllStores().
+      await new Promise((r) => setTimeout(r, 0))
 
       setState({ status: 'restoring', message: 'Clearing local data...' })
       await clearAllStores()
@@ -145,12 +139,18 @@ export function Restore() {
         await idbPut('ldk_channel_monitors', monitor.key, monitor.value)
       }
 
+      // Write known peers
+      if (knownPeers) {
+        for (const [pubkey, peer] of knownPeers) {
+          await idbPut('ldk_known_peers', pubkey, peer)
+        }
+      }
+
       setState({ status: 'restoring', message: 'Restarting wallet...' })
 
-      // Full page reload — releases Web Lock, clears WASM state, resets initPromise
-      setTimeout(() => {
-        window.location.href = '/'
-      }, 500)
+      // Full page reload — releases Web Lock, clears WASM state, resets initPromise.
+      // No delay needed: LDK background tasks are already stopped by shutdown().
+      window.location.href = '/'
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       setState({ status: 'error', message: `Restore failed: ${message}` })
