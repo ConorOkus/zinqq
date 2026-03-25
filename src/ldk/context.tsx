@@ -81,12 +81,8 @@ export function LdkProvider({
   const connectToPeer = useCallback(
     async (pubkey: string, host: string, port: number): Promise<void> => {
       if (!nodeRef.current) throw new Error('Node not initialized')
-      const conn = await doConnectToPeer(
-        nodeRef.current.peerManager,
-        pubkey,
-        host,
-        port,
-        () => drainEventsRef.current?.()
+      const conn = await doConnectToPeer(nodeRef.current.peerManager, pubkey, host, port, () =>
+        drainEventsRef.current?.()
       )
       activeConnections.current.get(pubkey)?.disconnect()
       activeConnections.current.set(pubkey, conn)
@@ -653,12 +649,8 @@ export function LdkProvider({
               console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
               const results = await Promise.allSettled(
                 Array.from(peers.entries()).map(async ([pubkey, { host, port }]) => {
-                  const conn = await doConnectToPeer(
-                    node.peerManager,
-                    pubkey,
-                    host,
-                    port,
-                    () => drainEventsRef.current?.()
+                  const conn = await doConnectToPeer(node.peerManager, pubkey, host, port, () =>
+                    drainEventsRef.current?.()
                   )
                   activeConnections.current.set(pubkey, conn)
                 })
