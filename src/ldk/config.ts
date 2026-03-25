@@ -8,7 +8,5 @@ export const SIGNET_CONFIG = {
   peerTimerIntervalMs: 10_000,
   rgsUrl: 'https://rgs.mutinynet.com/snapshot',
   rgsSyncIntervalTicks: 60, // ~30 min at 30s chain poll interval
-  vssUrl:
-    (import.meta.env.VITE_VSS_URL as string | undefined) ??
-    (import.meta.env.DEV ? '/__vss_proxy/vss' : 'https://vss.mutinynet.com/vss'),
+  vssUrl: (import.meta.env.VITE_VSS_URL as string | undefined) ?? '/__vss_proxy/vss',
 } as const

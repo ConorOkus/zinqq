@@ -1,7 +1,13 @@
 {
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/__vss_proxy/:path*",
+      "destination": "https://vss.mutinynet.com/:path*"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
