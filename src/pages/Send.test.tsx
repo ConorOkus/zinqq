@@ -76,6 +76,7 @@ function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextVal
     paymentHistory: [],
     bolt12Offer: null,
     vssStatus: 'ok' as const,
+    shutdown: () => {},
   }
   return render(
     <MemoryRouter>
@@ -458,6 +459,7 @@ describe('Send', () => {
         paymentHistory: [],
         bolt12Offer: null,
         vssStatus: 'ok' as const,
+        shutdown: () => {},
       })
 
       await submitRecipient(user, 'lntbs_with_amount')

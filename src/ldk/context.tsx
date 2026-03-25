@@ -720,6 +720,7 @@ export function LdkProvider({
     listRecentPayments,
     outboundCapacityMsat,
     refreshPaymentHistory,
+    shutdown,
     ldkSeed,
     vssEncryptionKey,
     vssStoreId,

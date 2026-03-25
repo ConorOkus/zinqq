@@ -60,6 +60,7 @@ function readyLdk(
     paymentHistory: [],
     bolt12Offer: null,
     vssStatus: 'ok',
+    shutdown: () => {},
     ...overrides,
   }
 }
