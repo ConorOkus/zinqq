@@ -15,41 +15,17 @@ import { revealNextAddress, peekAddressAtIndex } from '../../onchain/address-uti
  * return BDK wallet addresses. This ensures all channel close funds
  * (cooperative and force close) go to the on-chain BDK wallet.
  *
- * The BDK wallet reference is set lazily via setBdkWallet() since BDK
- * initializes after LDK. Before the wallet is set, falls back to KeysManager defaults.
+ * get_destination_script derives addresses deterministically from
+ * channel_keys_id so that cross-device VSS recovery produces the same
+ * scripts. get_shutdown_scriptpubkey uses next_unused_address since
+ * shutdown scripts are recorded at channel open time and replayed from
+ * serialized state.
  */
-export function createBdkSignerProvider(keysManager: KeysManager): {
-  signerProvider: SignerProvider
-  setBdkWallet: (wallet: Wallet | null) => void
-} {
-  let bdkWallet: Wallet | null = null
+export function createBdkSignerProvider(
+  keysManager: KeysManager,
+  bdkWallet: Wallet
+): { signerProvider: SignerProvider } {
   const defaultProvider = keysManager.as_SignerProvider()
-
-  function getDestinationScript(channelKeysId: Uint8Array): Uint8Array | null {
-    if (!bdkWallet) return null
-    try {
-      return peekAddressAtIndex(bdkWallet, channelKeysId)
-    } catch (err) {
-      console.warn(
-        '[BdkSignerProvider] Failed to get deterministic BDK address, falling back to KeysManager:',
-        err
-      )
-      return null
-    }
-  }
-
-  function getShutdownScript(): Uint8Array | null {
-    if (!bdkWallet) return null
-    try {
-      return revealNextAddress(bdkWallet, 'BdkSignerProvider')
-    } catch (err) {
-      console.warn(
-        '[BdkSignerProvider] Failed to get BDK shutdown address, falling back to KeysManager:',
-        err
-      )
-      return null
-    }
-  }
 
   const impl: SignerProviderInterface = {
     generate_channel_keys_id(
@@ -77,16 +53,21 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
     },
 
     get_destination_script(channel_keys_id: Uint8Array) {
-      const script = getDestinationScript(channel_keys_id)
-      if (script) {
+      try {
+        const script = peekAddressAtIndex(bdkWallet, channel_keys_id)
         return Result_CVec_u8ZNoneZ.constructor_ok(script)
+      } catch (err) {
+        console.warn(
+          '[BdkSignerProvider] Failed to get deterministic BDK address, falling back to KeysManager:',
+          err
+        )
+        return defaultProvider.get_destination_script(channel_keys_id)
       }
-      return defaultProvider.get_destination_script(channel_keys_id)
     },
 
     get_shutdown_scriptpubkey() {
-      const script = getShutdownScript()
-      if (script) {
+      try {
+        const script = revealNextAddress(bdkWallet, 'BdkSignerProvider')
         // Validate P2WPKH format: OP_0 (0x00) + PUSH_20 (0x14) + 20-byte pubkey hash = 22 bytes
         if (script.length === 22 && script[0] === 0x00 && script[1] === 0x14) {
           const pubkeyHash = script.slice(2)
@@ -98,6 +79,11 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
           script.length,
           script[0]?.toString(16)
         )
+      } catch (err) {
+        console.warn(
+          '[BdkSignerProvider] Failed to get BDK shutdown address, falling back to KeysManager:',
+          err
+        )
       }
       return defaultProvider.get_shutdown_scriptpubkey()
     },
@@ -105,10 +91,5 @@ export function createBdkSignerProvider(keysManager: KeysManager): {
 
   const signerProvider = SignerProvider.new_impl(impl)
 
-  return {
-    signerProvider,
-    setBdkWallet: (wallet: Wallet | null) => {
-      bdkWallet = wallet
-    },
-  }
+  return { signerProvider }
 }

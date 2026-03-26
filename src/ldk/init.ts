@@ -53,6 +53,8 @@ import {
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { SIGNET_CONFIG } from './config'
+import { ONCHAIN_CONFIG } from '../onchain/config'
+import { initializeBdkWalletEager } from '../onchain/init'
 import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex, hexToBytes } from './utils'
 import {
@@ -86,7 +88,8 @@ export interface InitResult {
   node: LdkNode
   watchState: WatchState
   cleanupEventHandler: () => void
-  setBdkWallet: (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => void
+  bdkWallet: import('@bitcoindevkit/bdk-wallet-web').Wallet
+  bdkEsploraClient: import('@bitcoindevkit/bdk-wallet-web').EsploraClient
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
@@ -134,6 +137,7 @@ let initPromise: Promise<InitResult> | null = null
 
 export interface InitOptions {
   ldkSeed: Uint8Array
+  bdkDescriptors: { external: string; internal: string }
   vssClient?: VssClient | null
   persisterOptions?: PersisterOptions
 }
@@ -149,10 +153,17 @@ export function initializeLdk(options: InitOptions): Promise<InitResult> {
 }
 
 async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
-  const { ldkSeed, vssClient, persisterOptions } = options
+  const { ldkSeed, bdkDescriptors, vssClient, persisterOptions } = options
   // 0. Safety: acquire multi-tab lock and init WASM
   await acquireWalletLock()
   await initWasm()
+
+  // 0.5 Initialize BDK wallet eagerly (no chain scan) so it's available
+  // for address derivation during ChannelManager/ChannelMonitor deserialization
+  const { wallet: bdkWallet, esploraClient: bdkEsploraClient } = await initializeBdkWalletEager(
+    bdkDescriptors,
+    ONCHAIN_CONFIG.network
+  )
 
   // 1. Persist derived seed to IDB, or verify stored seed matches mnemonic derivation
   let seed = await getSeed()
@@ -176,9 +187,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos)
   seed.fill(0) // Zero seed bytes after KeysManager copies them
 
-  // Custom SignerProvider that directs close/sweep funds to the BDK wallet
-  const { signerProvider: bdkSignerProvider, setBdkWallet: setSignerBdkWallet } =
-    createBdkSignerProvider(keysManager)
+  // Custom SignerProvider that directs close/sweep funds to the BDK wallet.
+  // BDK wallet is available eagerly so get_destination_script can derive
+  // addresses deterministically during deserialization.
+  const { signerProvider: bdkSignerProvider } = createBdkSignerProvider(keysManager, bdkWallet)
 
   // 3. Create trait implementations
   const logger = createLogger()
@@ -497,23 +509,14 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   let paymentCallback: PaymentEventCallback | undefined
   let channelClosedCallback: ChannelClosedCallback | undefined
   let syncNeededCallback: SyncNeededCallback | undefined
-  const {
-    handler: eventHandler,
-    cleanup: cleanupEventHandler,
-    setBdkWallet: setEventHandlerBdkWallet,
-  } = createEventHandler(
+  const { handler: eventHandler, cleanup: cleanupEventHandler } = createEventHandler(
     channelManager,
     keysManager,
+    bdkWallet,
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.()
   )
-
-  // Unified setBdkWallet that wires both the event handler and signer provider
-  const setBdkWallet = (wallet: import('@bitcoindevkit/bdk-wallet-web').Wallet | null) => {
-    setEventHandlerBdkWallet(wallet)
-    setSignerBdkWallet(wallet)
-  }
 
   // ChannelManager VSS version ref — seeded from recovery or migration, updated by persistChannelManager
   const cmVersionRef = { current: initialCmVersion }
@@ -595,7 +598,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     node,
     watchState,
     cleanupEventHandler,
-    setBdkWallet,
+    bdkWallet,
+    bdkEsploraClient,
     setPaymentCallback: (cb: PaymentEventCallback | undefined) => {
       paymentCallback = cb
     },

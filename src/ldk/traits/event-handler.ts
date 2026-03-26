@@ -68,16 +68,15 @@ export type SyncNeededCallback = () => void
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
+  bdkWallet: Wallet,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
   onSyncNeeded?: SyncNeededCallback
 ): {
   handler: EventHandler
   cleanup: () => void
-  setBdkWallet: (wallet: Wallet | null) => void
 } {
   let forwardTimerId: ReturnType<typeof setTimeout> | null = null
-  let bdkWallet: Wallet | null = null
 
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
@@ -102,37 +101,25 @@ export function createEventHandler(
     },
   })
 
+  // Startup sweep recovery: sweep any SpendableOutputs persisted from a
+  // previous session (crash recovery). BDK wallet is always available now.
+  const destinationScript = revealNextAddress(bdkWallet, 'LDK')
+  void sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
+    .then((result) => {
+      if (result.swept > 0) {
+        console.log('[LDK] Startup sweep: swept', result.swept, 'output(s), txid:', result.txid)
+      }
+    })
+    .catch((err: unknown) => {
+      console.warn('[LDK] Startup sweep failed (will retry on next SpendableOutputs event):', err)
+    })
+
   return {
     handler,
     cleanup: () => {
       if (forwardTimerId !== null) {
         clearTimeout(forwardTimerId)
         forwardTimerId = null
-      }
-    },
-    setBdkWallet: (wallet: Wallet | null) => {
-      bdkWallet = wallet
-      // Startup sweep recovery: when BDK wallet becomes available, sweep any
-      // SpendableOutputs persisted from a previous session (crash recovery)
-      if (wallet) {
-        const destinationScript = revealNextAddress(wallet, 'LDK')
-        void sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
-          .then((result) => {
-            if (result.swept > 0) {
-              console.log(
-                '[LDK] Startup sweep: swept',
-                result.swept,
-                'output(s), txid:',
-                result.txid
-              )
-            }
-          })
-          .catch((err: unknown) => {
-            console.warn(
-              '[LDK] Startup sweep failed (will retry on next SpendableOutputs event):',
-              err
-            )
-          })
       }
     },
   }
@@ -142,7 +129,7 @@ function handleEvent(
   event: Event,
   channelManager: ChannelManager,
   keysManager: KeysManager,
-  bdkWallet: Wallet | null,
+  bdkWallet: Wallet,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
@@ -282,11 +269,8 @@ function handleEvent(
     const serialized = event.outputs.map((o) => o.write())
     void idbPut('ldk_spendable_outputs', key, serialized)
       .then(() => {
-        // Attempt immediate sweep if BDK wallet is available
-        if (bdkWallet) {
-          const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
-          return sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
-        }
+        const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
+        return sweepSpendableOutputs(keysManager, destinationScript, ONCHAIN_CONFIG.esploraUrl)
       })
       .then((result) => {
         if (result && result.swept > 0) {
@@ -322,13 +306,6 @@ function handleEvent(
   // Channel funding — build funding tx with BDK wallet, extract raw bytes,
   // and pass to LDK's funding_transaction_generated()
   if (event instanceof Event_FundingGenerationReady) {
-    if (!bdkWallet) {
-      console.warn(
-        '[LDK Event] FundingGenerationReady: BDK wallet not available — cannot fund channel'
-      )
-      return
-    }
-
     try {
       const scriptPubkey = ScriptBuf.from_bytes(event.output_script)
       const amount = Amount.from_sat(event.channel_value_satoshis)
