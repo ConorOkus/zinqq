@@ -8,14 +8,14 @@ export interface LnurlPayMetadata {
 }
 
 /**
- * Route an HTTPS URL through the Vite CORS proxy in development.
- * In production, returns the URL unchanged.
+ * Route an HTTPS URL through a CORS proxy.
+ * Dev uses the Vite middleware; production uses the Vercel serverless function.
  */
 function proxyUrl(httpsUrl: string): string {
-  if (!import.meta.env.DEV) return httpsUrl
   try {
     const u = new URL(httpsUrl)
-    return `/__lnurl_proxy/${u.hostname}${u.pathname}${u.search}`
+    const prefix = import.meta.env.DEV ? '/__lnurl_proxy' : '/api/lnurl-proxy'
+    return `${prefix}/${u.hostname}${u.pathname}${u.search}`
   } catch {
     return httpsUrl
   }
