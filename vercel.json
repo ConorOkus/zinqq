@@ -1,13 +1,7 @@
 {
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "rewrites": [
-    {
-      "source": "/__vss_proxy/vss/:path*",
-      "destination": "/api/vss-proxy/:path*"
-    },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/(.*)",
