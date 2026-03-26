@@ -30,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(upstream.status)
     res.setHeader(
       'Content-Type',
-      upstream.headers.get('content-type') ?? 'application/octet-stream',
+      upstream.headers.get('content-type') ?? 'application/octet-stream'
     )
     res.setHeader('Cache-Control', 'no-store')
     const buffer = Buffer.from(await upstream.arrayBuffer())
