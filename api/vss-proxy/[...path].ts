@@ -11,25 +11,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  // Debug: return path info when ?debug=1
-  if (req.query.debug === '1') {
-    const body = await buffer(req)
-    res.status(200).json({
-      queryPath: req.query.path,
-      queryPathType: typeof req.query.path,
-      isArray: Array.isArray(req.query.path),
-      url: req.url,
-      bodyLength: body.length,
-      firstBytes: body.length > 0 ? Array.from(body.slice(0, 20)) : [],
-    })
-    return
-  }
-
-  const pathSegments = req.query.path
-  const path = Array.isArray(pathSegments)
-    ? pathSegments.join('/')
-    : (pathSegments ?? '')
-  const targetUrl = `${vssOrigin}/vss/${path}`
+  // Extract path from URL since req.query.path is not populated
+  const urlPath = (req.url ?? '').split('?')[0]
+  const segments = urlPath.replace(/^\/api\/vss-proxy\/?/, '')
+  const targetUrl = `${vssOrigin}/vss/${segments}`
 
   const body = await buffer(req)
 
