@@ -22,10 +22,11 @@ export function WalletGate({ children }: { children: ReactNode }) {
   return (
     <LdkProvider
       ldkSeed={wallet.ldkSeed}
+      bdkDescriptors={wallet.bdkDescriptors}
       vssEncryptionKey={wallet.vssEncryptionKey}
       vssStoreId={wallet.vssStoreId}
     >
-      <OnchainProvider bdkDescriptors={wallet.bdkDescriptors}>{children}</OnchainProvider>
+      <OnchainProvider>{children}</OnchainProvider>
     </LdkProvider>
   )
 }

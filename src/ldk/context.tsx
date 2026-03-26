@@ -46,11 +46,13 @@ function getOutboundCapacitySats(cm: import('lightningdevkit').ChannelManager): 
 export function LdkProvider({
   children,
   ldkSeed,
+  bdkDescriptors,
   vssEncryptionKey,
   vssStoreId,
 }: {
   children: ReactNode
   ldkSeed: Uint8Array
+  bdkDescriptors: { external: string; internal: string }
   vssEncryptionKey: Uint8Array
   vssStoreId: string
 }) {
@@ -360,6 +362,7 @@ export function LdkProvider({
 
     initializeLdk({
       ldkSeed,
+      bdkDescriptors,
       vssClient,
       persisterOptions: {
         vssClient,
@@ -376,7 +379,8 @@ export function LdkProvider({
           node,
           watchState,
           cleanupEventHandler,
-          setBdkWallet,
+          bdkWallet,
+          bdkEsploraClient,
           setPaymentCallback,
           setChannelClosedCallback,
           setSyncNeededCallback,
@@ -557,7 +561,8 @@ export function LdkProvider({
             closeChannel,
             forceCloseChannel,
             listChannels,
-            setBdkWallet,
+            bdkWallet,
+            bdkEsploraClient,
             setSyncNeeded: setSyncNeededCallback,
             createInvoice,
             sendBolt11Payment,
@@ -749,6 +754,7 @@ export function LdkProvider({
     refreshPaymentHistory,
     shutdown,
     ldkSeed,
+    bdkDescriptors,
     vssEncryptionKey,
     vssStoreId,
   ])

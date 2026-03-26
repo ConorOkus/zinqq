@@ -58,14 +58,21 @@ vi.mock('./traits/event-handler', () => ({
   createEventHandler: vi.fn(() => ({
     handler: {},
     cleanup: vi.fn(),
-    setBdkWallet: vi.fn(),
   })),
 }))
 vi.mock('./traits/bdk-signer-provider', () => ({
   createBdkSignerProvider: vi.fn(() => ({
     signerProvider: {},
-    setBdkWallet: vi.fn(),
   })),
+}))
+vi.mock('../onchain/init', () => ({
+  initializeBdkWalletEager: vi.fn().mockResolvedValue({
+    wallet: {},
+    esploraClient: {},
+  }),
+}))
+vi.mock('../onchain/config', () => ({
+  ONCHAIN_CONFIG: { network: 0 },
 }))
 vi.mock('./sync/esplora-client', () => ({
   EsploraClient: class {
@@ -284,7 +291,7 @@ describe('VSS recovery in initializeLdk', () => {
       }),
     })
 
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // Monitors written to IDB
     expect(idbPut).toHaveBeenCalledWith('ldk_channel_monitors', monitorKey1, monitorData1)
@@ -311,7 +318,7 @@ describe('VSS recovery in initializeLdk', () => {
     })
 
     // Should not throw — recovery failure is non-fatal, falls through to fresh state
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // Monitor 1 was written, but then rolled back
     expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_channel_monitors', [monitorKey1])
@@ -328,7 +335,7 @@ describe('VSS recovery in initializeLdk', () => {
       }),
     })
 
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // Monitor was written then rolled back
     expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_channel_monitors', [monitorKey1])
@@ -339,7 +346,7 @@ describe('VSS recovery in initializeLdk', () => {
       getObject: vi.fn().mockResolvedValue(null), // no manifest, no data
     })
 
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // No monitors or CM written
     const idbPutCalls = vi.mocked(idbPut).mock.calls
@@ -360,7 +367,7 @@ describe('VSS recovery in initializeLdk', () => {
       }),
     })
 
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // Monitor rolled back
     expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_channel_monitors', [monitorKey1])
@@ -405,7 +412,7 @@ describe('VSS migration (backfill)', () => {
       listKeyVersions: vi.fn().mockResolvedValue([]), // VSS is empty
     })
 
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // putObjects called with CM, monitors, manifest, and known peers
     // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -433,7 +440,7 @@ describe('VSS migration (backfill)', () => {
       listKeyVersions: vi.fn().mockResolvedValue([{ key: 'obfuscated', version: 1 }]),
     })
 
-    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), vssClient })
+    await initModule.initializeLdk({ ldkSeed: new Uint8Array(32), bdkDescriptors: { external: 'ext', internal: 'int' }, vssClient })
 
     // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(vi.mocked(vssClient.putObjects)).not.toHaveBeenCalled()

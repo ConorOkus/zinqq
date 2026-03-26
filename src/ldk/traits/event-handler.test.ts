@@ -295,7 +295,7 @@ describe('createEventHandler', () => {
 
     const cm = createMockChannelManager()
     const km = createMockKeysManager()
-    const result = createEventHandler(cm, km, undefined, mockOnChannelClosed)
+    const result = createEventHandler(cm, km, mockBdkWallet as never, undefined, mockOnChannelClosed)
     cleanup = result.cleanup
     handleEvent = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
       .handle_event
@@ -435,6 +435,7 @@ describe('createEventHandler', () => {
     const result = createEventHandler(
       cm,
       createMockKeysManager(),
+      mockBdkWallet as never,
       undefined,
       undefined,
       mockSyncNeeded
@@ -456,20 +457,8 @@ describe('createEventHandler', () => {
     )
   })
 
-  it('warns when FundingGenerationReady fires without BDK wallet', () => {
+  it('builds funding tx and calls funding_transaction_generated', () => {
     handleEvent(new Event_FundingGenerationReady())
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('BDK wallet not available'))
-    expect(mockFundingTransactionGenerated).not.toHaveBeenCalled()
-  })
-
-  it('builds funding tx and calls funding_transaction_generated with BDK wallet', () => {
-    const cm = createMockChannelManager()
-    const result = createEventHandler(cm, createMockKeysManager())
-    result.setBdkWallet(mockBdkWallet as never)
-    const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
-      .handle_event
-
-    handler(new Event_FundingGenerationReady())
 
     expect(mockBdkWallet.build_tx).toHaveBeenCalled()
     expect(mockBdkWallet.sign).toHaveBeenCalled()
@@ -486,42 +475,29 @@ describe('createEventHandler', () => {
       expect.any(String),
       expect.any(String)
     )
-    result.cleanup()
   })
 
   it('does not persist tx when funding_transaction_generated fails', () => {
     mockFundingTransactionGenerated.mockReturnValueOnce({ is_ok: () => false })
-    const cm = createMockChannelManager()
-    const result = createEventHandler(cm, createMockKeysManager())
-    result.setBdkWallet(mockBdkWallet as never)
-    const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
-      .handle_event
 
-    handler(new Event_FundingGenerationReady())
+    handleEvent(new Event_FundingGenerationReady())
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('funding_transaction_generated failed'),
       expect.anything()
     )
-    result.cleanup()
   })
 
   it('broadcasts persisted tx on FundingTxBroadcastSafe', async () => {
     // Mock IDB to return a persisted funding tx
     mockIdbGet.mockResolvedValueOnce('dead')
 
-    const cm = createMockChannelManager()
-    const result = createEventHandler(cm, createMockKeysManager())
-    const handler = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
-      .handle_event
-
-    handler(new Event_FundingTxBroadcastSafe())
+    handleEvent(new Event_FundingTxBroadcastSafe())
 
     // Allow the async IDB read + broadcast to resolve
     await vi.waitFor(() => {
       expect(mockBroadcastWithRetry).toHaveBeenCalledWith('https://test.esplora/api', 'dead')
     })
-    result.cleanup()
   })
 
   it('warns when FundingTxBroadcastSafe has no persisted tx', async () => {
