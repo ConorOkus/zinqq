@@ -61,7 +61,11 @@ type SendStep =
       amountMsat: bigint
       paymentId: Uint8Array
     }
-  | { step: 'ln-success'; /** Proof-of-payment; retained for payment history / export */ preimage: Uint8Array; amountMsat: bigint }
+  | {
+      step: 'ln-success'
+      /** Proof-of-payment; retained for payment history / export */ preimage: Uint8Array
+      amountMsat: bigint
+    }
   // Shared
   | { step: 'error'; message: string; retryStep: ReviewStep | null }
 
@@ -98,7 +102,6 @@ function recipientLabel(
       return parsed.description ?? 'Lightning Offer'
   }
 }
-
 
 export function Send() {
   const navigate = useNavigate()
