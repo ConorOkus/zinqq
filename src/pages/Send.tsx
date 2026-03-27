@@ -11,7 +11,8 @@ import { formatBtc } from '../utils/format-btc'
 import { msatToSatCeil, msatToSatFloor } from '../utils/msat'
 import { bytesToHex } from '../ldk/utils'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { Numpad, type NumpadKey, numpadDigitReducer } from '../components/Numpad'
+import { Numpad, type NumpadKey } from '../components/Numpad'
+import { numpadDigitReducer } from '../components/numpad-reducer'
 import { Check, XClose, ArrowRight } from '../components/icons'
 import {
   RecentPaymentDetails_AwaitingInvoice,

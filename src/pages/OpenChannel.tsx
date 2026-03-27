@@ -6,7 +6,8 @@ import { hexToBytes, bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
 import { SIGNET_CONFIG } from '../ldk/config'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { Numpad, type NumpadKey, numpadDigitReducer } from '../components/Numpad'
+import { Numpad, type NumpadKey } from '../components/Numpad'
+import { numpadDigitReducer } from '../components/numpad-reducer'
 import { Check, XClose } from '../components/icons'
 
 const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/

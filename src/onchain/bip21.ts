@@ -25,7 +25,7 @@ export function satsToBtcString(sats: bigint): string {
 export interface BuildBip21Options {
   address: string
   amountSats?: bigint
-  invoice?: string
+  invoice?: string | null
 }
 
 /** Build a BIP 21 URI from an address and optional query parameters. */
