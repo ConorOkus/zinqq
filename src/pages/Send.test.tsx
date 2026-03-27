@@ -360,7 +360,6 @@ describe('Send', () => {
         expect(screen.getByText(/review/i)).toBeInTheDocument()
       })
       expect(screen.getByText('₿50,000')).toBeInTheDocument()
-      expect(screen.getByText('BOLT 11')).toBeInTheDocument()
     })
 
     it('goes back to recipient from ln-review (amount was embedded)', async () => {
@@ -406,7 +405,6 @@ describe('Send', () => {
       await waitFor(() => {
         expect(screen.getByText(/review/i)).toBeInTheDocument()
       })
-      expect(screen.getByText('BOLT 11')).toBeInTheDocument()
     })
   })
 

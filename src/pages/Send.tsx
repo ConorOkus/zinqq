@@ -61,7 +61,11 @@ type SendStep =
       amountMsat: bigint
       paymentId: Uint8Array
     }
-  | { step: 'ln-success'; preimage: Uint8Array; amountMsat: bigint }
+  | {
+      step: 'ln-success'
+      /** Proof-of-payment; retained for payment history / export */ preimage: Uint8Array
+      amountMsat: bigint
+    }
   // Shared
   | { step: 'error'; message: string; retryStep: ReviewStep | null }
 
@@ -96,16 +100,6 @@ function recipientLabel(
       return parsed.description ?? 'Lightning Invoice'
     case 'bolt12':
       return parsed.description ?? 'Lightning Offer'
-  }
-}
-
-/** Get a short badge label for the payment type. */
-function typeBadge(parsed: ParsedPaymentInput & { type: 'bolt11' | 'bolt12' }): string {
-  switch (parsed.type) {
-    case 'bolt11':
-      return 'BOLT 11'
-    case 'bolt12':
-      return 'BOLT 12'
   }
 }
 
@@ -719,7 +713,6 @@ export function Send() {
 
   // --- Lightning success ---
   if (sendStep.step === 'ln-success') {
-    const preimageHex = bytesToHex(sendStep.preimage)
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent">
@@ -729,17 +722,8 @@ export function Send() {
           <div className="font-display text-4xl font-bold text-on-dark">
             {formatBtc(msatToSatCeil(sendStep.amountMsat))}
           </div>
-          <div className="mt-1 text-[var(--color-on-dark-muted)]">sent via Lightning</div>
+          <div className="mt-1 text-[var(--color-on-dark-muted)]">sent successfully</div>
         </div>
-        {preimageHex !== '0'.repeat(64) && (
-          <button
-            className="rounded-full border border-dark-border px-4 py-2 font-mono text-xs text-[var(--color-on-dark-muted)] transition-colors hover:bg-white/5"
-            onClick={() => void navigator.clipboard.writeText(preimageHex)}
-            title="Copy preimage"
-          >
-            {preimageHex.slice(0, 8)}...{preimageHex.slice(-8)}
-          </button>
-        )}
         <button
           className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
           onClick={() => void navigate('/')}
@@ -882,12 +866,6 @@ export function Send() {
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">To</span>
             <span className="max-w-[60%] break-all text-right text-sm font-semibold">
               {recipientLabel(parsed, sendStep.label)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">Type</span>
-            <span className="rounded-full bg-accent/20 px-3 py-0.5 text-xs font-semibold text-accent">
-              {typeBadge(parsed)}
             </span>
           </div>
           <div className="flex justify-between">
