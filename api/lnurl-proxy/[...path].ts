@@ -1,39 +1,35 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node'
-
 /**
  * Vercel serverless function that proxies LNURL requests to bypass CORS.
  * Routes /api/lnurl-proxy/DOMAIN/PATH to https://DOMAIN/PATH.
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET') {
-    res.status(405).json({ error: 'Method not allowed' })
-    return
-  }
-
-  // Extract domain and path from URL: /api/lnurl-proxy/domain.com/.well-known/lnurlp/user
-  const rawUrl = req.url ?? ''
-  const [urlPath, queryString] = rawUrl.split('?', 2)
-  const rest = urlPath.replace(/^\/api\/lnurl-proxy\/?/, '')
+export async function GET(request: Request) {
+  const url = new URL(request.url)
+  const rest = url.pathname.replace(/^\/api\/lnurl-proxy\/?/, '')
   const slashIdx = rest.indexOf('/')
   if (slashIdx === -1) {
-    res.status(400).json({ error: 'Bad proxy URL — expected /api/lnurl-proxy/DOMAIN/PATH' })
-    return
+    return Response.json(
+      { error: 'Bad proxy URL — expected /api/lnurl-proxy/DOMAIN/PATH' },
+      { status: 400 }
+    )
   }
 
   const targetHost = rest.slice(0, slashIdx)
   const targetPath = rest.slice(slashIdx)
-  const targetUrl = `https://${targetHost}${targetPath}${queryString ? '?' + queryString : ''}`
+  const targetUrl = `https://${targetHost}${targetPath}${url.search}`
 
   try {
     const upstream = await fetch(targetUrl, {
       signal: AbortSignal.timeout(10_000),
     })
 
-    res.status(upstream.status)
-    res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
-    res.setHeader('Cache-Control', 'no-store')
-    res.send(await upstream.text())
+    return new Response(await upstream.text(), {
+      status: upstream.status,
+      headers: {
+        'Content-Type': upstream.headers.get('content-type') ?? 'application/json',
+        'Cache-Control': 'no-store',
+      },
+    })
   } catch {
-    res.status(502).json({ error: 'upstream unavailable' })
+    return Response.json({ error: 'upstream unavailable' }, { status: 502 })
   }
 }
