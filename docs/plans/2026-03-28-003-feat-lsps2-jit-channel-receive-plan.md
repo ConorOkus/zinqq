@@ -1,7 +1,7 @@
 ---
 title: "feat: LSPS2 JIT channel receive support"
 type: feat
-status: active
+status: completed
 date: 2026-03-28
 origin: docs/brainstorms/2026-03-28-lsps2-jit-channels-brainstorm.md
 ---
