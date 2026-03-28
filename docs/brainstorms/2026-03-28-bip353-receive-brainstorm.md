@@ -25,7 +25,7 @@ Allow zinqq users to claim a human-readable payment address like `alice@zinqq.ap
 
 ## Why This Approach
 
-1. **Builds on what exists** — The BOLT 12 offer is already generated and persisted. The send-side BIP 353 resolver already works. This closes the loop by making zinqq a BIP 353 *publisher* too.
+1. **Builds on what exists** — The BOLT 12 offer is already generated and persisted. The send-side BIP 353 resolver already works. This closes the loop by making zinqq a BIP 353 _publisher_ too.
 2. **Cloudflare DNS is natural** — Already used for DoH on the send side. Their API supports creating TXT records with DNSSEC enabled at the zone level.
 3. **Self-serve registration scales** — A serverless function handling registration means no manual DNS management. Username uniqueness is enforced by the DNS API itself (can't create duplicate records).
 4. **Offer-only URI is clean** — BIP 353 spec explicitly discourages static on-chain addresses without rotation. Since the wallet can't rotate addresses in DNS dynamically, omitting them is the right call.
@@ -51,16 +51,19 @@ Allow zinqq users to claim a human-readable payment address like `alice@zinqq.ap
 ## Environment Architecture
 
 ### Local Development
+
 - Serverless function runs via Vite dev server proxy
 - Mock Cloudflare API using in-memory map (`DNS_BACKEND=mock` env var)
 - No real DNS writes during development
 
 ### Staging (Vercel Preview)
+
 - Real Cloudflare API with a staging DNS prefix (e.g., `username.user._bitcoin-payment.staging.zinqq.app`)
 - Separate `CF_API_TOKEN_STAGING` and zone config in Vercel preview env vars
 - Isolated from production DNS records
 
 ### Production
+
 - Real Cloudflare API writing to `username.user._bitcoin-payment.zinqq.app`
 - `CF_API_TOKEN` and `CF_ZONE_ID` set as Vercel production env vars
 - DNSSEC enabled at the Cloudflare zone level

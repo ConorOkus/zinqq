@@ -1,5 +1,5 @@
 ---
-title: "feat: On-Chain Transaction Tracking, Rebroadcast & Fee Bumping"
+title: 'feat: On-Chain Transaction Tracking, Rebroadcast & Fee Bumping'
 type: feat
 status: active
 date: 2026-03-27
@@ -15,12 +15,14 @@ origin: docs/brainstorms/2026-03-27-onchain-tx-tracking-rebroadcast-brainstorm.m
 **Review agents used:** TypeScript reviewer, Security sentinel, Performance oracle, Race condition reviewer, Architecture strategist, Code simplicity reviewer, Data integrity guardian, Learnings researcher, Best practices researcher
 
 ### Key Improvements
+
 1. **Prerequisite fixes identified** — `putChangeset` read-modify-write race and sync pause counter must be fixed before this feature
 2. **Simplification** — Expose `tipHeight` on context instead of storing `confirmations` on each tx; single auto-selected bump rate instead of 3 presets; filter replaced txs rather than complex grouping
 3. **Critical security** — UTXO lock must be persisted (not just in-memory); anchor reserve enforcement must ship with Layer 3; `replacedBy` must be set atomically before broadcast
 4. **11 new institutional learnings** incorporated from `docs/solutions/`
 
 ### New Considerations Discovered
+
 - `putChangeset` has an existing read-modify-write race condition (two concurrent callers can lose deltas)
 - Sync loop pause is a boolean, not a counter — second concurrent pauser causes premature resume
 - `CoinSelectionSource` change outputs must use `peek_address` (not `next_unused_address`) due to sync constraint
@@ -87,11 +89,11 @@ Today Zinqq has zero post-broadcast transaction management. If a user send doesn
 
 These existing bugs must be fixed before implementing this feature:
 
-- [ ] **Fix `putChangeset` read-modify-write race** — `src/onchain/storage/changeset.ts` performs read and write in separate IDB transactions. Two concurrent callers can lose deltas. Fix: use a single readwrite IDB transaction for the get-merge-put cycle, or serialize access with a promise queue. *(Source: Race condition reviewer, Data integrity guardian)*
+- [ ] **Fix `putChangeset` read-modify-write race** — `src/onchain/storage/changeset.ts` performs read and write in separate IDB transactions. Two concurrent callers can lose deltas. Fix: use a single readwrite IDB transaction for the get-merge-put cycle, or serialize access with a promise queue. _(Source: Race condition reviewer, Data integrity guardian)_
 
-- [ ] **Convert sync loop pause from boolean to counter** — `src/onchain/sync.ts` uses a bare `paused` boolean. When `buildFeeBump` is added alongside `buildSignBroadcast`, the first to resume will unpause the loop while the second is still in flight. Fix: use a pause counter (`pauseCount++` / `Math.max(0, pauseCount - 1)`). *(Source: Race condition reviewer)*
+- [ ] **Convert sync loop pause from boolean to counter** — `src/onchain/sync.ts` uses a bare `paused` boolean. When `buildFeeBump` is added alongside `buildSignBroadcast`, the first to resume will unpause the loop while the second is still in flight. Fix: use a pause counter (`pauseCount++` / `Math.max(0, pauseCount - 1)`). _(Source: Race condition reviewer)_
 
-- [ ] **Await changeset persistence in `buildSignBroadcast`** — `src/onchain/context.tsx:189` fires `persistChangeset` as fire-and-forget after broadcast. If the tab closes immediately, the wallet won't know about the transaction on next startup. Fix: `await` the changeset persistence before returning the txid. *(Source: Race condition reviewer)*
+- [ ] **Await changeset persistence in `buildSignBroadcast`** — `src/onchain/context.tsx:189` fires `persistChangeset` as fire-and-forget after broadcast. If the tab closes immediately, the wallet won't know about the transaction on next startup. Fix: `await` the changeset persistence before returning the txid. _(Source: Race condition reviewer)_
 
 ### Implementation Phases
 
@@ -102,35 +104,39 @@ These existing bugs must be fixed before implementing this feature:
 **Tasks:**
 
 - [ ] **Add `pending_send_txs` IDB store** — Bump `DB_VERSION` to 9 in `src/storage/idb.ts`. Create a typed accessor module `src/onchain/storage/pending-sends.ts` (following the `changeset.ts` pattern — do not scatter raw `idbGet`/`idbPut` calls in business logic). Schema per entry:
+
   ```typescript
   interface PendingSendTx {
     readonly txid: string
     readonly rawHex: string
     readonly createdAt: number
-    readonly feeRateSatVb: number  // store at build time for Speed Up UI context
+    readonly feeRateSatVb: number // store at build time for Speed Up UI context
     readonly replacedBy: string | null
   }
   ```
+
   Key by txid.
 
-  > **Research insight:** Add a `feeRateSatVb` field at build time so the Speed Up UI can show current fee rate without re-parsing raw tx hex. *(Source: Architecture strategist)*
+  > **Research insight:** Add a `feeRateSatVb` field at build time so the Speed Up UI can show current fee rate without re-parsing raw tx hex. _(Source: Architecture strategist)_
 
-- [ ] **Persist raw tx hex before broadcast** in `buildSignBroadcast` (`src/onchain/context.tsx:~186`). After `psbt.extract_tx()`, serialize to hex and write to `pending_send_txs` store *before* calling `broadcastWithRetry`. This ensures crash recovery even if broadcast hangs.
+- [ ] **Persist raw tx hex before broadcast** in `buildSignBroadcast` (`src/onchain/context.tsx:~186`). After `psbt.extract_tx()`, serialize to hex and write to `pending_send_txs` store _before_ calling `broadcastWithRetry`. This ensures crash recovery even if broadcast hangs.
   - If broadcast succeeds: entry stays (rebroadcast loop will clean up after confirmation).
   - If broadcast fails after retries: entry stays, rebroadcast loop will retry next tick.
 
-  > **Research insight:** Add IDB write retry flag (local dirty flag pattern from `ldk-trait-defensive-hardening-patterns.md`). If the IDB write fails, the next sync tick retries. *(Source: Learnings researcher)*
+  > **Research insight:** Add IDB write retry flag (local dirty flag pattern from `ldk-trait-defensive-hardening-patterns.md`). If the IDB write fails, the next sync tick retries. _(Source: Learnings researcher)_
 
 - [ ] **Add broadcast retry to user sends** — Reuse `broadcastWithRetry` from `src/ldk/traits/broadcaster.ts`. Call it from `buildSignBroadcast` instead of bare `esplora.broadcast()`. 5 retries, exponential backoff (1s, 2s, 4s, 8s, 16s). Handle idempotent "already known" responses.
 
   > **Research insight:** Refactor `broadcastWithRetry` return type to a discriminated union before use:
+  >
   > ```typescript
   > type BroadcastResult =
   >   | { status: 'broadcast'; txid: string }
   >   | { status: 'already-known' }
   >   | { status: 'in-flight' }
   > ```
-  > The current string return (`txid | 'in-flight' | 'already-broadcast'`) is stringly typed and error-prone. *(Source: TypeScript reviewer)*
+  >
+  > The current string return (`txid | 'in-flight' | 'already-broadcast'`) is stringly typed and error-prone. _(Source: TypeScript reviewer)_
 
 - [ ] **Add rebroadcast as a separate async function called from BDK sync loop** — Extract into `src/onchain/rebroadcast.ts`. After sync completes (~line 71 of `sync.ts`), call `void rebroadcastPendingTxs(wallet, esploraUrl).catch(...)`. The function:
   1. Reads all entries from `pending_send_txs` via `idbGetAll` (single IDB read)
@@ -138,19 +144,20 @@ These existing bugs must be fixed before implementing this feature:
   3. For each pending entry: if confirmed in wallet → delete from store. If unconfirmed and `replacedBy` is null → POST raw hex to Esplora (fire-and-forget)
   4. Use `idbDeleteBatch` for confirmed entries (single IDB write instead of N)
 
-  > **Research insight:** Do NOT iterate `wallet.transactions()` independently for rebroadcast. Share the result to avoid O(n) WASM serialization cost every 80s. At 500+ transactions, double traversal costs 20-40ms on mobile. *(Source: Performance oracle)*
+  > **Research insight:** Do NOT iterate `wallet.transactions()` independently for rebroadcast. Share the result to avoid O(n) WASM serialization cost every 80s. At 500+ transactions, double traversal costs 20-40ms on mobile. _(Source: Performance oracle)_
 
-  > **Research insight:** When confirmation is detected during rebroadcast cleanup, immediately invoke the balance/transaction refresh callback rather than waiting for the next scheduled sync tick. Use `queueMicrotask` throttling if multiple txs confirm in the same tick. *(Source: Learnings from `channel-state-ui-update-10s-delay.md`)*
+  > **Research insight:** When confirmation is detected during rebroadcast cleanup, immediately invoke the balance/transaction refresh callback rather than waiting for the next scheduled sync tick. Use `queueMicrotask` throttling if multiple txs confirm in the same tick. _(Source: Learnings from `channel-state-ui-update-10s-delay.md`)_
 
 - [ ] **Expose `tipHeight` on `OnchainContext`** — After `esploraClient.sync()`, extract the current tip height via `wallet.latest_checkpoint()`. Surface it in the `OnchainContextValue` ready state.
 
-  > **Research insight:** Do NOT add `confirmations: number` to the `OnchainTransaction` type. It is a derived value that goes stale between syncs. Instead, expose `tipHeight` on context and let the UI compute `tipHeight - confirmationBlockHeight + 1` at render time. *(Source: TypeScript reviewer)*
+  > **Research insight:** Do NOT add `confirmations: number` to the `OnchainTransaction` type. It is a derived value that goes stale between syncs. Instead, expose `tipHeight` on context and let the UI compute `tipHeight - confirmationBlockHeight + 1` at render time. _(Source: TypeScript reviewer)_
 
 - [ ] **Add `confirmationBlockHeight` to `OnchainTransaction`** — Extract from BDK's `chain_position.confirmation_block_time.block_id.height` for confirmed txs, `null` for pending. The UI computes confirmation count from `tipHeight - confirmationBlockHeight + 1`.
 
-- [ ] **Add catch-up sync on `visibilitychange`** — When `document.visibilityState` changes to `'visible'`, trigger an immediate BDK sync. Chrome throttles background tab timers to 1-minute resolution after 5 minutes; the 80s sync interval may drift. *(Source: Best practices researcher)*
+- [ ] **Add catch-up sync on `visibilitychange`** — When `document.visibilityState` changes to `'visible'`, trigger an immediate BDK sync. Chrome throttles background tab timers to 1-minute resolution after 5 minutes; the 80s sync interval may drift. _(Source: Best practices researcher)_
 
 **Files touched:**
+
 - `src/storage/idb.ts` — new store, version bump
 - `src/onchain/storage/pending-sends.ts` — new typed accessor module
 - `src/onchain/storage/changeset.ts` — fix read-modify-write race (prerequisite)
@@ -162,6 +169,7 @@ These existing bugs must be fixed before implementing this feature:
 - `src/ldk/traits/broadcaster.ts` — refactor return type to discriminated union
 
 **Success criteria:**
+
 - [ ] User sends are persisted to IDB before broadcast
 - [ ] Failed broadcasts are retried 5 times with exponential backoff
 - [ ] Unconfirmed sends are rebroadcast every sync tick (80s)
@@ -179,9 +187,11 @@ These existing bugs must be fixed before implementing this feature:
 **Tasks:**
 
 - [ ] **Create transaction detail screen** — New route `/tx/:txid` with component `src/pages/TxDetail.tsx`. Model the speed-up sub-flow as a discriminated union state machine (following the pattern from `react-send-flow-amount-first-state-machine.md`):
+
   ```typescript
   type TxDetailStep = 'detail' | 'confirming-bump' | 'bumping' | 'bump-success' | 'bump-error'
   ```
+
   Shows:
   - Direction (sent/received) and amount
   - Txid (truncated, copyable)
@@ -206,9 +216,10 @@ These existing bugs must be fixed before implementing this feature:
   11. Resumes sync loop in finally block
   12. Accepts or creates an `AbortSignal` for cancellation on component unmount
 
-  > **Research insight:** The `replacedBy` write MUST happen before broadcast. If broadcast succeeds but the IDB write fails, the rebroadcast loop will broadcast the original, racing with the replacement. Use a single IDB transaction for the update + insert. *(Source: Security sentinel, Data integrity guardian)*
+  > **Research insight:** The `replacedBy` write MUST happen before broadcast. If broadcast succeeds but the IDB write fails, the rebroadcast loop will broadcast the original, racing with the replacement. Use a single IDB transaction for the update + insert. _(Source: Security sentinel, Data integrity guardian)_
 
   > **Research insight:** `build_fee_bump` can fail for: tx already confirmed, tx not in wallet, insufficient funds, fee rate not higher than original. Define explicit error types:
+  >
   > ```typescript
   > type FeeBumpError =
   >   | { type: 'already-confirmed' }
@@ -217,7 +228,8 @@ These existing bugs must be fixed before implementing this feature:
   >   | { type: 'tx-not-found' }
   >   | { type: 'unknown'; message: string }
   > ```
-  > *(Source: TypeScript reviewer)*
+  >
+  > _(Source: TypeScript reviewer)_
 
 - [ ] **Speed-up confirmation screen** — Single "Speed up" action with auto-selected rate (2x current fee rate, or current mempool 1-block target, whichever is higher). Show:
   - Current fee rate vs. new fee rate
@@ -225,17 +237,18 @@ These existing bugs must be fixed before implementing this feature:
   - Estimated confirmation time at new rate
   - Confirm button
 
-  > **Simplification from review:** Skip the 3-preset fee picker. On signet, fee rates are nearly constant. A single auto-calculated rate with one-tap confirmation is simpler and covers the use case. Add manual rate selection later if needed. *(Source: Code simplicity reviewer, Best practices researcher — "Trezor Suite auto-calculates; BlueWallet presents single recommended rate")*
+  > **Simplification from review:** Skip the 3-preset fee picker. On signet, fee rates are nearly constant. A single auto-calculated rate with one-tap confirmation is simpler and covers the use case. Add manual rate selection later if needed. _(Source: Code simplicity reviewer, Best practices researcher — "Trezor Suite auto-calculates; BlueWallet presents single recommended rate")_
 
-  > **Research insight:** Guard against negative bigint in fee delta display. If a subtraction underflow produces a negative value and it's used in formatting, it will silently produce wrong output. Clamp to zero minimum. *(Source: Learnings from `abort-controller-and-bigint-sign-fixes.md`)*
+  > **Research insight:** Guard against negative bigint in fee delta display. If a subtraction underflow produces a negative value and it's used in formatting, it will silently produce wrong output. Clamp to zero minimum. _(Source: Learnings from `abort-controller-and-bigint-sign-fixes.md`)_
 
 - [ ] **Handle RBF replacement in transaction history** — Filter replaced transactions out of the list entirely (where `replacedBy !== null` in `pending_send_txs`). Do NOT add complex "logical send" grouping by shared input set — it risks O(n²) comparisons and is over-engineered for the initial implementation. When a replacement confirms, BDK marks the original as conflicted — filter conflicted txs from the list.
 
-  > **Simplification from review:** Filtering is simpler than grouping and less invasive to the `UnifiedTransaction` type contract. *(Source: TypeScript reviewer, Code simplicity reviewer, Performance oracle — "O(n) grouping via hash map if ever needed, but filtering is sufficient initially")*
+  > **Simplification from review:** Filtering is simpler than grouping and less invasive to the `UnifiedTransaction` type contract. _(Source: TypeScript reviewer, Code simplicity reviewer, Performance oracle — "O(n) grouping via hash map if ever needed, but filtering is sufficient initially")_
 
-- [ ] **Error handling** — Map `build_fee_bump` WASM errors to `FeeBumpError` discriminated union. Surface user-friendly messages. Also handle Esplora rejection messages specific to RBF: `insufficient fee`, `too-long-mempool-chain`, `txn-mempool-conflict`. *(Source: Best practices researcher)*
+- [ ] **Error handling** — Map `build_fee_bump` WASM errors to `FeeBumpError` discriminated union. Surface user-friendly messages. Also handle Esplora rejection messages specific to RBF: `insufficient fee`, `too-long-mempool-chain`, `txn-mempool-conflict`. _(Source: Best practices researcher)_
 
 **Files touched:**
+
 - `src/pages/TxDetail.tsx` — new file
 - `src/pages/Activity.tsx` — make items tappable
 - `src/routes/router.tsx` — add `/tx/:txid` route
@@ -244,6 +257,7 @@ These existing bugs must be fixed before implementing this feature:
 - `src/onchain/storage/pending-sends.ts` — atomic replace helper
 
 **Success criteria:**
+
 - [ ] Tapping a transaction in Activity opens the detail screen
 - [ ] Pending sends show a "Speed up" button
 - [ ] Speed-up auto-selects a rate and shows fee delta
@@ -264,26 +278,27 @@ These existing bugs must be fixed before implementing this feature:
 - [ ] **Implement `CoinSelectionSource` backed by BDK** — New file `src/ldk/traits/coin-selection-source.ts`. Two methods:
 
   `select_confirmed_utxos(claim_id, must_spend, must_pay_to, target_feerate_sat_per_1000_weight)`:
-  - **Validate and cap incoming feerate** — Apply `MAX_FEE_SAT_KW` cap (matching the existing fee estimator pattern at `fee-estimator.ts:5`) to guard against corrupted/extreme feerate values from LDK internals. *(Source: Learnings from `ldk-trait-defensive-hardening-patterns.md`)*
+  - **Validate and cap incoming feerate** — Apply `MAX_FEE_SAT_KW` cap (matching the existing fee estimator pattern at `fee-estimator.ts:5`) to guard against corrupted/extreme feerate values from LDK internals. _(Source: Learnings from `ldk-trait-defensive-hardening-patterns.md`)_
   - Query BDK wallet for confirmed UTXOs (synchronous in WASM memory)
   - Exclude UTXOs locked by other active claims (via `utxo-lock.ts` module)
   - Select enough UTXOs to meet the target feerate
   - Track selected UTXOs against `claim_id` for re-bump reuse
-  - **Use `peek_address` (NOT `next_unused_address`) for change output scripts** — `next_unused_address` triggers an address reveal that requires async persistence. `peek_address` with deterministic index + deferred `reveal_addresses_to` is correct for synchronous contexts. *(Source: Learnings from `bdk-ldk-force-close-destination-script-interop.md`)*
+  - **Use `peek_address` (NOT `next_unused_address`) for change output scripts** — `next_unused_address` triggers an address reveal that requires async persistence. `peek_address` with deterministic index + deferred `reveal_addresses_to` is correct for synchronous contexts. _(Source: Learnings from `bdk-ldk-force-close-destination-script-interop.md`)_
   - Return `CoinSelection` with selected UTXOs and change output
 
   `sign_psbt(psbt)`:
   - Deserialize PSBT, sign with `wallet.sign()` using `trust_witness_utxo = true`
   - Return signed transaction bytes
-  - **Immediately queue changeset persistence via `queueMicrotask`** — Do not defer to next sync tick. The deferred window is too long (~30s) and risks losing change address reveals on crash. *(Source: Security sentinel)*
+  - **Immediately queue changeset persistence via `queueMicrotask`** — Do not defer to next sync tick. The deferred window is too long (~30s) and risks losing change address reveals on crash. _(Source: Security sentinel)_
 
   **Critical constraint:** Both methods must be synchronous (WASM trait boundary). BDK wallet operations (balance, list UTXOs, sign) are synchronous in WASM. Changeset persistence is deferred via microtask.
 
-  > **Research insight:** Explicitly verify every BDK method called within `CoinSelectionSource` is synchronous. TypeScript will NOT catch a `Promise` returned where a value is expected — it will silently produce `[object Promise]`. List: `wallet.list_unspent()`, `wallet.sign()`, `wallet.take_staged()`, `peek_address()`. *(Source: TypeScript reviewer)*
+  > **Research insight:** Explicitly verify every BDK method called within `CoinSelectionSource` is synchronous. TypeScript will NOT catch a `Promise` returned where a value is expected — it will silently produce `[object Promise]`. List: `wallet.list_unspent()`, `wallet.sign()`, `wallet.take_staged()`, `peek_address()`. _(Source: TypeScript reviewer)_
 
-  > **Research insight:** Assert BDK wallet is initialized before `CoinSelectionSource` construction — fail loudly if null. Init ordering is load-bearing (BDK must be ready before LDK deserialization). *(Source: Learnings from `bdk-ldk-force-close-destination-script-interop.md`)*
+  > **Research insight:** Assert BDK wallet is initialized before `CoinSelectionSource` construction — fail loudly if null. Init ordering is load-bearing (BDK must be ready before LDK deserialization). _(Source: Learnings from `bdk-ldk-force-close-destination-script-interop.md`)_
 
 - [ ] **Create UTXO lock module** — New file `src/onchain/utxo-lock.ts`. Dedicated module with typed API:
+
   ```typescript
   type OutpointKey = `${string}:${number}`
   function toOutpointKey(txid: string, vout: number): OutpointKey
@@ -292,32 +307,34 @@ These existing bugs must be fixed before implementing this feature:
   function isLocked(key: OutpointKey): boolean
   function getLockedOutpoints(): ReadonlySet<OutpointKey>
   ```
+
   - Both `CoinSelectionSource` and `useFeeBump` import from this module — explicit, testable dependency
   - Lock acquisition in `useFeeBump` must happen **synchronously before the first `await`** — `CoinSelectionSource` is synchronous at the WASM boundary, so a `BumpTransaction` event could fire during any `await` gap in `useFeeBump`
   - **Known limitation for signet:** Locks are in-memory and lost on page refresh. On crash, LDK re-emits `BumpTransaction` and fresh UTXOs are selected. Document for mainnet readiness.
 
-  > **Research insight:** Use the branded `OutpointKey` type to prevent format drift between callers. Without it, one caller might use `txid:vout` while another uses `txid-vout`, and the Set would fail to deduplicate. *(Source: TypeScript reviewer)*
+  > **Research insight:** Use the branded `OutpointKey` type to prevent format drift between callers. Without it, one caller might use `txid:vout` while another uses `txid-vout`, and the Set would fail to deduplicate. _(Source: TypeScript reviewer)_
 
 - [ ] **Wire `BumpTransactionEventHandler`** — In `src/ldk/traits/event-handler.ts`, replace the TODO stub at line 376:
   1. Import `BumpTransactionEventHandler` from LDK
   2. Instantiate with: existing `broadcaster`, new `CoinSelectionSource`, existing `signerProvider`, existing `logger`
-  3. **Wrap in try/catch** — An uncaught error in `handle_event` aborts the entire `process_pending_events` batch, losing remaining events. *(Source: Learnings from `ldk-event-handler-patterns.md`)*
-  4. **Flush ChannelManager persistence immediately after anchor bump** — Don't wait for 30s sync tick. *(Source: Learnings from `ldk-event-handler-patterns.md`)*
+  3. **Wrap in try/catch** — An uncaught error in `handle_event` aborts the entire `process_pending_events` batch, losing remaining events. _(Source: Learnings from `ldk-event-handler-patterns.md`)_
+  4. **Flush ChannelManager persistence immediately after anchor bump** — Don't wait for 30s sync tick. _(Source: Learnings from `ldk-event-handler-patterns.md`)_
 
 - [ ] **Anchor reserve warning** — When on-chain balance is zero and Lightning channels exist, log `[Fund Safety]` warning. In the UI, show a warning banner on the home screen. On `sendMax`: subtract a minimum reserve (~10,000 sats) from the drain amount when `channelManager.list_channels().length > 0`. This MUST ship with Layer 3.
 
-  > **Security insight (CRITICAL):** The original plan deferred anchor reserve to "Future Considerations." This is too late — `sendMax` followed by a counterparty force close means HTLCs cannot be resolved. On signet the funds are free, but the pattern must be correct for mainnet carry-forward. *(Source: Security sentinel)*
+  > **Security insight (CRITICAL):** The original plan deferred anchor reserve to "Future Considerations." This is too late — `sendMax` followed by a counterparty force close means HTLCs cannot be resolved. On signet the funds are free, but the pattern must be correct for mainnet carry-forward. _(Source: Security sentinel)_
 
 - [ ] **Separate fee policy for anchor bumps** — Respect LDK's target feerate from the event (already validated/capped in `select_confirmed_utxos`). Log all auto-bumps with `[Anchor Bump]` prefix including cost breakdown.
 
-  > **Simplification from review:** Drop the explicit 500,000 sat cap and the "lesser of HTLC value" calculation for signet. The feerate cap in `select_confirmed_utxos` provides sufficient protection. Revisit cap design for mainnet with a percentage-based approach (e.g., 10% of HTLC exposure). *(Source: Code simplicity reviewer, Security sentinel)*
+  > **Simplification from review:** Drop the explicit 500,000 sat cap and the "lesser of HTLC value" calculation for signet. The feerate cap in `select_confirmed_utxos` provides sufficient protection. Revisit cap design for mainnet with a percentage-based approach (e.g., 10% of HTLC exposure). _(Source: Code simplicity reviewer, Security sentinel)_
 
 - [ ] **Claim cleanup lifecycle** — Release UTXO locks when:
   - The claim tx confirms (detected during LDK chain sync)
   - The claim resolves via a different path (counterparty broadcasts)
-  - Do NOT use a fixed 144-block timeout — it's unsafe (HTLCs can have longer timeouts). Only clean up on confirmed resolution. *(Source: Security sentinel)*
+  - Do NOT use a fixed 144-block timeout — it's unsafe (HTLCs can have longer timeouts). Only clean up on confirmed resolution. _(Source: Security sentinel)_
 
 **Files touched:**
+
 - `src/ldk/traits/coin-selection-source.ts` — new file
 - `src/onchain/utxo-lock.ts` — new file
 - `src/ldk/traits/event-handler.ts` — replace BumpTransaction stub, add try/catch + CM flush
@@ -325,6 +342,7 @@ These existing bugs must be fixed before implementing this feature:
 - `src/hooks/use-fee-bump.ts` — UTXO lock filtering
 
 **Success criteria:**
+
 - [ ] `Event_BumpTransaction` is handled (no more console.warn stub)
 - [ ] `CoinSelectionSource` selects confirmed BDK UTXOs synchronously
 - [ ] Incoming feerate is validated and capped
@@ -356,8 +374,8 @@ LDK force close → `Event_BumpTransaction` → try/catch → `BumpTransactionEv
 ### State Lifecycle Risks
 
 - **Crash between tx hex persist and broadcast**: On restart, rebroadcast loop picks up the entry and broadcasts. Safe — the tx is valid and signed.
-- **Crash between broadcast and changeset persist**: BDK wallet state on disk is stale. On restart, sync will reconcile with chain state. The tx is already broadcast, so no fund loss. *(Now mitigated by awaiting changeset persist in prerequisite fix.)*
-- **Crash after CoinSelectionSource selects UTXOs**: UTXO locks lost (in-memory). LDK re-emits `BumpTransaction` event, fresh UTXOs selected. Previous bump tx still in mempool, so re-emission builds RBF replacement. *(Acceptable for signet; document for mainnet.)*
+- **Crash between broadcast and changeset persist**: BDK wallet state on disk is stale. On restart, sync will reconcile with chain state. The tx is already broadcast, so no fund loss. _(Now mitigated by awaiting changeset persist in prerequisite fix.)_
+- **Crash after CoinSelectionSource selects UTXOs**: UTXO locks lost (in-memory). LDK re-emits `BumpTransaction` event, fresh UTXOs selected. Previous bump tx still in mempool, so re-emission builds RBF replacement. _(Acceptable for signet; document for mainnet.)_
 - **RBF replacement stored but original already confirmed**: Replacement broadcast returns "conflict" error. Rebroadcast loop detects original as confirmed and cleans up. No fund loss.
 - **Stale `replacedBy` pointer (replacement never broadcast)**: Rebroadcast loop validates that `replacedBy` target exists in the store before skipping the original. If target missing, clear the pointer and rebroadcast the original.
 
@@ -412,23 +430,23 @@ LDK force close → `Event_BumpTransaction` → try/catch → `BumpTransactionEv
 
 ## Risk Analysis & Mitigation
 
-| Risk | Impact | Likelihood | Mitigation |
-|------|--------|------------|------------|
-| `CoinSelectionSource` sync constraint fails in practice | Layer 3 blocked | Medium | Prototype in isolation first. Verify every BDK method is sync in WASM. |
-| User sends all funds, no UTXOs for anchor bumps | HTLC fund loss on force close | Medium | Anchor reserve enforcement in `sendMax` (ships with Layer 3). UI warning. |
-| `build_fee_bump` WASM parameter type mismatch | Layer 2 delayed | Low | Verify string vs `Txid` object in WASM bindings before implementation. |
-| Race between rebroadcast and fee bump | Stale original rebroadcast | Low | Atomic `replacedBy` + new entry IDB write before broadcast. Rebroadcast validates target exists. |
-| `putChangeset` race condition (existing) | Lost changeset deltas, stale wallet state | Medium | Fix as prerequisite before this feature. |
-| Background tab timer throttling | Delayed rebroadcast/sync | Low | Catch-up sync on `visibilitychange`. |
-| BIP 125 Rule 3 violation (absolute fee) | Replacement rejected by mempool | Medium | Validate `newFee >= originalFee + replacementVsize * minRelayFeeRate`. |
+| Risk                                                    | Impact                                    | Likelihood | Mitigation                                                                                       |
+| ------------------------------------------------------- | ----------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| `CoinSelectionSource` sync constraint fails in practice | Layer 3 blocked                           | Medium     | Prototype in isolation first. Verify every BDK method is sync in WASM.                           |
+| User sends all funds, no UTXOs for anchor bumps         | HTLC fund loss on force close             | Medium     | Anchor reserve enforcement in `sendMax` (ships with Layer 3). UI warning.                        |
+| `build_fee_bump` WASM parameter type mismatch           | Layer 2 delayed                           | Low        | Verify string vs `Txid` object in WASM bindings before implementation.                           |
+| Race between rebroadcast and fee bump                   | Stale original rebroadcast                | Low        | Atomic `replacedBy` + new entry IDB write before broadcast. Rebroadcast validates target exists. |
+| `putChangeset` race condition (existing)                | Lost changeset deltas, stale wallet state | Medium     | Fix as prerequisite before this feature.                                                         |
+| Background tab timer throttling                         | Delayed rebroadcast/sync                  | Low        | Catch-up sync on `visibilitychange`.                                                             |
+| BIP 125 Rule 3 violation (absolute fee)                 | Replacement rejected by mempool           | Medium     | Validate `newFee >= originalFee + replacementVsize * minRelayFeeRate`.                           |
 
 ## Future Considerations
 
 - **Anchor reserve enforcement mainnet hardening**: Enforce configurable per-channel reserve (following ldk-node's `AnchorChannelsConfig.per_channel_reserve_sats`). Block sends that would breach reserve.
-- **Multi-server broadcast**: For mainnet, broadcast to multiple independent Esplora instances. Single endpoint is a censorship/availability SPOF. *(Source: Security sentinel)*
+- **Multi-server broadcast**: For mainnet, broadcast to multiple independent Esplora instances. Single endpoint is a censorship/availability SPOF. _(Source: Security sentinel)_
 - **Auto-RBF for user sends**: If unconfirmed >10 minutes and fee market has risen, prompt the user to bump.
 - **Manual fee rate input**: Add advanced toggle for manual rate entry alongside auto-calculated rate.
-- **IDB encryption**: Encrypt IDB values with a key derived from wallet passphrase. Raw tx hex reveals UTXOs, amounts, and change addresses. *(Source: Security sentinel)*
+- **IDB encryption**: Encrypt IDB values with a key derived from wallet passphrase. Raw tx hex reveals UTXOs, amounts, and change addresses. _(Source: Security sentinel)_
 - **`CoinSelectionSource` UTXO lock persistence**: For mainnet, persist UTXO locks to IDB to survive crashes during anchor bumps.
 
 ## Sources & References

@@ -1,5 +1,5 @@
 ---
-title: "Batch P3 cleanup: extract shared utilities, fix dependency inversions, propagate errors"
+title: 'Batch P3 cleanup: extract shared utilities, fix dependency inversions, propagate errors'
 category: logic-errors
 date: 2026-03-27
 tags:

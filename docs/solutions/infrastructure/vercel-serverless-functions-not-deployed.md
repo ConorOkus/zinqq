@@ -1,5 +1,5 @@
 ---
-title: "Vercel serverless functions returning 404 — catch-all pattern not supported in generic framework mode"
+title: 'Vercel serverless functions returning 404 — catch-all pattern not supported in generic framework mode'
 category: infrastructure
 date: 2026-03-27
 tags:
@@ -33,6 +33,7 @@ Two layered issues:
 Restructured to flat function files with Vercel rewrites:
 
 **`api/lnurl-proxy.ts`** (flat file, no subdirectory):
+
 ```typescript
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -42,6 +43,7 @@ export async function GET(request: Request) {
 ```
 
 **`vercel.json`** rewrites map path segments to query params:
+
 ```json
 {
   "framework": null,

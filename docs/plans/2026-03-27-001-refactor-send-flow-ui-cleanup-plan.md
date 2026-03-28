@@ -1,5 +1,5 @@
 ---
-title: "refactor: Remove protocol details from Lightning send screens"
+title: 'refactor: Remove protocol details from Lightning send screens'
 type: refactor
 status: completed
 date: 2026-03-27
@@ -33,10 +33,13 @@ Delete the `typeBadge` function definition. It's only called from the Type row b
 **File:** `src/pages/Send.tsx:732`
 
 Replace:
+
 ```tsx
 <div className="mt-1 text-[var(--color-on-dark-muted)]">sent via Lightning</div>
 ```
+
 With:
+
 ```tsx
 <div className="mt-1 text-[var(--color-on-dark-muted)]">sent successfully</div>
 ```
@@ -48,6 +51,7 @@ This matches the existing oc-success screen text at line 694.
 **File:** `src/pages/Send.tsx:734-741`
 
 Delete the entire conditional block:
+
 ```tsx
 {preimageHex !== '0'.repeat(64) && (
   <button ...>{preimageHex.slice(0, 8)}...{preimageHex.slice(-8)}</button>

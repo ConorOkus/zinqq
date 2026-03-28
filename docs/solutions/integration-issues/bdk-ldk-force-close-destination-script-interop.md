@@ -1,8 +1,18 @@
 ---
-title: "BDK/LDK force-close destination interop — deterministic address derivation"
+title: 'BDK/LDK force-close destination interop — deterministic address derivation'
 category: integration-issues
 date: 2026-03-26
-tags: [bdk, ldk, force-close, address-derivation, signer-provider, vss-recovery, cross-device, init-order]
+tags:
+  [
+    bdk,
+    ldk,
+    force-close,
+    address-derivation,
+    signer-provider,
+    vss-recovery,
+    cross-device,
+    init-order,
+  ]
 related_files:
   - src/onchain/address-utils.ts
   - src/ldk/traits/bdk-signer-provider.ts
@@ -47,8 +57,10 @@ Split `onchain/init.ts` into two phases:
 In `ldk/init.ts`, eager init runs before KeysManager and SignerProvider creation:
 
 ```typescript
-const { wallet: bdkWallet, esploraClient: bdkEsploraClient } =
-  await initializeBdkWalletEager(bdkDescriptors, ONCHAIN_CONFIG.network)
+const { wallet: bdkWallet, esploraClient: bdkEsploraClient } = await initializeBdkWalletEager(
+  bdkDescriptors,
+  ONCHAIN_CONFIG.network
+)
 ```
 
 ### 2. Deterministic address derivation from channel_keys_id
@@ -57,7 +69,11 @@ const { wallet: bdkWallet, esploraClient: bdkEsploraClient } =
 
 ```typescript
 function channelKeysIdToIndex(channelKeysId: Uint8Array): number {
-  const view = new DataView(channelKeysId.buffer, channelKeysId.byteOffset, channelKeysId.byteLength)
+  const view = new DataView(
+    channelKeysId.buffer,
+    channelKeysId.byteOffset,
+    channelKeysId.byteLength
+  )
   const raw = view.getUint32(0, false) // big-endian
   return raw % 10_000
 }

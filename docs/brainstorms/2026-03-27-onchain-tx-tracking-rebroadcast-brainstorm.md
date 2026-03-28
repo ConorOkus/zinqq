@@ -35,6 +35,7 @@ A complete on-chain transaction management system that:
 ## Scope Per Layer
 
 ### Layer 1: Rebroadcast + RBF Signaling
+
 - Enable `enable_rbf()` on user send `TxBuilder` calls only (not LDK funding txs)
 - Store raw tx hex for all user sends in IndexedDB (for rebroadcast)
 - During BDK sync, identify unconfirmed txs and rebroadcast them
@@ -42,6 +43,7 @@ A complete on-chain transaction management system that:
 - Expose confirmation count from BDK's `chain_position` in `OnchainTransaction` type
 
 ### Layer 2: Manual "Speed Up" UI
+
 - Show confirmation count and pending age on transaction detail
 - "Speed up" button on pending transactions
 - Fee rate picker for replacement transaction
@@ -49,6 +51,7 @@ A complete on-chain transaction management system that:
 - Show fee delta to user before confirming
 
 ### Layer 3: Auto Anchor Bumping
+
 - Implement `Event_BumpTransaction` handler (currently TODO)
 - Use BDK UTXOs to fund CPFP for anchor outputs
 - Fee rate from LDK's recommendation in the event

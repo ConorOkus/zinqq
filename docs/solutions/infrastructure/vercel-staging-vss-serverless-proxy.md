@@ -80,18 +80,20 @@ Local dev overrides via `VITE_VSS_URL=/__vss_proxy/vss` in `.env` to use the Vit
 `api/` directory excluded from ESLint (separate Node.js runtime, not part of Vite app tsconfig):
 
 ```javascript
-{ ignores: ['dist/**', 'node_modules/**', 'proxy/**', 'design/**', 'api/**'] }
+{
+  ignores: ['dist/**', 'node_modules/**', 'proxy/**', 'design/**', 'api/**']
+}
 ```
 
 ## Key Gotchas
 
-| Gotcha | Symptom | Fix |
-|--------|---------|-----|
-| Vercel body parser corrupts protobuf | VSS returns 400 | `bodyParser: false` + `buffer(req)` from `node:stream/consumers` |
-| `req.query.path` undefined in catch-all routes | VSS returns 400 "Invalid request path" | Parse from `req.url` instead |
-| SPA rewrite catches `/api/*` | 405 Method Not Allowed on POST | Negative lookahead: `/((?!api/).*)` |
-| Edge Runtime can't reach private IPs | 403 Forbidden | Use Node.js serverless runtime |
-| Passthrough rewrite `/api/(.*)` → `/api/$1` | Still 405 | Doesn't work — use negative lookahead instead |
+| Gotcha                                         | Symptom                                | Fix                                                              |
+| ---------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| Vercel body parser corrupts protobuf           | VSS returns 400                        | `bodyParser: false` + `buffer(req)` from `node:stream/consumers` |
+| `req.query.path` undefined in catch-all routes | VSS returns 400 "Invalid request path" | Parse from `req.url` instead                                     |
+| SPA rewrite catches `/api/*`                   | 405 Method Not Allowed on POST         | Negative lookahead: `/((?!api/).*)`                              |
+| Edge Runtime can't reach private IPs           | 403 Forbidden                          | Use Node.js serverless runtime                                   |
+| Passthrough rewrite `/api/(.*)` → `/api/$1`    | Still 405                              | Doesn't work — use negative lookahead instead                    |
 
 ## Prevention
 

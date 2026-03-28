@@ -1,5 +1,5 @@
 ---
-title: "feat: BIP 353 Receive — DNS Payment Address Registration"
+title: 'feat: BIP 353 Receive — DNS Payment Address Registration'
 type: feat
 status: active
 date: 2026-03-28
@@ -14,7 +14,7 @@ Allow zinqq users to claim a human-readable payment address like `alice@zinqq.ap
 
 ## Problem Statement / Motivation
 
-Zinqq already resolves BIP 353 addresses on the send side and creates BOLT 12 offers — but users have no way to *publish* their offer under a human-readable name. Sharing a raw `lno1...` string is impractical. BIP 353 closes this loop: `alice@zinqq.app` is memorable, universally resolvable, and spec-compliant.
+Zinqq already resolves BIP 353 addresses on the send side and creates BOLT 12 offers — but users have no way to _publish_ their offer under a human-readable name. Sharing a raw `lno1...` string is impractical. BIP 353 closes this loop: `alice@zinqq.app` is memorable, universally resolvable, and spec-compliant.
 
 ## Proposed Solution
 
@@ -43,6 +43,7 @@ Self-serve username registration from the BOLT 12 offer screen. The wallet signs
 LDK's `NodeSigner` does not expose a generic `sign(bytes)` method — `sign_gossip_message` only accepts structured `UnsignedGossipMessage` variants. Instead:
 
 1. **Browser**: Use `keysManager.get_node_secret_key()` to get the raw 32-byte node secret, then sign with `@noble/curves/secp256k1`:
+
    ```typescript
    import { secp256k1 } from '@noble/curves/secp256k1'
    import { sha256 } from '@noble/hashes/sha256'
@@ -62,6 +63,7 @@ The `zinqq:register:v1` domain prefix prevents cross-protocol signature reuse.
 ### DNS Record Format
 
 TXT record at `<username>.user._bitcoin-payment.zinqq.app`:
+
 ```
 bitcoin:?lno=<bolt12_offer>
 ```
@@ -82,6 +84,7 @@ bitcoin:?lno=<bolt12_offer>
 Exports `POST(request: Request)` following the existing pattern from `api/vss-proxy.ts` and `api/lnurl-proxy.ts`.
 
 Request body:
+
 ```json
 {
   "username": "alice",
@@ -93,6 +96,7 @@ Request body:
 ```
 
 Server-side logic:
+
 1. **Validate input** — username matches `^[a-z0-9]{3,15}$`, not on reserved word blocklist, offer is non-empty
 2. **Validate timestamp** — within 5-minute window of server time
 3. **Verify signature** — `secp256k1.verify(sig, sha256("zinqq:register:v1|username|offer|timestamp"), nodePubkey)`
@@ -103,6 +107,7 @@ Server-side logic:
 8. **Return** — `{ ok: true, address: "alice@zinqq.app" }` on success
 
 Error responses (following existing `{ error: string }` pattern):
+
 - `400` — invalid input (bad username, expired timestamp, invalid signature)
 - `409` — username taken by a different node
 - `502` — Cloudflare API error
@@ -110,23 +115,41 @@ Error responses (following existing `{ error: string }` pattern):
 **Server-side offer parsing:** BOLT 12 offers are bech32m-encoded. The node_id is embedded in the TLV payload. Rather than implementing a full BOLT 12 parser, include the `nodePubkey` in both the API request and the DNS record content. Store as: `bitcoin:?lno=<offer>&node=<pubkey_hex>`. The `&node=` parameter is non-standard but harmless — BIP 21 parsers ignore unknown parameters, and the send-side resolver only extracts `lno=`. This makes ownership verification a simple string comparison against the existing TXT record.
 
 **Reserved word blocklist:**
+
 ```typescript
 const RESERVED = new Set([
-  'admin', 'administrator', 'support', 'help', 'info',
-  'zinqq', 'wallet', 'bitcoin', 'lightning', 'root',
-  'system', 'api', 'www', 'mail', 'test', 'null', 'undefined',
+  'admin',
+  'administrator',
+  'support',
+  'help',
+  'info',
+  'zinqq',
+  'wallet',
+  'bitcoin',
+  'lightning',
+  'root',
+  'system',
+  'api',
+  'www',
+  'mail',
+  'test',
+  'null',
+  'undefined',
 ])
 ```
 
 **Environment variables:**
+
 - `CF_API_TOKEN` — Cloudflare API token with `Zone:DNS:Edit` permission, scoped to zinqq.app zone only
 - `CF_ZONE_ID` — Cloudflare zone ID for zinqq.app
 - `BIP353_DNS_PREFIX` — optional prefix for staging (e.g., `staging.`) defaults to empty string
 
 **Vercel config update** (`vercel.json`):
+
 - No rewrite needed — flat path `/api/bip353-register` is handled automatically by Vercel's default routing
 
 **Success criteria:**
+
 - [ ] POST creates a TXT record at the correct DNS name with correct content
 - [ ] Duplicate username returns 409
 - [ ] Invalid signature returns 400
@@ -141,18 +164,21 @@ const RESERVED = new Set([
 **File: `src/ldk/bip353-register.ts`**
 
 Functions:
+
 - `signRegistration(keysManager, username, offer, timestamp)` — builds the message string, hashes with SHA-256, signs with the node secret key via `secp256k1.sign()`, returns `{ signature, nodePubkey }` as hex strings
 - `registerBip353(username, offer, keysManager)` — calls `signRegistration`, POSTs to `/api/bip353-register`, returns the result
 - `USERNAME_REGEX = /^[a-z0-9]{3,15}$/`
 - `validateUsername(username)` — checks regex and reserved words (shared blocklist with server for instant client-side feedback)
 
 **Dependencies to add (explicit, already transitive):**
+
 - `@noble/curves` — secp256k1 signing/verification
 - `@noble/hashes` — SHA-256
 
 **File: `src/ldk/bip353-register.test.ts`**
 
 Tests:
+
 - Signing produces a valid signature verifiable with the node pubkey
 - Registration API call with valid payload succeeds (mock fetch)
 - Invalid username rejected client-side
@@ -160,6 +186,7 @@ Tests:
 - Timestamp is current (within tolerance)
 
 **Success criteria:**
+
 - [ ] `signRegistration` produces valid secp256k1 ECDSA signatures
 - [ ] `registerBip353` sends correctly formatted POST request
 - [ ] `validateUsername` rejects invalid/reserved usernames
@@ -172,6 +199,7 @@ Tests:
 **File: `src/ldk/storage/username.ts`**
 
 Following the pattern from `src/ldk/storage/offer.ts`:
+
 ```typescript
 const STORE = 'ldk_bip353_username' as const
 const KEY = 'default'
@@ -188,6 +216,7 @@ export function deletePersistedUsername(): Promise<void>
 - Add migration comment for version 9
 
 **Success criteria:**
+
 - [ ] Username persists across page reloads
 - [ ] `getPersistedUsername` returns `null` when no username is stored
 - [ ] IDB version upgrade from 8 to 9 works cleanly
@@ -199,6 +228,7 @@ export function deletePersistedUsername(): Promise<void>
 **File: `src/ldk/ldk-context.ts`**
 
 Add to the `'ready'` variant:
+
 ```typescript
 bip353Username: string | null
 ```
@@ -206,6 +236,7 @@ bip353Username: string | null
 **File: `src/ldk/context.tsx`**
 
 Add `loadAndVerifyUsername()` function (called after `loadOrCreateOffer()` completes):
+
 1. Read persisted username from IndexedDB via `getPersistedUsername()`
 2. If null, set `bip353Username: null` and return
 3. Check if a registration timestamp was persisted less than 5 minutes ago — if so, skip verification (DNS propagation grace period)
@@ -217,6 +248,7 @@ Add `loadAndVerifyUsername()` function (called after `loadOrCreateOffer()` compl
 Also persist the registration timestamp alongside the username (add to the same IDB store or a separate key).
 
 **Success criteria:**
+
 - [ ] `bip353Username` is available from `useLdk()` when status is `'ready'`
 - [ ] Startup verification runs after offer is loaded
 - [ ] Propagation grace period prevents false warnings
@@ -231,6 +263,7 @@ Also persist the registration timestamp alongside the username (add to the same 
 Two states:
 
 **State A: No username claimed**
+
 - Below the offer QR code, show a text input with placeholder "Choose a username"
 - Input auto-lowercases on change
 - Inline validation: show error if username is invalid or reserved
@@ -241,6 +274,7 @@ Two states:
 - Error network: show "Registration failed, try again" with retry
 
 **State B: Username claimed**
+
 - Display `₿ username@zinqq.app` prominently below the offer QR
 - Copy button copies `₿username@zinqq.app` (with symbol prefix, per BIP 353 spec)
 - If `bip353VerifyFailed` is true, show a subtle warning: "Could not verify your address — it may take a few minutes for DNS to propagate, or the record may have been removed."
@@ -249,6 +283,7 @@ Two states:
 **File: `src/pages/Bolt12Offer.test.tsx`**
 
 Tests:
+
 - Renders username input when no username is claimed
 - Shows claimed address when username exists in context
 - Input validation rejects invalid usernames
@@ -257,6 +292,7 @@ Tests:
 - Verification failure shows warning
 
 **Success criteria:**
+
 - [ ] Registration flow works end-to-end
 - [ ] Display follows BIP 353 spec (symbol prefix on copy)
 - [ ] Error states are handled gracefully
@@ -270,6 +306,7 @@ Tests:
 **File: `api/bip353-register.ts`** (modification)
 
 When `process.env.DNS_BACKEND === 'mock'`:
+
 - Skip Cloudflare API calls
 - Use an in-memory `Map<string, string>` for record storage (resets on function cold start, which is fine for dev)
 - Log the would-be DNS record to console
@@ -277,6 +314,7 @@ When `process.env.DNS_BACKEND === 'mock'`:
 **File: `vite.config.ts`** (modification)
 
 Add proxy rule for the registration endpoint in local dev:
+
 ```typescript
 '/api/bip353-register': {
   target: 'http://localhost:3000', // or Vite's own server
@@ -286,6 +324,7 @@ Add proxy rule for the registration endpoint in local dev:
 Note: Vite handles `/api/*` routes via Vercel's dev adapter or a local middleware. Verify the existing pattern — the LNURL proxy uses a custom Vite plugin (`lnurlCorsProxy`), while the VSS proxy uses Vite's built-in `server.proxy`. Choose whichever fits best.
 
 **Success criteria:**
+
 - [ ] Registration works locally without hitting real Cloudflare DNS
 - [ ] Startup verification can be tested locally
 
@@ -358,12 +397,12 @@ No other interfaces expose BIP 353 registration. The serverless function is the 
 
 ### Risks
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `keysManager.get_node_secret_key()` not exposed in WASM bindings | Low | High (blocks signing) | Fallback: derive from LDK seed via `HDKey.fromMasterSeed(seed).derive("m/0'")` |
-| Cloudflare API token compromised | Low | High (DNS hijacking) | Minimal scope, IP allowlist, Vercel env var encryption |
-| "One username per pubkey" unenforceable without DB | Medium | Low (signet only) | Client-side enforcement; accept as known limitation |
-| BOLT 12 offer >4096 bytes exceeds DNS wire limit | Very low | Medium | Typical offers are 300-500 chars; monitor and add length check |
+| Risk                                                             | Likelihood | Impact                | Mitigation                                                                     |
+| ---------------------------------------------------------------- | ---------- | --------------------- | ------------------------------------------------------------------------------ |
+| `keysManager.get_node_secret_key()` not exposed in WASM bindings | Low        | High (blocks signing) | Fallback: derive from LDK seed via `HDKey.fromMasterSeed(seed).derive("m/0'")` |
+| Cloudflare API token compromised                                 | Low        | High (DNS hijacking)  | Minimal scope, IP allowlist, Vercel env var encryption                         |
+| "One username per pubkey" unenforceable without DB               | Medium     | Low (signet only)     | Client-side enforcement; accept as known limitation                            |
+| BOLT 12 offer >4096 bytes exceeds DNS wire limit                 | Very low   | Medium                | Typical offers are 300-500 chars; monitor and add length check                 |
 
 ## Sources & References
 

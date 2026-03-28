@@ -28,15 +28,18 @@ Unifying the success screen language ("sent successfully" for both on-chain and 
 ## Scope
 
 ### Files affected
+
 - `src/pages/Send.tsx` — All three changes are in this single file
 
 ### Elements to remove
+
 1. Lines ~887-892: The "Type" / `typeBadge()` row in the ln-review section
 2. Lines ~103-110: The `typeBadge()` helper function (becomes dead code)
 3. Line ~732: Change "sent via Lightning" → "sent successfully"
 4. Lines ~734-741: The preimage hex `<button>` block in ln-success
 
 ### Elements to keep
+
 - `preimage` in the `SendStep` type and state transitions (may be needed internally)
 - On-chain success screen (explorer link, txid display)
 - All other review screen rows (To, Amount, Fee, Total)

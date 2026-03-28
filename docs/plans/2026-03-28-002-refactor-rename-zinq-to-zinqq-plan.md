@@ -1,5 +1,5 @@
 ---
-title: "refactor: Rename project from zinq to zinqq"
+title: 'refactor: Rename project from zinq to zinqq'
 type: refactor
 status: active
 date: 2026-03-28
@@ -17,6 +17,7 @@ Full rebrand from **zinq** to **zinqq** across all layers — source code, UI, c
 Single atomic commit for all code/config/doc changes on a feature branch, followed by a coordinated infrastructure cutover (GitHub repo, Vercel project, Cloudflare worker).
 
 **Key constraint:** The replacement must be **case-aware** and **single-pass** to avoid double-`q` corruption:
+
 - Lowercase: `zinq` → `zinqq` (identifiers, config, domains)
 - Title case: `Zinq` → `Zinqq` (display strings, HTML titles, comments)
 
@@ -43,34 +44,35 @@ All changes in one atomic commit on a feature branch.
 
 #### Source Code — Lowercase `zinq` → `zinqq`
 
-| File | Change |
-|---|---|
-| `src/storage/idb.ts:1` | `DB_NAME = 'zinq-ldk'` → `'zinqq-ldk'` |
-| `src/ldk/init.ts:122` | `'zinq-lock'` → `'zinqq-lock'` |
-| `src/ldk/context.tsx:626` | `builder.description('zinq wallet')` → `'zinqq wallet'` |
-| `src/wallet/mnemonic.test.ts:10` | `deleteDatabase('zinq-ldk')` → `'zinqq-ldk'` |
-| `src/onchain/storage/changeset.test.ts:35` | `deleteDatabase('zinq-ldk')` → `'zinqq-ldk'` |
+| File                                       | Change                                                  |
+| ------------------------------------------ | ------------------------------------------------------- |
+| `src/storage/idb.ts:1`                     | `DB_NAME = 'zinq-ldk'` → `'zinqq-ldk'`                  |
+| `src/ldk/init.ts:122`                      | `'zinq-lock'` → `'zinqq-lock'`                          |
+| `src/ldk/context.tsx:626`                  | `builder.description('zinq wallet')` → `'zinqq wallet'` |
+| `src/wallet/mnemonic.test.ts:10`           | `deleteDatabase('zinq-ldk')` → `'zinqq-ldk'`            |
+| `src/onchain/storage/changeset.test.ts:35` | `deleteDatabase('zinq-ldk')` → `'zinqq-ldk'`            |
 
 #### Source Code — Title Case `Zinq` → `Zinqq`
 
-| File | Change |
-|---|---|
-| `src/ldk/context.tsx:192` | `description = 'Zinq Wallet'` → `'Zinqq Wallet'` |
-| `index.html:11` | `<title>Zinq</title>` → `<title>Zinqq</title>` |
-| `design/index.html:6` | `Zinq — Design Prototype` → `Zinqq — Design Prototype` |
-| `design/styles.css:2` | Comment: `Zinq` → `Zinqq` |
-| `design/app.js:2` | Comment: `Zinq` → `Zinqq` |
+| File                      | Change                                                 |
+| ------------------------- | ------------------------------------------------------ |
+| `src/ldk/context.tsx:192` | `description = 'Zinq Wallet'` → `'Zinqq Wallet'`       |
+| `index.html:11`           | `<title>Zinq</title>` → `<title>Zinqq</title>`         |
+| `design/index.html:6`     | `Zinq — Design Prototype` → `Zinqq — Design Prototype` |
+| `design/styles.css:2`     | Comment: `Zinq` → `Zinqq`                              |
+| `design/app.js:2`         | Comment: `Zinq` → `Zinqq`                              |
 
 #### Config
 
-| File | Change |
-|---|---|
-| `package.json:2` | `"name": "zinq"` → `"name": "zinqq"` |
+| File                     | Change                                 |
+| ------------------------ | -------------------------------------- |
+| `package.json:2`         | `"name": "zinq"` → `"name": "zinqq"`   |
 | `proxy/wrangler.toml:12` | `zinq.vercel.app` → `zinqq.vercel.app` |
 
 #### Documentation (~26 files)
 
 Apply case-aware find-and-replace across all files in `docs/`:
+
 - `zinq.vercel.app` → `zinqq.vercel.app`
 - `zinq-app.vercel.app` → `zinqq-app.vercel.app`
 - `zinq.app` → `zinqq.app`
@@ -101,15 +103,19 @@ Follow this exact order to avoid downtime:
 ## Technical Considerations
 
 ### Substring safety
+
 A naive `sed s/zinq/zinqq/g` run twice would produce `zinqqq`. Each replacement must be a **single pass** using literal string matching. Use editor find-and-replace or `Edit` tool with `replace_all`, not chained regex.
 
 ### IndexedDB orphaning
+
 Existing `zinq-ldk` databases in developer browsers will be abandoned. No migration needed (signet-only, per brainstorm decision). Developers should manually delete the old DB via DevTools if desired.
 
 ### Web Lock independence
+
 During a rolling deploy, if two tabs run different code versions, they'll hold independent locks (`zinq-lock` vs `zinqq-lock`), defeating mutual exclusion. Acceptable for signet — would need migration logic for production.
 
 ### Claude memory directory
+
 After local directory rename, the Claude memory path `/Users/conor/.claude/projects/-Users-conor-Projects-zinq/` will become stale. A new project directory will be auto-created at the new path. Relevant memories should be migrated manually.
 
 ## Sources

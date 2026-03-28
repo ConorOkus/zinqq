@@ -28,6 +28,7 @@ A full rebrand from **zinq** to **zinqq** across the entire project — source c
 ## Scope of Changes
 
 ### Source Code (~7 files)
+
 - `src/storage/idb.ts` — DB_NAME `zinq-ldk` → `zinqq-ldk`
 - `src/ldk/init.ts` — Web Lock `zinq-lock` → `zinqq-lock`
 - `src/ldk/context.tsx` — Invoice/offer descriptions
@@ -35,22 +36,27 @@ A full rebrand from **zinq** to **zinqq** across the entire project — source c
 - `src/onchain/storage/changeset.test.ts` — Test DB cleanup
 
 ### Config & Deployment (~2 files)
+
 - `package.json` — Package name
 - `proxy/wrangler.toml` — Allowed origins URL
 
 ### UI (~2 files)
+
 - `index.html` — Page title
 - `design/index.html` — Design prototype title
 
 ### Design Assets (~2 files)
+
 - `design/styles.css` — Comment
 - `design/app.js` — Comment
 
 ### Documentation (~20+ files)
+
 - All plans, brainstorms, and solutions referencing "zinq"
 - Update domain references: `zinq.vercel.app` → `zinqq.vercel.app`, `zinq.app` → `zinqq.app`
 
 ### Infrastructure
+
 - GitHub repo rename: ConorOkus/zinq → ConorOkus/zinqq
 - Vercel project rename / domain update
 - Cloudflare worker allowed origins

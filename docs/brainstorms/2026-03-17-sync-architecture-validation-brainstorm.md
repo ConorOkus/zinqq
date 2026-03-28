@@ -12,7 +12,7 @@ Compare Zinqq's onchain (BDK) and lightning (LDK) sync architecture against LDK 
 
 ### Sync Loop Structure
 
-| Aspect                       | Zinqq                          | LDK Node                               |
+| Aspect                       | Zinqq                         | LDK Node                               |
 | ---------------------------- | ----------------------------- | -------------------------------------- |
 | Lightning sync interval      | 30s (`setTimeout`)            | 30s (`tokio::interval`)                |
 | Onchain sync interval        | 30s (`setTimeout`)            | 80s (`tokio::interval`)                |
