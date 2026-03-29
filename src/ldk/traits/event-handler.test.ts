@@ -83,7 +83,10 @@ vi.mock('lightningdevkit', () => {
   class Event_BumpTransaction extends MockEvent {}
   class Event_PaymentPathSuccessful extends MockEvent {}
   class Event_PaymentPathFailed extends MockEvent {}
-  class Event_OpenChannelRequest extends MockEvent {}
+  class Event_OpenChannelRequest extends MockEvent {
+    temporary_channel_id = { write: () => new Uint8Array([0xaa, 0xbb]) }
+    counterparty_node_id = new Uint8Array(33).fill(0x02)
+  }
   class Event_DiscardFunding extends MockEvent {
     channel_id = { write: () => new Uint8Array([0xee, 0xff]) }
     funding_info = {}
@@ -271,12 +274,17 @@ function createMockKeysManager() {
   } as never
 }
 
+const mockAcceptInboundChannel = vi.fn((): { is_ok: () => boolean } => ({ is_ok: () => true }))
+const mockAcceptInbound0conf = vi.fn((): { is_ok: () => boolean } => ({ is_ok: () => true }))
+
 function createMockChannelManager() {
   return {
     claim_funds: mockClaimFunds,
     process_pending_htlc_forwards: mockProcessPendingHtlcForwards,
     funding_transaction_generated: mockFundingTransactionGenerated,
     list_channels: mockListChannels,
+    accept_inbound_channel: mockAcceptInboundChannel,
+    accept_inbound_channel_from_trusted_peer_0conf: mockAcceptInbound0conf,
   } as never
 }
 
@@ -299,6 +307,7 @@ describe('createEventHandler', () => {
       cm,
       km,
       mockBdkWallet as never,
+      '', // lspNodeId - empty for tests
       undefined,
       mockOnChannelClosed
     )
@@ -442,6 +451,7 @@ describe('createEventHandler', () => {
       cm,
       createMockKeysManager(),
       mockBdkWallet as never,
+      '',
       undefined,
       undefined,
       mockSyncNeeded
@@ -532,9 +542,14 @@ describe('createEventHandler', () => {
     expect(logSpy).not.toHaveBeenCalled()
   })
 
-  it('logs OpenChannelRequest with timeout note', () => {
+  it('rejects OpenChannelRequest from non-LSP peer', () => {
     handleEvent(new Event_OpenChannelRequest())
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('will timeout'))
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('rejected from non-LSP'),
+      expect.any(String)
+    )
+    expect(mockAcceptInboundChannel).not.toHaveBeenCalled()
+    expect(mockAcceptInbound0conf).not.toHaveBeenCalled()
   })
 
   it('logs DiscardFunding', () => {

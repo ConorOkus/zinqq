@@ -17,6 +17,12 @@ importers:
       '@noble/ciphers':
         specifier: ^2.1.1
         version: 2.1.1
+      '@noble/secp256k1':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@scure/base':
+        specifier: ^2.0.0
+        version: 2.0.0
       '@scure/bip32':
         specifier: ^2.0.1
         version: 2.0.1
@@ -548,6 +554,9 @@ packages:
   '@noble/hashes@2.0.1':
     resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
     engines: {node: '>= 20.19.0'}
+
+  '@noble/secp256k1@3.0.0':
+    resolution: {integrity: sha512-NJBaR352KyIvj3t6sgT/+7xrNyF9Xk9QlLSIqUGVUYlsnDTAUqY8LOmwpcgEx4AMJXRITQ5XEVHD+mMaPfr3mg==}
 
   '@playwright/test@1.58.2':
     resolution: {integrity: sha512-akea+6bHYBBfA9uQqSYmlJXn61cTa+jbO87xVLCWbTqbWadRVmhxlXATaOjOgcBaWU4ePo0wB41KMFv3o35IXA==}
@@ -2848,6 +2857,8 @@ snapshots:
       '@noble/hashes': 2.0.1
 
   '@noble/hashes@2.0.1': {}
+
+  '@noble/secp256k1@3.0.0': {}
 
   '@playwright/test@1.58.2':
     dependencies:

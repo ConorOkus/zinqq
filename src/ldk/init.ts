@@ -53,6 +53,10 @@ import {
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { SIGNET_CONFIG } from './config'
+import { createLspsMessageHandler } from './lsps2/message-handler'
+import { LSPS2Client } from './lsps2/client'
+import { deriveNodeSecret } from './lsps2/node-secret'
+import { getPublicKey as secp256k1GetPublicKey } from '@noble/secp256k1'
 import { ONCHAIN_CONFIG } from '../onchain/config'
 import { initializeBdkWalletEager } from '../onchain/init'
 import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'
@@ -70,6 +74,7 @@ import type { CmPersistContext } from './storage/persist-cm'
 
 export interface LdkNode {
   nodeId: string
+  nodeSecretKey: Uint8Array
   keysManager: KeysManager
   logger: Logger
   feeEstimator: FeeEstimator
@@ -82,6 +87,7 @@ export interface LdkNode {
   peerManager: PeerManager
   onionMessenger: OnionMessenger
   eventHandler: EventHandler
+  lsps2Client: LSPS2Client
 }
 
 export interface InitResult {
@@ -94,6 +100,21 @@ export interface InitResult {
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
   cmPersistCtx: CmPersistContext
+}
+
+function createUserConfig(): UserConfig {
+  const config = UserConfig.constructor_default()
+  config.set_manually_accept_inbound_channels(true)
+
+  // LSPS2 JIT channels require option_scid_alias (reference channel before confirmation)
+  const handshakeConfig = config.get_channel_handshake_config()
+  handshakeConfig.set_negotiate_scid_privacy(true)
+
+  // Allow 0-conf inbound channels from trusted peers (the LSP)
+  const handshakeLimits = config.get_channel_handshake_limits()
+  handshakeLimits.set_trust_own_funding_0conf(true)
+
+  return config
 }
 
 // WASM double-init guard: deduplicate concurrent calls from React StrictMode
@@ -158,6 +179,18 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   await acquireWalletLock()
   await initWasm()
 
+  // 0.1 Validate LSP config early (fail fast on misconfiguration)
+  if (SIGNET_CONFIG.lspNodeId && !/^[0-9a-f]{66}$/.test(SIGNET_CONFIG.lspNodeId)) {
+    throw new Error('[LDK Init] Invalid LSP node ID: must be 66 lowercase hex characters')
+  }
+  if (
+    !Number.isFinite(SIGNET_CONFIG.lspPort) ||
+    SIGNET_CONFIG.lspPort < 1 ||
+    SIGNET_CONFIG.lspPort > 65535
+  ) {
+    throw new Error('[LDK Init] Invalid LSP port: must be 1-65535')
+  }
+
   // 0.5 Initialize BDK wallet eagerly (no chain scan) so it's available
   // for address derivation during ChannelManager/ChannelMonitor deserialization
   const { wallet: bdkWallet, esploraClient: bdkEsploraClient } = await initializeBdkWalletEager(
@@ -184,6 +217,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const nowMs = Date.now()
   const startingTimeSecs = BigInt(Math.floor(nowMs / 1000))
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
+  const nodeSecretKey = deriveNodeSecret(seed)
   const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos)
   seed.fill(0) // Zero seed bytes after KeysManager copies them
 
@@ -385,7 +419,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       router.as_Router(),
       messageRouter.as_MessageRouter(),
       logger,
-      UserConfig.constructor_default(),
+      createUserConfig(),
       restoredMonitors
     )
     if (result instanceof Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK) {
@@ -452,7 +486,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       keysManager.as_EntropySource(),
       keysManager.as_NodeSigner(),
       bdkSignerProvider,
-      UserConfig.constructor_default(),
+      createUserConfig(),
       chainParams,
       Math.floor(Date.now() / 1000)
     )
@@ -483,17 +517,27 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     ignorer.as_CustomOnionMessageHandler()
   )
 
-  // 12. Create PeerManager
+  // 12. Create LSPS message handler and PeerManager
+  const {
+    handler: lspsHandler,
+    sendRequest: lspsSendRequest,
+    setFlushCallback,
+  } = createLspsMessageHandler()
+  const lsps2Client = new LSPS2Client(lspsSendRequest)
+
   const peerManager = PeerManager.constructor_new(
     channelManager.as_ChannelMessageHandler(),
     gossipSync.as_RoutingMessageHandler(),
     onionMessenger.as_OnionMessageHandler(),
-    ignorer.as_CustomMessageHandler(),
+    lspsHandler,
     Math.floor(Date.now() / 1000),
     keysManager.as_EntropySource().get_secure_random_bytes(),
     logger,
     keysManager.as_NodeSigner()
   )
+
+  // Wire flush callback so LSPS2 messages are sent immediately after queuing
+  setFlushCallback(() => peerManager.process_events())
 
   // 13. Derive node public key
   const nodeIdResult = keysManager.as_NodeSigner().get_node_id(Recipient.LDKRecipient_Node)
@@ -504,6 +548,17 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     throw new Error('Failed to derive node ID from KeysManager')
   }
   const nodeId = bytesToHex(nodeIdResult.res)
+  console.log('[LDK Init] Node ID:', nodeId)
+
+  // 13b. Verify node secret key derivation matches KeysManager
+  const derivedPubkey = bytesToHex(new Uint8Array(secp256k1GetPublicKey(nodeSecretKey, true)))
+  if (derivedPubkey !== nodeId) {
+    nodeSecretKey.fill(0)
+    throw new Error(
+      '[LDK Init] Node secret key derivation mismatch. ' +
+        `Derived pubkey ${derivedPubkey.substring(0, 16)}... does not match node ID ${nodeId.substring(0, 16)}...`
+    )
+  }
 
   // 14. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
@@ -513,6 +568,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     channelManager,
     keysManager,
     bdkWallet,
+    SIGNET_CONFIG.lspNodeId,
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.()
@@ -580,6 +636,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   const node: LdkNode = {
     nodeId,
+    nodeSecretKey,
     keysManager,
     logger,
     feeEstimator,
@@ -592,6 +649,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     peerManager,
     onionMessenger,
     eventHandler,
+    lsps2Client,
   }
 
   return {

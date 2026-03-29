@@ -7,6 +7,7 @@ import {
   Option_u64Z_None,
   Option_u16Z_None,
   Option_StrZ,
+  Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK,
   Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK,
   Result_Bolt11InvoiceSignOrCreationErrorZ_OK,
   Result_OfferWithDerivedMetadataBuilderBolt12SemanticErrorZ_OK,
@@ -33,8 +34,9 @@ import { persistChannelManager, persistChannelManagerIdbOnly } from './storage/p
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
 import { getPersistedOffer, putPersistedOffer } from './storage/offer'
 import { persistPayment, loadAllPayments } from './storage/payment-history'
-import { bytesToHex } from './utils'
+import { bytesToHex, hexToBytes } from './utils'
 import { msatToSatFloor } from '../utils/msat'
+import { selectCheapestParams, calculateOpeningFee, type JitInvoiceResult } from './lsps2/types'
 
 function getOutboundCapacitySats(cm: import('lightningdevkit').ChannelManager): bigint {
   const msat = cm
@@ -214,6 +216,82 @@ export function LdkProvider({
     return result.res.to_str()
   }, [])
 
+  const requestJitInvoice = useCallback(
+    async (amountMsat: bigint, description: string): Promise<JitInvoiceResult> => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+
+      const lspNodeId = SIGNET_CONFIG.lspNodeId
+      if (!lspNodeId) throw new Error('LSP not configured')
+
+      // Ensure LSP is connected
+      const lspHost = SIGNET_CONFIG.lspHost
+      const lspPort = SIGNET_CONFIG.lspPort
+      if (lspHost) {
+        try {
+          const conn = await doConnectToPeer(node.peerManager, lspNodeId, lspHost, lspPort, () =>
+            drainEventsRef.current?.()
+          )
+          activeConnections.current.get(lspNodeId)?.disconnect()
+          activeConnections.current.set(lspNodeId, conn)
+        } catch {
+          // May already be connected, continue
+        }
+      }
+
+      // Step 1: Get opening fee params from LSP
+      const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId, SIGNET_CONFIG.lspToken)
+
+      // Step 2: Select cheapest valid params
+      const selectedParams = selectCheapestParams(feeMenu, amountMsat)
+      if (!selectedParams) {
+        throw new Error('No suitable fee parameters available for this amount')
+      }
+
+      // Validate valid_until with 120s buffer for clock skew + network latency
+      if (new Date(selectedParams.validUntil).getTime() < Date.now() + 120_000) {
+        throw new Error('Fee parameters expiring too soon, please try again')
+      }
+
+      // Step 3: Buy JIT channel
+      const buyResponse = await node.lsps2Client.buyChannel(lspNodeId, selectedParams, amountMsat)
+
+      // Step 4: Register payment with LDK
+      // The LSP deducts the opening fee before forwarding, so the received amount
+      // will be less than the invoice amount. Pass the expected post-fee amount
+      // so LDK rejects grossly underpaid HTLCs while allowing the fee deduction.
+      const openingFeeMsat = calculateOpeningFee(amountMsat, selectedParams)
+      const expectedReceiveMsat = amountMsat - openingFeeMsat
+      const paymentResult = node.channelManager.create_inbound_payment(
+        Option_u64Z.constructor_some(expectedReceiveMsat),
+        3600, // 1 hour expiry
+        Option_u16Z_None.constructor_none()
+      )
+      if (!(paymentResult instanceof Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK)) {
+        throw new Error('Failed to create inbound payment')
+      }
+      const paymentHash = paymentResult.res.get_a()
+      const paymentSecret = paymentResult.res.get_b()
+
+      // Step 5: Build and sign the BOLT11 invoice with JIT route hint
+      const nodeIdBytes = hexToBytes(node.nodeId)
+      const bolt11 = await node.lsps2Client.createJitInvoice({
+        buyResponse,
+        lspNodeId,
+        amountMsat,
+        description,
+        nodeId: nodeIdBytes,
+        nodeSecretKey: node.nodeSecretKey,
+        paymentHash,
+        paymentSecret,
+        minFinalCltvExpiry: 144,
+      })
+
+      return { bolt11, openingFeeMsat }
+    },
+    []
+  )
+
   const sendBolt11Payment = useCallback(
     (invoice: Bolt11Invoice, amountMsat?: bigint): Uint8Array => {
       const node = nodeRef.current
@@ -390,10 +468,16 @@ export function LdkProvider({
 
           nodeRef.current = node
 
-          // Expose node on window for dev console debugging
+          // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {
-            ;(window as unknown as Record<string, unknown>).__ldkNode = node
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { nodeSecretKey: _secret, ...safeNode } = node
+            ;(window as unknown as Record<string, unknown>).__ldkNode = safeNode
           }
+
+          // Zero the node secret key on page unload to limit memory exposure
+          const zeroSecretOnUnload = () => node.nodeSecretKey.fill(0)
+          window.addEventListener('beforeunload', zeroSecretOnUnload)
 
           // Wire payment event callback to update the result store and refresh history
           setPaymentCallback((event) => {
@@ -565,6 +649,7 @@ export function LdkProvider({
             bdkEsploraClient,
             setSyncNeeded: setSyncNeededCallback,
             createInvoice,
+            requestJitInvoice,
             sendBolt11Payment,
             sendBolt12Payment,
             abandonPayment,
@@ -638,6 +723,24 @@ export function LdkProvider({
             } catch (err) {
               console.error('[ldk] Failed to load/create BOLT 12 offer:', err)
             }
+          }
+
+          // Auto-connect to LSP so JIT channels are ready when needed
+          if (SIGNET_CONFIG.lspNodeId && SIGNET_CONFIG.lspHost) {
+            void doConnectToPeer(
+              node.peerManager,
+              SIGNET_CONFIG.lspNodeId,
+              SIGNET_CONFIG.lspHost,
+              SIGNET_CONFIG.lspPort,
+              () => drainEventsRef.current?.()
+            )
+              .then((conn) => {
+                activeConnections.current.set(SIGNET_CONFIG.lspNodeId, conn)
+                console.log('[ldk] Connected to LSP')
+              })
+              .catch((err: unknown) => {
+                console.warn('[ldk] LSP auto-connect failed (will retry on receive):', err)
+              })
           }
 
           // Auto-reconnect to known peers, then mark peersReconnected so
@@ -715,6 +818,10 @@ export function LdkProvider({
           idbPut('ldk_network_graph', 'primary', networkGraph.write()),
           idbPut('ldk_scorer', 'primary', scorer.write()),
         ]).catch((err: unknown) => console.error('[LDK] Visibility-change persist failed:', err))
+      } else if (document.visibilityState === 'visible' && nodeRef.current) {
+        // Drain events immediately on tab foreground to process any channel
+        // opens or payments that arrived while backgrounded
+        drainEventsRef.current?.()
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -725,6 +832,9 @@ export function LdkProvider({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       syncHandle?.stop()
       cleanupEventHandlerFn?.()
+      // Don't destroy LSPS handler or zero key here — React StrictMode
+      // re-runs effects but the node is deduplicated via initPromise.
+      // These cleanups happen in the node's own lifecycle (page unload).
       if (peerTimerId !== null) clearInterval(peerTimerId)
       if (offerRetryTimer !== null) clearTimeout(offerRetryTimer)
       for (const [, conn] of connections) {

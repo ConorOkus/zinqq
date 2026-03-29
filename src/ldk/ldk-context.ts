@@ -9,6 +9,7 @@ import type {
 } from 'lightningdevkit'
 import type { LdkNode } from './init'
 import type { PersistedPayment } from './storage/payment-history'
+import type { JitInvoiceResult } from './lsps2/types'
 
 export type SyncStatus = 'syncing' | 'synced' | 'stale'
 
@@ -37,6 +38,7 @@ export type LdkContextValue =
       bdkEsploraClient: EsploraClient
       setSyncNeeded: (cb: (() => void) | undefined) => void
       createInvoice: (amountMsat?: bigint, description?: string) => string
+      requestJitInvoice: (amountMsat: bigint, description: string) => Promise<JitInvoiceResult>
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
       sendBolt12Payment: (offer: Offer, amountMsat?: bigint, payerNote?: string) => Uint8Array
 

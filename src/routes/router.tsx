@@ -14,6 +14,7 @@ import { Balance } from '../pages/Balance'
 import { Scan } from '../pages/Scan'
 import { Restore } from '../pages/Restore'
 import { Bolt12Offer } from '../pages/Bolt12Offer'
+import { Lsps2Receive } from '../pages/Lsps2Receive'
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: 'settings/advanced/bolt12-offer', element: <Bolt12Offer /> },
       { path: 'settings/advanced/peers/open-channel', element: <OpenChannel /> },
       { path: 'settings/advanced/peers/close-channel', element: <CloseChannel /> },
+      { path: 'settings/advanced/lsps2-receive', element: <Lsps2Receive /> },
     ],
   },
 ])

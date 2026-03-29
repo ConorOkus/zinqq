@@ -60,6 +60,25 @@ const ADVANCED_ITEMS = [
     ),
     route: '/settings/advanced/bolt12-offer',
   },
+  {
+    label: 'LSPS2 Receive',
+    detail: 'JIT Channel',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-[22px] w-[22px]"
+      >
+        <path d="M12 2v20M2 12h20" />
+        <path d="M12 2L2 12l10 10 10-10L12 2z" />
+      </svg>
+    ),
+    route: '/settings/advanced/lsps2-receive',
+  },
 ]
 
 export function Advanced() {
