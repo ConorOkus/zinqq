@@ -456,6 +456,7 @@ describe('Send', () => {
         outboundCapacityMsat: vi.fn(() => 1000n), // Very low capacity
         lightningBalanceSats: 1n,
         createInvoice: vi.fn(() => 'lnbc1test'),
+        requestJitInvoice: vi.fn(),
         channelChangeCounter: 0,
         paymentHistory: [],
         bolt12Offer: null,
