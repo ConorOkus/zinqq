@@ -241,7 +241,6 @@ export function LdkProvider({
 
       // Step 1: Get opening fee params from LSP
       const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId, SIGNET_CONFIG.lspToken)
-      node.peerManager.process_events() // Flush buy request immediately
 
       // Step 2: Select cheapest valid params
       const selectedParams = selectCheapestParams(feeMenu, amountMsat)
@@ -256,7 +255,8 @@ export function LdkProvider({
 
       // Step 3: Buy JIT channel
       const buyResponse = await node.lsps2Client.buyChannel(lspNodeId, selectedParams, amountMsat)
-      node.peerManager.process_events() // Flush (defensive)
+      // Flush buy request to LSP immediately rather than waiting for 10s timer
+      node.peerManager.process_events()
 
       // Step 4: Register payment with LDK
       const paymentResult = node.channelManager.create_inbound_payment(
@@ -807,6 +807,8 @@ export function LdkProvider({
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       syncHandle?.stop()
       cleanupEventHandlerFn?.()
+      nodeRef.current?.lspsHandlerDestroy()
+      nodeRef.current?.nodeSecretKey.fill(0)
       if (peerTimerId !== null) clearInterval(peerTimerId)
       if (offerRetryTimer !== null) clearTimeout(offerRetryTimer)
       for (const [, conn] of connections) {

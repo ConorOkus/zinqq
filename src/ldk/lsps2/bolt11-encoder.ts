@@ -20,7 +20,6 @@ const SIGNET_PREFIX = 'lntbs' // signet (mutinynet)
 const TAG_PAYMENT_HASH = 1
 const TAG_DESCRIPTION = 13
 const TAG_PAYEE = 19
-const TAG_DESCRIPTION_HASH = 23 // unused but reserved
 const TAG_EXPIRY = 6
 const TAG_MIN_FINAL_CLTV_EXPIRY = 24
 const TAG_PAYMENT_SECRET = 16
@@ -69,16 +68,19 @@ export async function encodeBolt11Invoice(
   const hashBuffer = await crypto.subtle.digest('SHA-256', preimage)
   const messageHash = new Uint8Array(hashBuffer)
 
-  // Sign with recoverable signature
+  // Sign with recoverable signature (65 bytes: r[32] || s[32] || recovery[1])
   // prehash: false because we already hashed the message
   // signAsync uses WebCrypto internally (no setup required)
   const recoveredBytes = await secp256k1.signAsync(messageHash, nodeSecretKey, { prehash: false, format: 'recovered' })
   const sig = secp256k1.Signature.fromBytes(recoveredBytes, 'recovered')
   const compactSig = sig.toBytes('compact')
   const recoveryFlag = sig.recovery ?? 0
-  const sigWords = bytesToWords(compactSig)
-  // Append recovery flag as a single 5-bit word (0 or 1)
-  sigWords.push(recoveryFlag)
+
+  // BOLT11: signature is 65 bytes (compact + recovery) converted to 5-bit words as one unit
+  const sigFull = new Uint8Array(65)
+  sigFull.set(compactSig)
+  sigFull[64] = recoveryFlag
+  const sigWords = bytesToWords(sigFull)
 
   const allWords = [...dataWords, ...sigWords]
   return bech32.encode(hrp, allWords, 2000) // BOLT11 uses bech32 with a large limit
@@ -201,30 +203,10 @@ function intToWords(n: number): number[] {
   return words
 }
 
-/** Encode feature bits for payment_secret (required) + basic_mpp (supported). */
+/** Encode feature bits: payment_secret required (bit 15) + basic_mpp optional (bit 17). */
 function encodeFeatureBits(): number[] {
-  // Bit 15: payment_secret (required) -- set
-  // Bit 17: basic_mpp (optional/supported) -- set
-  // Bits are encoded as a variable-length bitfield, MSB first
-  // We need at least 18 bits: bit 17 is the highest
-  // In 5-bit words: ceil(18/5) = 4 words
-  // Bit layout (MSB to LSB): [17,16,15,14,13,...,0]
-  // bit 15 (required) = 1, bit 17 (optional) = 1
-  // Word 0 (bits 19-15): 0b00101 = 5
-  // Word 1 (bits 14-10): 0b00000 = 0
-  // Word 2 (bits 9-5): 0b00000 = 0
-  // Word 3 (bits 4-0): 0b00000 = 0
-  // Actually, let me recompute...
-  // Feature bits are encoded as a bit vector, with bit 0 being the LSB.
-  // In BOLT11, they're encoded MSB first in 5-bit groups.
-  // bit 15 = payment_secret required
-  // bit 17 = basic_mpp optional
-  // As an integer: (1 << 15) | (1 << 17) = 32768 + 131072 = 163840
-  // In binary: 0b100_10000_00000_00000 (18 bits)
-  // In 5-bit words (MSB first, padded to 4 words = 20 bits):
-  // 0b00100_10000_00000_00000
-  //   word0=00100=4, word1=10000=16, word2=00000=0, word3=00000=0
-  return [4, 16, 0, 0]
+  // (1 << 15) | (1 << 17) = 163840 = 0b00101_00000_00000_00000 in 20-bit / 4 words
+  return [5, 0, 0, 0]
 }
 
 /** Encode a route hint (array of hops) as 5-bit words. */

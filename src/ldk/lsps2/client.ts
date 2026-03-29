@@ -10,7 +10,6 @@ import type { LspsMessageHandlerResult } from './message-handler'
 import {
   type OpeningFeeParams,
   type BuyResponse,
-  type JitInvoiceResult,
   type JsonRpcResponse,
   serializeJsonRpcRequest,
   serializeOpeningFeeParams,

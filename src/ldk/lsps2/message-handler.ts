@@ -112,11 +112,11 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
         }
 
         const pendingEntry = pending.get(response.id)
-        if (pendingEntry) {
+        if (pendingEntry && bytesToHex(senderNodeId) === pendingEntry.peerHex) {
           pending.delete(response.id)
           pendingEntry.resolve(response)
         }
-        // Silently discard responses with no matching pending entry (stale/unsolicited)
+        // Silently discard responses with no matching entry or wrong sender
 
         return Result_NoneLightningErrorZ.constructor_ok()
       },
