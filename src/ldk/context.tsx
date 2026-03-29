@@ -470,6 +470,7 @@ export function LdkProvider({
 
           // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { nodeSecretKey: _secret, ...safeNode } = node
             ;(window as unknown as Record<string, unknown>).__ldkNode = safeNode
           }
