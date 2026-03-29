@@ -4,18 +4,18 @@ compatibility_date = "2026-03-01"
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173"
-ALLOWED_PORTS = "9735"
+ALLOWED_PORTS = "9735,9736"
 
 [env.dev]
 name = "ln-ws-proxy-dev"
 [env.dev.vars]
 ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,https://zinqq.vercel.app"
-ALLOWED_PORTS = "9735"
+ALLOWED_PORTS = "9735,9736"
 
 [env.production]
 name = "ln-ws-proxy-production"
 # IMPORTANT: Set ALLOWED_ORIGINS to your wallet's production domain before deploying.
 # An empty value will cause the proxy to return 500 for all requests.
 [env.production.vars]
-ALLOWED_ORIGINS = ""
-ALLOWED_PORTS = "9735"
+ALLOWED_ORIGINS = "https://zinqq.vercel.app"
+ALLOWED_PORTS = "9735,9736"
