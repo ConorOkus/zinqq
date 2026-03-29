@@ -73,6 +73,7 @@ function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextVal
     outboundCapacityMsat: vi.fn(() => 1_000_000_000n),
     lightningBalanceSats: 1_000_000n,
     createInvoice: vi.fn(() => 'lnbc1test'),
+    requestJitInvoice: vi.fn(),
     channelChangeCounter: 0,
     paymentHistory: [],
     bolt12Offer: null,

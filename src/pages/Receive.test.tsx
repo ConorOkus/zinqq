@@ -46,6 +46,7 @@ function readyLdkContext(
     bdkEsploraClient: {} as never,
     setSyncNeeded: vi.fn(),
     createInvoice: vi.fn(() => 'lntbs1fakeinvoice'),
+    requestJitInvoice: vi.fn(),
     sendBolt11Payment: vi.fn(),
     sendBolt12Payment: vi.fn(),
     closeChannel: vi.fn(),
