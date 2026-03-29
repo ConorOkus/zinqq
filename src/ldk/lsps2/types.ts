@@ -161,7 +161,11 @@ export function serializeOpeningFeeParams(params: OpeningFeeParams): RawOpeningF
   }
 }
 
-export function serializeJsonRpcRequest(id: string, method: string, params: Record<string, unknown>): string {
+export function serializeJsonRpcRequest(
+  id: string,
+  method: string,
+  params: Record<string, unknown>
+): string {
   return JSON.stringify({ jsonrpc: '2.0', id, method, params })
 }
 

@@ -183,7 +183,11 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   if (SIGNET_CONFIG.lspNodeId && !/^[0-9a-f]{66}$/.test(SIGNET_CONFIG.lspNodeId)) {
     throw new Error('[LDK Init] Invalid LSP node ID: must be 66 lowercase hex characters')
   }
-  if (!Number.isFinite(SIGNET_CONFIG.lspPort) || SIGNET_CONFIG.lspPort < 1 || SIGNET_CONFIG.lspPort > 65535) {
+  if (
+    !Number.isFinite(SIGNET_CONFIG.lspPort) ||
+    SIGNET_CONFIG.lspPort < 1 ||
+    SIGNET_CONFIG.lspPort > 65535
+  ) {
     throw new Error('[LDK Init] Invalid LSP port: must be 1-65535')
   }
 
@@ -514,8 +518,11 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   )
 
   // 12. Create LSPS message handler and PeerManager
-  const { handler: lspsHandler, sendRequest: lspsSendRequest, setFlushCallback } =
-    createLspsMessageHandler()
+  const {
+    handler: lspsHandler,
+    sendRequest: lspsSendRequest,
+    setFlushCallback,
+  } = createLspsMessageHandler()
   const lsps2Client = new LSPS2Client(lspsSendRequest)
 
   const peerManager = PeerManager.constructor_new(

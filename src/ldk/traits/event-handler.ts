@@ -412,10 +412,7 @@ function handleEvent(
       // See learnings: ldk-wasm-encode-uint128-asymmetry
       const randomBytes = new Uint8Array(8)
       crypto.getRandomValues(randomBytes)
-      const userChannelId = randomBytes.reduce(
-        (acc, byte) => (acc << 8n) | BigInt(byte),
-        0n
-      )
+      const userChannelId = randomBytes.reduce((acc, byte) => (acc << 8n) | BigInt(byte), 0n)
       const result = channelManager.accept_inbound_channel_from_trusted_peer_0conf(
         event.temporary_channel_id,
         event.counterparty_node_id,
@@ -427,7 +424,10 @@ function handleEvent(
         console.error('[LDK Event] OpenChannelRequest: failed to accept 0-conf from LSP')
       }
     } else {
-      console.log('[LDK Event] OpenChannelRequest: rejected from non-LSP peer', counterpartyHex.substring(0, 16) + '...')
+      console.log(
+        '[LDK Event] OpenChannelRequest: rejected from non-LSP peer',
+        counterpartyHex.substring(0, 16) + '...'
+      )
       // Will timeout automatically — no explicit rejection needed
     }
     return

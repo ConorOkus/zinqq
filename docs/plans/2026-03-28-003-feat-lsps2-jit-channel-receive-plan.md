@@ -1,5 +1,5 @@
 ---
-title: "feat: LSPS2 JIT channel receive support"
+title: 'feat: LSPS2 JIT channel receive support'
 type: feat
 status: completed
 date: 2026-03-28
@@ -15,6 +15,7 @@ origin: docs/brainstorms/2026-03-28-lsps2-jit-channels-brainstorm.md
 **Research agents used:** TypeScript reviewer, Security sentinel, Performance oracle, Race condition reviewer, Architecture strategist, Pattern recognition specialist, Code simplicity reviewer, Learnings researcher, WASM API investigator, LSPS2 reference implementation researcher
 
 ### Key Improvements
+
 1. **Critical: Outbound message flush** -- Must call `peerManager.process_events()` after queuing LSPS2 messages, otherwise 10s stall between get_info response and buy request
 2. **Critical: Promise timeout reaper** -- Pending promises need 30s timeout to prevent indefinite UI hangs
 3. **Scope reduction for v1** -- Cut variable-amount invoices, valid_until auto-refresh, and fee params caching from context to reduce complexity ~15-20%
@@ -22,6 +23,7 @@ origin: docs/brainstorms/2026-03-28-lsps2-jit-channels-brainstorm.md
 5. **Race condition mitigation** -- State machine for Receive page, AbortSignal for cancelled requests, visibilitychange handler
 
 ### New Considerations Discovered
+
 - Outbound message queue is not flushed by `drainEventsAndRefresh()` -- explicit `process_events()` call required after each LSPS2 message send
 - `user_channel_id` must use 8 random bytes (not 16) to avoid LDK WASM u128 encoding bug
 - Use `bytesToHex(counterparty_node_id)` for LSP pubkey comparison, never `.write()` (institutional learning)
@@ -38,6 +40,7 @@ Implement LSPS2 (bLIP-52) client support so zinqq users with zero existing chann
 ## Problem Statement / Motivation
 
 Currently, a new zinqq user must:
+
 1. Receive on-chain bitcoin
 2. Open a channel manually
 3. Wait for confirmations
@@ -111,6 +114,7 @@ Inbound: PeerManager calls handle_custom_message(msg, sender)
 ```
 
 **Critical: From institutional learnings** (`docs/solutions/integration-issues/ldk-event-handler-patterns.md`):
+
 - Never await inside synchronous LDK callbacks
 - Return immediately from `handle_custom_message()`
 - Queue async work, don't block
@@ -118,7 +122,7 @@ Inbound: PeerManager calls handle_custom_message(msg, sender)
 ### Research Insights: Sync/Async Bridge
 
 **Critical -- Outbound message flush latency (Performance Oracle, Race Condition Reviewer):**
-Promise resolution in `handle_custom_message()` happens synchronously. The `.then()`/`await` continuation runs as a microtask. But `peerManager.process_events()` is called synchronously *before* microtasks run. So after `get_info` response resolves and `LSPS2Client` queues the `buy` request, that message sits in the queue until the *next* `process_events()` call -- up to 10 seconds.
+Promise resolution in `handle_custom_message()` happens synchronously. The `.then()`/`await` continuation runs as a microtask. But `peerManager.process_events()` is called synchronously _before_ microtasks run. So after `get_info` response resolves and `LSPS2Client` queues the `buy` request, that message sits in the queue until the _next_ `process_events()` call -- up to 10 seconds.
 
 **Fix:** After each `LSPS2Client` method that queues an outbound message, explicitly call `peerManager.process_events()`:
 
@@ -131,6 +135,7 @@ const result = await lsps2Client.buyChannel(lspNodeId, selectedParams, amountMsa
 
 **Critical -- Promise lifetime management (TS Reviewer, Security):**
 Pending promises MUST have:
+
 - **30-second timeout reaper** -- Reject any promise older than 30s. Without this, a lost response means the Receive page shows "Setting up..." forever.
 - **Cleanup on `peer_disconnected`** -- Iterate and reject ALL pending entries for the peer, then delete them from the Map.
 - **Cap of 10 pending requests per peer** -- Prevents memory leaks from buggy retry loops.
@@ -185,6 +190,7 @@ Build the `CustomMessageHandler` and the LSPS2 client protocol together -- they 
   - Exported pure: `calculateOpeningFee(paymentSizeMsat, feeParams)` -- deterministic fee calculation
 
 **Fee calculation** (must match spec exactly, with mandatory u64 overflow checks):
+
 ```typescript
 const U64_MAX = (1n << 64n) - 1n
 
@@ -199,6 +205,7 @@ function calculateOpeningFee(paymentSizeMsat: bigint, params: OpeningFeeParams):
 ```
 
 **Client-side validation before `buy` (Security):**
+
 - `paymentSizeMsat >= params.minPaymentSizeMsat`
 - `paymentSizeMsat <= params.maxPaymentSizeMsat`
 - `calculateOpeningFee(paymentSizeMsat, params) < paymentSizeMsat`
@@ -206,20 +213,24 @@ function calculateOpeningFee(paymentSizeMsat: bigint, params: OpeningFeeParams):
 - If `client_trusts_lsp` is true in buy response -> refuse with error: "This LSP requires a trust mode that is not supported. Your funds would not be protected until the channel is confirmed."
 
 **Error handling:**
+
 - `invalid_opening_fee_params` (201) -> surface to UI: "Fee parameters expired, please try again"
 - `payment_size_too_small` (202) -> surface to UI: "Amount too small for Lightning channel"
 - `payment_size_too_large` (203) -> surface to UI: "Amount too large for this LSP"
 - `client_rejected` (1) -> surface to UI: "LSP rejected request"
 
 **Integration:**
+
 - `src/ldk/init.ts` line 491 -- Replace `ignorer.as_CustomMessageHandler()` with `lspsHandler.handler`
 - Note: `ignorer` variable at line 473 is NOT removed -- still used for `ignorer.as_CustomOnionMessageHandler()` at line 483
 
 **Investigation items:**
+
 - **Feature bit 729:** Verify that `NodeFeatures`/`InitFeatures` expose `set_optional_custom_bit(729)` in WASM bindings. If not, returning empty features may be acceptable (some LSPs may not require this bit). Add to risk table.
 - **Invoice route hints:** The standard `create_invoice_from_channelmanager` does not support custom route hints. Must investigate: (1) Does `UtilMethods` expose a variant with route hints? (2) Does the WASM expose `RouteHint`/`RouteHintHop` constructors? (3) Fallback: manual BOLT11 encoding. **This investigation should happen at the START of Phase 1, not after.**
 
 **Success criteria:**
+
 - [ ] Can send a JSON-RPC request to a connected peer via PeerManager
 - [ ] Can receive and parse a JSON-RPC response
 - [ ] Pending promises rejected on peer disconnect (all entries for peer)
@@ -240,6 +251,7 @@ Accept 0-conf inbound channels from the configured LSP. This phase is **independ
 **Files:**
 
 - `src/ldk/traits/event-handler.ts` -- Update `Event_OpenChannelRequest` handler:
+
   ```typescript
   if (event instanceof Event_OpenChannelRequest) {
     const counterpartyHex = bytesToHex(event.counterparty_node_id)
@@ -249,12 +261,16 @@ Accept 0-conf inbound channels from the configured LSP. This phase is **independ
       // See learnings: ldk-wasm-encode-uint128-asymmetry
       const userChannelId = BigInt('0x' + bytesToHex(crypto.getRandomValues(new Uint8Array(8))))
       channelManager.accept_inbound_channel_from_trusted_peer_0conf(
-        event.temporary_channel_id, event.counterparty_node_id, userChannelId
+        event.temporary_channel_id,
+        event.counterparty_node_id,
+        userChannelId
       )
     } else {
       const userChannelId = BigInt('0x' + bytesToHex(crypto.getRandomValues(new Uint8Array(8))))
       channelManager.accept_inbound_channel(
-        event.temporary_channel_id, event.counterparty_node_id, userChannelId
+        event.temporary_channel_id,
+        event.counterparty_node_id,
+        userChannelId
       )
     }
     return
@@ -266,6 +282,7 @@ Accept 0-conf inbound channels from the configured LSP. This phase is **independ
 - `src/ldk/init.ts` -- Update `UserConfig` in **BOTH** code paths:
   - Line 389 (ChannelManager deserialization) AND line 456 (fresh creation)
   - Extract into shared function:
+
   ```typescript
   function createUserConfig(): UserConfig {
     const config = UserConfig.constructor_default()
@@ -273,9 +290,11 @@ Accept 0-conf inbound channels from the configured LSP. This phase is **independ
     return config
   }
   ```
+
   - Verify API: `set_manually_accept_inbound_channels()` may be on `UserConfig` directly or on `ChannelHandshakeConfig` in LDK 0.1.8 WASM. Check the `.d.mts` declaration.
 
 - `src/ldk/config.ts` -- Add LSP configuration (flat keys, matching existing pattern):
+
   ```typescript
   lspNodeId: (import.meta.env.VITE_LSP_NODE_ID as string | undefined) ?? '<mutinynet-lsp-pubkey>',
   lspHost: (import.meta.env.VITE_LSP_HOST as string | undefined) ?? '<mutinynet-lsp-host>',
@@ -290,15 +309,18 @@ Accept 0-conf inbound channels from the configured LSP. This phase is **independ
   - Fail early with clear error if invalid
 
 **Security boundary:**
+
 - Only 0-conf accept from the configured LSP pubkey
 - All other inbound channels accepted with standard confirmation
 - LSP pubkey validated via BOLT8 Noise handshake (transport-layer authentication)
 
 **From institutional learnings** (`docs/solutions/integration-issues/bdk-ldk-signer-provider-fund-routing.md`):
+
 - JIT channels route close funds to BDK wallet addresses via the custom SignerProvider already in place
 - No additional SignerProvider changes needed
 
 **Success criteria:**
+
 - [ ] Inbound 0-conf channels from LSP are accepted
 - [ ] Inbound channels from non-LSP peers are accepted with standard confirmations
 - [ ] `manually_accept_inbound_channels` is set to `true` in both UserConfig paths
@@ -314,9 +336,11 @@ Wire LSPS2 into the React context and update the Receive page. Combined because 
 **Files:**
 
 - `src/ldk/ldk-context.ts` -- Add to `LdkContextValue` (when `status === 'ready'`):
+
   ```typescript
   requestJitInvoice: (amountMsat: bigint, description: string) => Promise<JitInvoiceResult>
   ```
+
   Where `JitInvoiceResult = { bolt11: string, openingFeeMsat: bigint }` defined in `ldk-context.ts` alongside `PaymentResult`.
 
   Note: `requestJitInvoice` is async (unlike the sync `createInvoice`). This is a justified divergence -- the LSPS2 flow requires network round-trips. `openingFeeMsat` is always present (v1 requires amount).
@@ -336,12 +360,14 @@ Wire LSPS2 into the React context and update the Receive page. Combined because 
   - Eliminates 1-3s from first JIT negotiation
 
 - `src/ldk/context.tsx` -- Add `visibilitychange` handler for tab foreground:
+
   ```typescript
   // In existing handleVisibilityChange:
   } else if (document.visibilityState === 'visible' && nodeRef.current) {
     drainEventsRef.current?.()
   }
   ```
+
   Without this, returning from a backgrounded tab after JIT channel opens shows stale "Setting up..." state.
 
 - `src/ldk/init.ts` -- Update `LdkNode` interface and `initializeLdk()`:
@@ -370,7 +396,9 @@ Wire LSPS2 into the React context and update the Receive page. Combined because 
     useEffect(() => {
       let stale = false
       // ... async flow ...
-      return () => { stale = true }
+      return () => {
+        stale = true
+      }
     }, [amountMsat])
     ```
   - BIP 21 URI still includes on-chain fallback address
@@ -379,6 +407,7 @@ Wire LSPS2 into the React context and update the Receive page. Combined because 
 **Retries live in one place:** `requestJitInvoice()` retries LSP connection (max 3 with backoff). The UI shows "Retrying..." during these attempts and "Failed -- tap to retry" only after all retries exhausted. No retry logic in the UI layer.
 
 **Success criteria:**
+
 - [ ] `requestJitInvoice()` completes the full LSPS2 flow and returns a valid invoice
 - [ ] LSP connection established automatically (pre-connected at startup)
 - [ ] Errors propagate to the caller with actionable messages
@@ -473,14 +502,14 @@ Wire LSPS2 into the React context and update the Receive page. Combined because 
 
 ## Risk Analysis & Mitigation
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| WASM bindings don't expose route-hint invoice creation | Medium | High | Investigate FIRST in Phase 1; fallback to manual BOLT11 encoding using RouteHint/RouteHintHop if available, or raw invoice construction |
-| Feature bit 729 not settable via WASM | Medium | Low | Return empty features; many LSPs don't require the bit. Test with real LSP. |
-| LSP on mutinynet unavailable or buggy | Low | High | Test with LDK's reference implementation; have backup LSP |
-| `manually_accept_inbound_channels` breaks existing flows | Low | Medium | Phase 2 handles both LSP and non-LSP channels explicitly |
-| Fee calculation mismatch with LSP | Low | High | u64 overflow checks + unit tests against spec edge cases |
-| Outbound queue not flushed (stale buy request) | High if missed | High | Explicit `process_events()` after each LSPS2 message queued |
+| Risk                                                     | Likelihood     | Impact | Mitigation                                                                                                                              |
+| -------------------------------------------------------- | -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| WASM bindings don't expose route-hint invoice creation   | Medium         | High   | Investigate FIRST in Phase 1; fallback to manual BOLT11 encoding using RouteHint/RouteHintHop if available, or raw invoice construction |
+| Feature bit 729 not settable via WASM                    | Medium         | Low    | Return empty features; many LSPs don't require the bit. Test with real LSP.                                                             |
+| LSP on mutinynet unavailable or buggy                    | Low            | High   | Test with LDK's reference implementation; have backup LSP                                                                               |
+| `manually_accept_inbound_channels` breaks existing flows | Low            | Medium | Phase 2 handles both LSP and non-LSP channels explicitly                                                                                |
+| Fee calculation mismatch with LSP                        | Low            | High   | u64 overflow checks + unit tests against spec edge cases                                                                                |
+| Outbound queue not flushed (stale buy request)           | High if missed | High   | Explicit `process_events()` after each LSPS2 message queued                                                                             |
 
 ## Future Considerations
 

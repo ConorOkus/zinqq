@@ -73,7 +73,9 @@ vi.mock('./lsps2/message-handler', () => ({
   })),
 }))
 vi.mock('./lsps2/client', () => ({
-  LSPS2Client: class { constructor() {} },
+  LSPS2Client: class {
+    constructor() {}
+  },
 }))
 vi.mock('./traits/event-handler', () => ({
   createEventHandler: vi.fn(() => ({
@@ -255,8 +257,16 @@ vi.mock('lightningdevkit', () => ({
   Option_TypeZ: { constructor_none: vi.fn(() => ({})), constructor_some: vi.fn((x: unknown) => x) },
   TwoTuple_PublicKeyTypeZ: { constructor_new: vi.fn(() => ({})) },
   Type: { new_impl: vi.fn(() => ({})) },
-  NodeFeatures: { constructor_empty: vi.fn(() => ({ set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })) })) },
-  InitFeatures: { constructor_empty: vi.fn(() => ({ set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })) })) },
+  NodeFeatures: {
+    constructor_empty: vi.fn(() => ({
+      set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })),
+    })),
+  },
+  InitFeatures: {
+    constructor_empty: vi.fn(() => ({
+      set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })),
+    })),
+  },
 }))
 
 import { idbGet, idbGetAll, idbPut, idbDelete, idbDeleteBatch } from '../storage/idb'

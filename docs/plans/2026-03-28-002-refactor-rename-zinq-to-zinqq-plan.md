@@ -1,7 +1,7 @@
 ---
 title: 'refactor: Rename project from zinq to zinqq'
 type: refactor
-status: active
+status: completed
 date: 2026-03-28
 origin: docs/brainstorms/2026-03-28-rename-zinq-to-zinqq-brainstorm.md
 ---
@@ -31,10 +31,10 @@ Never run the replacement twice on already-renamed content.
 - [x] `wrangler.toml` references `zinqq.vercel.app`
 - [x] All ~26 documentation files updated
 - [x] Tests pass after rename
-- [ ] GitHub repo renamed to `ConorOkus/zinqq`
-- [ ] Vercel project renamed, deploys working
-- [ ] Cloudflare worker CORS updated
-- [ ] Git remote updated locally
+- [x] GitHub repo renamed to `ConorOkus/zinqq`
+- [x] Vercel project renamed, deploys working
+- [x] Cloudflare worker CORS updated
+- [x] Git remote updated locally
 
 ## MVP
 

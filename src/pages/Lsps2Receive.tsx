@@ -176,7 +176,9 @@ export function Lsps2Receive() {
               <p className="text-sm text-red-400">{jitState.message}</p>
             )}
             {jitState.step === 'negotiating' && (
-              <p className="text-sm text-[var(--color-on-dark-muted)]">Setting up Lightning receive...</p>
+              <p className="text-sm text-[var(--color-on-dark-muted)]">
+                Setting up Lightning receive...
+              </p>
             )}
 
             {confirmedAmountSats > 0n && (

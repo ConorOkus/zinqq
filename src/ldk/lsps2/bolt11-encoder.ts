@@ -71,7 +71,10 @@ export async function encodeBolt11Invoice(
   // Sign with recoverable signature (65 bytes: r[32] || s[32] || recovery[1])
   // prehash: false because we already hashed the message
   // signAsync uses WebCrypto internally (no setup required)
-  const recoveredBytes = await secp256k1.signAsync(messageHash, nodeSecretKey, { prehash: false, format: 'recovered' })
+  const recoveredBytes = await secp256k1.signAsync(messageHash, nodeSecretKey, {
+    prehash: false,
+    format: 'recovered',
+  })
   const sig = secp256k1.Signature.fromBytes(recoveredBytes, 'recovered')
   const compactSig = sig.toBytes('compact')
   const recoveryFlag = sig.recovery ?? 0
@@ -256,8 +259,8 @@ export function parseLsps2Scid(scid: string): bigint {
   const tx = BigInt(parts[1]!.trim())
   const output = BigInt(parts[2]!.trim())
   // BOLT7: block (24 bits), tx_index (24 bits), output (16 bits)
-  if (block < 0n || block >= (1n << 24n)) throw new Error(`SCID block out of range: ${block}`)
-  if (tx < 0n || tx >= (1n << 24n)) throw new Error(`SCID tx index out of range: ${tx}`)
-  if (output < 0n || output >= (1n << 16n)) throw new Error(`SCID output out of range: ${output}`)
+  if (block < 0n || block >= 1n << 24n) throw new Error(`SCID block out of range: ${block}`)
+  if (tx < 0n || tx >= 1n << 24n) throw new Error(`SCID tx index out of range: ${tx}`)
+  if (output < 0n || output >= 1n << 16n) throw new Error(`SCID output out of range: ${output}`)
   return (block << 40n) | (tx << 16n) | output
 }

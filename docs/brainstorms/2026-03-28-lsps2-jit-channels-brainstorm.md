@@ -51,15 +51,15 @@ Implement a `CustomMessageHandler` in TypeScript that handles LSPS JSON-RPC mess
 
 ## Integration Points
 
-| Component | File | Change Needed |
-|---|---|---|
-| PeerManager init | `src/ldk/init.ts` | Replace `IgnoringMessageHandler` with LSPS-aware `CustomMessageHandler` |
-| Event handler | `src/ldk/traits/event-handler.ts` | Accept inbound `OpenChannelRequest` from LSP node ID |
-| LDK context | `src/ldk/context.tsx` | Expose LSPS2 operations (request JIT channel, fee params) |
-| Context types | `src/ldk/ldk-context.ts` | Add LSPS2 methods and state to `LdkContextValue` |
-| Config | `src/ldk/config.ts` | Add LSP node ID and LSPS2 configuration |
-| Receive page | `src/pages/Receive.tsx` | Auto-trigger LSPS2 flow when no inbound liquidity |
-| New: LSPS2 module | `src/ldk/lsps2/` | CustomMessageHandler, message serialization, client state machine |
+| Component         | File                              | Change Needed                                                           |
+| ----------------- | --------------------------------- | ----------------------------------------------------------------------- |
+| PeerManager init  | `src/ldk/init.ts`                 | Replace `IgnoringMessageHandler` with LSPS-aware `CustomMessageHandler` |
+| Event handler     | `src/ldk/traits/event-handler.ts` | Accept inbound `OpenChannelRequest` from LSP node ID                    |
+| LDK context       | `src/ldk/context.tsx`             | Expose LSPS2 operations (request JIT channel, fee params)               |
+| Context types     | `src/ldk/ldk-context.ts`          | Add LSPS2 methods and state to `LdkContextValue`                        |
+| Config            | `src/ldk/config.ts`               | Add LSP node ID and LSPS2 configuration                                 |
+| Receive page      | `src/pages/Receive.tsx`           | Auto-trigger LSPS2 flow when no inbound liquidity                       |
+| New: LSPS2 module | `src/ldk/lsps2/`                  | CustomMessageHandler, message serialization, client state machine       |
 
 ## Technical Details
 
