@@ -21,7 +21,7 @@ vi.mock('./storage/known-peers', async (importOriginal) => {
 
 // Mock config to avoid lightningdevkit Network import
 vi.mock('./config', () => ({
-  SIGNET_CONFIG: {
+  LDK_CONFIG: {
     network: 0,
     esploraUrl: 'https://example.com/api',
     chainPollIntervalMs: 30_000,
@@ -34,7 +34,9 @@ vi.mock('./config', () => ({
     lspHost: '',
     lspPort: 9735,
     lspToken: undefined,
+    genesisBlockHash: '00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6',
   },
+  ACTIVE_NETWORK: 'signet',
 }))
 
 // Mock all heavy LDK dependencies
@@ -101,6 +103,9 @@ vi.mock('./sync/esplora-client', () => ({
   EsploraClient: class {
     getTipHash = vi.fn().mockResolvedValue('00'.repeat(32))
     getBlockHeight = vi.fn().mockResolvedValue(0)
+    getBlockHash = vi
+      .fn()
+      .mockResolvedValue('00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6')
   },
 }))
 vi.mock('./storage/persist-cm', () => ({}))

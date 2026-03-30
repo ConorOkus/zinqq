@@ -4,7 +4,7 @@ import { useLdk } from '../ldk/use-ldk'
 import { useOnchain } from '../onchain/use-onchain'
 import { hexToBytes, bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
-import { SIGNET_CONFIG } from '../ldk/config'
+import { LDK_CONFIG } from '../ldk/config'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
 import { numpadDigitReducer } from '../components/numpad-reducer'
@@ -65,7 +65,7 @@ export function OpenChannel() {
 
   // Fetch fee rate from Esplora
   useEffect(() => {
-    fetch(`${SIGNET_CONFIG.esploraUrl}/fee-estimates`)
+    fetch(`${LDK_CONFIG.esploraUrl}/fee-estimates`)
       .then((res) => res.json() as Promise<Record<string, number>>)
       .then((estimates) => {
         const satPerVb = estimates['6']

@@ -24,7 +24,7 @@ import {
   type LdkContextValue,
   type PaymentResult,
 } from './ldk-context'
-import { SIGNET_CONFIG } from './config'
+import { LDK_CONFIG } from './config'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
@@ -221,12 +221,12 @@ export function LdkProvider({
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
 
-      const lspNodeId = SIGNET_CONFIG.lspNodeId
+      const lspNodeId = LDK_CONFIG.lspNodeId
       if (!lspNodeId) throw new Error('LSP not configured')
 
       // Ensure LSP is connected
-      const lspHost = SIGNET_CONFIG.lspHost
-      const lspPort = SIGNET_CONFIG.lspPort
+      const lspHost = LDK_CONFIG.lspHost
+      const lspPort = LDK_CONFIG.lspPort
       if (lspHost) {
         try {
           const conn = await doConnectToPeer(node.peerManager, lspNodeId, lspHost, lspPort, () =>
@@ -240,7 +240,7 @@ export function LdkProvider({
       }
 
       // Step 1: Get opening fee params from LSP
-      const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId, SIGNET_CONFIG.lspToken)
+      const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId, LDK_CONFIG.lspToken)
 
       // Step 2: Select cheapest valid params
       const selectedParams = selectCheapestParams(feeMenu, amountMsat)
@@ -432,7 +432,7 @@ export function LdkProvider({
     const vssClient = vssDisabled
       ? null
       : new VssClient(
-          SIGNET_CONFIG.vssUrl,
+          LDK_CONFIG.vssUrl,
           vssStoreId,
           vssEncryptionKey,
           new FixedHeaderProvider({})
@@ -506,7 +506,7 @@ export function LdkProvider({
 
           cleanupEventHandlerFn = cleanupEventHandler
 
-          const esplora = new EsploraClient(SIGNET_CONFIG.esploraUrl)
+          const esplora = new EsploraClient(LDK_CONFIG.esploraUrl)
           const confirmables = [node.channelManager.as_Confirm(), node.chainMonitor.as_Confirm()]
 
           syncHandle = startSyncLoop({
@@ -518,9 +518,9 @@ export function LdkProvider({
             networkGraph: node.networkGraph,
             logger: node.logger,
             scorer: node.scorer,
-            intervalMs: SIGNET_CONFIG.chainPollIntervalMs,
-            rgsUrl: SIGNET_CONFIG.rgsUrl,
-            rgsSyncIntervalTicks: SIGNET_CONFIG.rgsSyncIntervalTicks,
+            intervalMs: LDK_CONFIG.chainPollIntervalMs,
+            rgsUrl: LDK_CONFIG.rgsUrl,
+            rgsSyncIntervalTicks: LDK_CONFIG.rgsSyncIntervalTicks,
             onStatusChange: (syncStatus) => {
               setState((prev) => (prev.status === 'ready' ? { ...prev, syncStatus } : prev))
             },
@@ -622,7 +622,7 @@ export function LdkProvider({
             }
 
             drainEventsAndRefresh()
-          }, SIGNET_CONFIG.peerTimerIntervalMs)
+          }, LDK_CONFIG.peerTimerIntervalMs)
 
           // Compute initial Lightning balance eagerly so Home screen
           // does not show 0 for up to 10s before the first timer tick.
@@ -707,7 +707,7 @@ export function LdkProvider({
                 return
               }
               const builder = builderResult.res
-              builder.chain(SIGNET_CONFIG.network)
+              builder.chain(LDK_CONFIG.network)
               builder.description('zinqq wallet')
               const offerResult = builder.build()
               if (!(offerResult instanceof Result_OfferBolt12SemanticErrorZ_OK)) {
@@ -726,16 +726,16 @@ export function LdkProvider({
           }
 
           // Auto-connect to LSP so JIT channels are ready when needed
-          if (SIGNET_CONFIG.lspNodeId && SIGNET_CONFIG.lspHost) {
+          if (LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost) {
             void doConnectToPeer(
               node.peerManager,
-              SIGNET_CONFIG.lspNodeId,
-              SIGNET_CONFIG.lspHost,
-              SIGNET_CONFIG.lspPort,
+              LDK_CONFIG.lspNodeId,
+              LDK_CONFIG.lspHost,
+              LDK_CONFIG.lspPort,
               () => drainEventsRef.current?.()
             )
               .then((conn) => {
-                activeConnections.current.set(SIGNET_CONFIG.lspNodeId, conn)
+                activeConnections.current.set(LDK_CONFIG.lspNodeId, conn)
                 console.log('[ldk] Connected to LSP')
               })
               .catch((err: unknown) => {

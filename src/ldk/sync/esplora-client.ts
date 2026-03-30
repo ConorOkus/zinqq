@@ -41,6 +41,14 @@ export class EsploraClient {
     return hash
   }
 
+  async getBlockHash(height: number): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/block-height/${height}`, { signal: this.getSignal() })
+    if (!res.ok) throw new Error(`[Esplora] GET /block-height/${height} failed: ${res.status}`)
+    const hash = (await res.text()).trim()
+    assertHex(hash, 'blockHash', 64)
+    return hash
+  }
+
   async getBlockHeader(hash: string): Promise<Uint8Array> {
     assertHex(hash, 'blockHash', 64)
     const res = await fetch(`${this.baseUrl}/block/${hash}/header`, { signal: this.getSignal() })
