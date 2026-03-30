@@ -1,4 +1,4 @@
-import { ACTIVE_NETWORK } from '../ldk/config'
+import { ACTIVE_NETWORK, type NetworkId } from '../ldk/config'
 
 type BdkNetwork = 'bitcoin' | 'signet'
 
@@ -12,7 +12,7 @@ interface OnchainConfig {
   esploraMaxRetries: number
 }
 
-const ONCHAIN_CONFIGS: Record<string, OnchainConfig> = {
+const ONCHAIN_CONFIGS: Record<NetworkId, OnchainConfig> = {
   signet: {
     network: 'signet',
     esploraUrl: 'https://mutinynet.com/api',
