@@ -29,9 +29,9 @@ const NETWORK_CONFIGS: Record<NetworkId, LdkConfig> = {
     rgsUrl: 'https://rgs.mutinynet.com/snapshot',
     rgsSyncIntervalTicks: 60,
     vssUrl: '/api/vss-proxy',
-    lspNodeId: '',
-    lspHost: '',
-    lspPort: 9736,
+    lspNodeId: '035196ae4d3bed6abbce8ba592a59618d3aa78bf71a61a95bd69334de74e6c173c',
+    lspHost: 'lima-delta-kilo.tnull.org',
+    lspPort: 9737,
     genesisBlockHash: '00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6',
   },
   mainnet: {
