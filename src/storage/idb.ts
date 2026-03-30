@@ -1,4 +1,6 @@
-export const DB_NAME = 'zinqq-ldk'
+import { ACTIVE_NETWORK } from '../ldk/config'
+
+export const DB_NAME = `zinqq-ldk-${ACTIVE_NETWORK}`
 const DB_VERSION = 8
 
 const STORES = [

@@ -52,7 +52,7 @@ import {
   type SyncNeededCallback,
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
-import { SIGNET_CONFIG } from './config'
+import { LDK_CONFIG, ACTIVE_NETWORK } from './config'
 import { createLspsMessageHandler } from './lsps2/message-handler'
 import { LSPS2Client } from './lsps2/client'
 import { deriveNodeSecret } from './lsps2/node-secret'
@@ -180,15 +180,25 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   await initWasm()
 
   // 0.1 Validate LSP config early (fail fast on misconfiguration)
-  if (SIGNET_CONFIG.lspNodeId && !/^[0-9a-f]{66}$/.test(SIGNET_CONFIG.lspNodeId)) {
+  if (LDK_CONFIG.lspNodeId && !/^[0-9a-f]{66}$/.test(LDK_CONFIG.lspNodeId)) {
     throw new Error('[LDK Init] Invalid LSP node ID: must be 66 lowercase hex characters')
   }
   if (
-    !Number.isFinite(SIGNET_CONFIG.lspPort) ||
-    SIGNET_CONFIG.lspPort < 1 ||
-    SIGNET_CONFIG.lspPort > 65535
+    !Number.isFinite(LDK_CONFIG.lspPort) ||
+    LDK_CONFIG.lspPort < 1 ||
+    LDK_CONFIG.lspPort > 65535
   ) {
     throw new Error('[LDK Init] Invalid LSP port: must be 1-65535')
+  }
+
+  // 0.2 Verify Esplora serves the expected network (last line of defense against wrong env vars)
+  const initEsplora = new EsploraClient(LDK_CONFIG.esploraUrl)
+  const genesisHash = await initEsplora.getBlockHash(0)
+  if (genesisHash !== LDK_CONFIG.genesisBlockHash) {
+    throw new Error(
+      `[LDK Init] Network mismatch: Esplora returned genesis ${genesisHash.substring(0, 16)}... ` +
+        `but expected ${LDK_CONFIG.genesisBlockHash.substring(0, 16)}... for ${ACTIVE_NETWORK}`
+    )
   }
 
   // 0.5 Initialize BDK wallet eagerly (no chain scan) so it's available
@@ -228,8 +238,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // 3. Create trait implementations
   const logger = createLogger()
-  const feeEstimator = createFeeEstimator(SIGNET_CONFIG.esploraUrl)
-  const broadcaster = createBroadcaster(SIGNET_CONFIG.esploraUrl)
+  const feeEstimator = createFeeEstimator(LDK_CONFIG.esploraUrl)
+  const broadcaster = createBroadcaster(LDK_CONFIG.esploraUrl)
 
   // 3.5 VSS Recovery: if IDB is empty but VSS has data, download state
   let initialMonitorKeys: string[] = []
@@ -358,10 +368,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       networkGraph = result.res
     } else {
       console.warn('[LDK Init] Failed to restore NetworkGraph, creating fresh')
-      networkGraph = NetworkGraph.constructor_new(SIGNET_CONFIG.network, logger)
+      networkGraph = NetworkGraph.constructor_new(LDK_CONFIG.network, logger)
     }
   } else {
-    networkGraph = NetworkGraph.constructor_new(SIGNET_CONFIG.network, logger)
+    networkGraph = NetworkGraph.constructor_new(LDK_CONFIG.network, logger)
   }
 
   // 6. Restore or create Scorer
@@ -469,12 +479,12 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     }
 
     // Fresh ChannelManager — fetch current chain tip from Esplora
-    const esplora = new EsploraClient(SIGNET_CONFIG.esploraUrl)
+    const esplora = new EsploraClient(LDK_CONFIG.esploraUrl)
     const tipHash = await esplora.getTipHash()
     const tipHeight = await esplora.getBlockHeight(tipHash)
 
     const bestBlock = BestBlock.constructor_new(hexToBytes(tipHash), tipHeight)
-    const chainParams = ChainParameters.constructor_new(SIGNET_CONFIG.network, bestBlock)
+    const chainParams = ChainParameters.constructor_new(LDK_CONFIG.network, bestBlock)
 
     channelManager = ChannelManager.constructor_new(
       feeEstimator,
@@ -568,7 +578,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     channelManager,
     keysManager,
     bdkWallet,
-    SIGNET_CONFIG.lspNodeId,
+    LDK_CONFIG.lspNodeId,
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.()

@@ -7,7 +7,7 @@ import {
 } from 'lightningdevkit'
 import { createSocketDescriptor } from './socket-descriptor'
 import { hexToBytes, bytesToHex } from '../utils'
-import { SIGNET_CONFIG } from '../config'
+import { LDK_CONFIG } from '../config'
 
 const CONNECTION_TIMEOUT_MS = 15_000
 
@@ -36,7 +36,7 @@ export function connectToPeer(
 
   return new Promise((resolve, reject) => {
     const proxyHost = host.replace(/\./g, '_')
-    const wsUrl = `${SIGNET_CONFIG.wsProxyUrl}/v1/${proxyHost}/${port}`
+    const wsUrl = `${LDK_CONFIG.wsProxyUrl}/v1/${proxyHost}/${port}`
     const ws = new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
 

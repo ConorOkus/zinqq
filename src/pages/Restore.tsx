@@ -4,7 +4,7 @@ import { useLdk } from '../ldk/use-ldk'
 import { validateMnemonic } from '../wallet/mnemonic'
 import { deriveLdkSeed, deriveVssEncryptionKey, deriveVssStoreId } from '../wallet/keys'
 import { VssClient, FixedHeaderProvider } from '../ldk/storage/vss-client'
-import { SIGNET_CONFIG } from '../ldk/config'
+import { LDK_CONFIG } from '../ldk/config'
 import { clearAllStores, idbPut } from '../storage/idb'
 import { MONITOR_MANIFEST_KEY, parseMonitorManifest } from '../ldk/traits/persist'
 import { KNOWN_PEERS_VSS_KEY, parseKnownPeers } from '../ldk/storage/known-peers'
@@ -56,7 +56,7 @@ export function Restore() {
       setState({ status: 'restoring', message: 'Checking backup server...' })
 
       const vssClient = new VssClient(
-        SIGNET_CONFIG.vssUrl,
+        LDK_CONFIG.vssUrl,
         vssStoreId,
         vssEncryptionKey,
         new FixedHeaderProvider({})
