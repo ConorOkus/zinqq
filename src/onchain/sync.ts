@@ -71,10 +71,15 @@ export function startOnchainSyncLoop(
 
       const balance = readBalance()
       console.log(
-        '[BDK Sync] Complete in', Date.now() - startMs, 'ms —',
-        'confirmed:', balance.confirmed.toString(),
-        'trustedPending:', balance.trustedPending.toString(),
-        'untrustedPending:', balance.untrustedPending.toString()
+        '[BDK Sync] Complete in',
+        Date.now() - startMs,
+        'ms —',
+        'confirmed:',
+        balance.confirmed.toString(),
+        'trustedPending:',
+        balance.trustedPending.toString(),
+        'untrustedPending:',
+        balance.untrustedPending.toString()
       )
       onBalanceUpdate(balance)
     } catch (err) {

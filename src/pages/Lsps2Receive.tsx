@@ -158,7 +158,13 @@ export function Lsps2Receive() {
         <ScreenHeader title="LSPS2 Receive" backTo="/settings/advanced" />
         <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
           <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/20">
-            <svg className="h-10 w-10 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <svg
+              className="h-10 w-10 text-green-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>

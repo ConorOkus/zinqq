@@ -351,7 +351,10 @@ describe('createEventHandler', () => {
   it('warns when PaymentClaimable has no preimage', () => {
     /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
     const event = Object.assign(new Event_PaymentClaimable(), {
-      purpose: { preimage: () => new Option_ThirtyTwoBytesZ_None(), constructor: { name: 'TestPurpose' } },
+      purpose: {
+        preimage: () => new Option_ThirtyTwoBytesZ_None(),
+        constructor: { name: 'TestPurpose' },
+      },
     })
     /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
     handleEvent(event)
