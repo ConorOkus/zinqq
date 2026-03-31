@@ -12,6 +12,7 @@ import { ACTIVE_NETWORK } from './config'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4 : 1
+const MIN_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 2 : 1
 const MAX_FEE_RATE_SAT_VB = 500
 
 /**
@@ -24,7 +25,7 @@ async function fetchFeeRate(esploraUrl: string): Promise<number> {
     const estimates = (await res.json()) as Record<string, number>
     const satPerVb = estimates[String(FEE_TARGET_BLOCKS)]
     if (typeof satPerVb === 'number' && satPerVb > 0) {
-      const capped = Math.min(Math.ceil(satPerVb), MAX_FEE_RATE_SAT_VB)
+      const capped = Math.max(Math.min(Math.ceil(satPerVb), MAX_FEE_RATE_SAT_VB), MIN_FEE_RATE_SAT_VB)
       if (capped < Math.ceil(satPerVb)) {
         console.warn(
           '[Sweep] Fee rate capped from',

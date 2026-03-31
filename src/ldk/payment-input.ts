@@ -18,8 +18,8 @@ const NETWORK_CURRENCY: Record<NetworkId, Currency> = {
 }
 
 const ON_CHAIN_RE: Record<NetworkId, RegExp> = {
-  signet: /^(tb1|bcrt1|[mn2])[a-zA-Z0-9]{25,}$/,
-  mainnet: /^(bc1)[a-z0-9]{25,}$|^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/,
+  signet: /^(tb1|bcrt1|[mn2])[a-zA-Z0-9]{25,87}$/,
+  mainnet: /^(bc1)[a-z0-9]{25,87}$|^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/,
 }
 export interface LnurlPayMetadata {
   domain: string
@@ -89,8 +89,10 @@ export function classifyPaymentInput(raw: string): ParsedPaymentInput {
     return parseBip353(input)
   }
 
-  // Fallback: treat as on-chain address if it looks like one
-  if (ON_CHAIN_RE[ACTIVE_NETWORK].test(input)) {
+  // Fallback: treat as on-chain address if it looks like one.
+  // Use lowercased input for bech32 matching (BIP 173 is case-insensitive,
+  // QR scanners often produce uppercase BC1Q... addresses).
+  if (ON_CHAIN_RE[ACTIVE_NETWORK].test(lower)) {
     return { type: 'onchain', address: input, amountSats: null }
   }
 
@@ -221,8 +223,9 @@ function parseBip321(input: string): ParsedPaymentInput {
     return { type: 'error', message: 'Bitcoin URI has no payment method' }
   }
 
-  // Validate address against the active network before accepting
-  if (!ON_CHAIN_RE[ACTIVE_NETWORK].test(address)) {
+  // Validate address against the active network before accepting.
+  // Lowercase for bech32 case-insensitivity (BIP 173).
+  if (!ON_CHAIN_RE[ACTIVE_NETWORK].test(address.toLowerCase())) {
     return { type: 'error', message: 'Address is for a different Bitcoin network' }
   }
 
