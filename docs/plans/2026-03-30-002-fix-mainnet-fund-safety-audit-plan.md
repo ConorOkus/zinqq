@@ -687,7 +687,7 @@ The manifest only tracks active (non-archived) monitors. With the LSP-only model
 
 **Branch:** `feat/anchor-channel-cpfp`
 
-**Status:** Deferred. Anchor channels are disabled in PR1. This PR should be implemented before re-enabling anchors.
+**Status:** Deferred (2026-03-31). Anchor channels disabled in PR1 (#65). Implement before re-enabling anchors.
 
 ### Research Insights (CPFP Implementation)
 
