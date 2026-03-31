@@ -95,6 +95,7 @@
   to {
     transform: translateY(0);
   }
+}
 
 /* Muted text colors (rgba not supported in @theme) */
 :root {
