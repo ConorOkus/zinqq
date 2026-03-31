@@ -118,9 +118,20 @@ function createUserConfig(): UserConfig {
   // high-fee periods, risking fund loss.
   handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(false)
 
+  // LSPS2: allow the full channel capacity for inbound HTLCs. The default (10%)
+  // is too restrictive for JIT channels where the entire payment arrives in a
+  // single HTLC that may be close to the channel capacity.
+  handshakeConfig.set_max_inbound_htlc_value_in_flight_percent_of_channel(100)
+
   // Allow 0-conf inbound channels from trusted peers (the LSP)
   const handshakeLimits = config.get_channel_handshake_limits()
   handshakeLimits.set_trust_own_funding_0conf(true)
+
+  // LSPS2: the LSP deducts an opening fee before forwarding, so the HTLC amount
+  // will be less than the invoice amount. Allow claiming these underpaying HTLCs —
+  // the fee is validated at invoice creation time.
+  const channelConfig = config.get_channel_config()
+  channelConfig.set_accept_underpaying_htlcs(true)
 
   return config
 }

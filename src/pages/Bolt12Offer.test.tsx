@@ -31,7 +31,7 @@ function readyLdk(
     outboundCapacityMsat: () => 0n,
     lightningBalanceSats: 0n,
     createInvoice: () => 'lnbc1test',
-    requestJitInvoice: () => Promise.resolve({ bolt11: '', openingFeeMsat: 0n }),
+    requestJitInvoice: () => Promise.resolve({ bolt11: '', openingFeeMsat: 0n, paymentHash: '' }),
     channelChangeCounter: 0,
     peersReconnected: true,
     paymentHistory: [],

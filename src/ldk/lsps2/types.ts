@@ -48,6 +48,7 @@ export interface BuyResponse {
 export interface JitInvoiceResult {
   bolt11: string
   openingFeeMsat: bigint
+  paymentHash: string
 }
 
 // --- LSPS2 error codes ---

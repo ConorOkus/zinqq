@@ -193,10 +193,9 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         const tx = psbt.extract_tx()
         const txid = tx.compute_txid().toString()
         await esplora.broadcast(tx)
-        persistChangeset(wallet)
 
-        // Immediately update displayed balance so the UI reflects the
-        // send without waiting for the next sync tick.
+        // Read balance BEFORE take_staged() to ensure the wallet still
+        // knows about the just-built transaction.
         const b = wallet.balance
         setState((prev) =>
           prev.status === 'ready'
@@ -210,6 +209,12 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
               }
             : prev
         )
+
+        persistChangeset(wallet)
+
+        // Trigger a sync so the balance updates once Esplora sees
+        // the broadcast tx in the mempool.
+        syncHandleRef.current?.syncNow()
 
         return txid
       } catch (err: unknown) {

@@ -287,7 +287,7 @@ export function LdkProvider({
         minFinalCltvExpiry: 144,
       })
 
-      return { bolt11, openingFeeMsat }
+      return { bolt11, openingFeeMsat, paymentHash: bytesToHex(paymentHash) }
     },
     []
   )

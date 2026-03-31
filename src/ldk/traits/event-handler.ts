@@ -17,6 +17,9 @@ import {
   Event_DiscardFunding,
   Event_PaymentPathSuccessful,
   Event_PaymentPathFailed,
+  Event_HTLCHandlingFailed,
+  PaymentPurpose_Bolt11InvoicePayment,
+  PaymentPurpose_SpontaneousPayment,
   Option_ThirtyTwoBytesZ_Some,
   Option_u64Z_Some,
   Option_PaymentFailureReasonZ_Some,
@@ -140,22 +143,34 @@ function handleEvent(
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
-    const preimage = event.purpose.preimage()
+    const paymentHashHex = bytesToHex(event.payment_hash)
+    const purpose = event.purpose
+    const purposeType =
+      purpose instanceof PaymentPurpose_Bolt11InvoicePayment
+        ? 'Bolt11InvoicePayment'
+        : purpose instanceof PaymentPurpose_SpontaneousPayment
+          ? 'SpontaneousPayment'
+          : purpose.constructor.name
+
+    console.log(
+      '[LDK Event] PaymentClaimable:',
+      'paymentHash:',
+      paymentHashHex.substring(0, 16) + '…',
+      'amount_msat:',
+      event.amount_msat.toString(),
+      'purpose:',
+      purposeType
+    )
+
+    const preimage = purpose.preimage()
     if (preimage instanceof Option_ThirtyTwoBytesZ_Some) {
-      console.log(
-        '[LDK Event] PaymentClaimable: claiming',
-        bytesToHex(event.payment_hash),
-        'amount_msat:',
-        event.amount_msat.toString()
-      )
       channelManager.claim_funds(preimage.some)
     } else {
-      // No preimage available — this can happen for keysend payments where
-      // the preimage is not provided via purpose.preimage(). The payment
-      // cannot be claimed without a preimage and will timeout.
       console.warn(
         '[LDK Event] PaymentClaimable: no preimage available for',
-        bytesToHex(event.payment_hash),
+        paymentHashHex,
+        'purpose:',
+        purposeType,
         '— payment cannot be claimed and will timeout'
       )
     }
@@ -236,12 +251,24 @@ function handleEvent(
 
   // Channel lifecycle
   if (event instanceof Event_ChannelPending) {
-    console.log('[LDK Event] ChannelPending:', bytesToHex(event.channel_id.write()))
+    console.log(
+      '[LDK Event] ChannelPending:',
+      'channelId:',
+      bytesToHex(event.channel_id.write()).substring(0, 16) + '…',
+      'counterparty:',
+      bytesToHex(event.counterparty_node_id).substring(0, 16) + '…'
+    )
     return
   }
 
   if (event instanceof Event_ChannelReady) {
-    console.log('[LDK Event] ChannelReady:', bytesToHex(event.channel_id.write()))
+    console.log(
+      '[LDK Event] ChannelReady:',
+      'channelId:',
+      bytesToHex(event.channel_id.write()).substring(0, 16) + '…',
+      'counterparty:',
+      bytesToHex(event.counterparty_node_id).substring(0, 16) + '…'
+    )
     return
   }
 
@@ -441,7 +468,11 @@ function handleEvent(
         userChannelId
       )
       if (result.is_ok()) {
-        console.log('[LDK Event] OpenChannelRequest: accepted 0-conf from LSP')
+        console.log(
+          '[LDK Event] OpenChannelRequest: accepted 0-conf from LSP',
+          'tempChannelId:',
+          bytesToHex(event.temporary_channel_id.write()).substring(0, 16) + '…'
+        )
       } else {
         console.error('[LDK Event] OpenChannelRequest: failed to accept 0-conf from LSP')
       }
@@ -452,6 +483,17 @@ function handleEvent(
       )
       // Will timeout automatically — no explicit rejection needed
     }
+    return
+  }
+
+  if (event instanceof Event_HTLCHandlingFailed) {
+    console.error(
+      '[LDK Event] HTLCHandlingFailed:',
+      'channelId:',
+      bytesToHex(event.prev_channel_id.write()),
+      'failedNextDestination:',
+      event.failed_next_destination.constructor.name
+    )
     return
   }
 

@@ -35,7 +35,7 @@ export function startOnchainSyncLoop(
     }
   }
 
-  const BDK_SYNC_TIMEOUT_MS = 90_000
+  const BDK_SYNC_TIMEOUT_MS = 180_000
   const SYNC_NOW_RETRIES = 3
   const SYNC_NOW_RETRY_MS = 3_000
 
@@ -48,6 +48,7 @@ export function startOnchainSyncLoop(
     isSyncing = true
     let syncTimerId: ReturnType<typeof setTimeout> | undefined
     try {
+      const startMs = Date.now()
       const syncRequest = wallet.start_sync_with_revealed_spks()
       const syncPromise = esploraClient.sync(syncRequest, ONCHAIN_CONFIG.syncParallelRequests)
       const update = await Promise.race([
@@ -68,7 +69,19 @@ export function startOnchainSyncLoop(
         }
       }
 
-      onBalanceUpdate(readBalance())
+      const balance = readBalance()
+      console.log(
+        '[BDK Sync] Complete in',
+        Date.now() - startMs,
+        'ms —',
+        'confirmed:',
+        balance.confirmed.toString(),
+        'trustedPending:',
+        balance.trustedPending.toString(),
+        'untrustedPending:',
+        balance.untrustedPending.toString()
+      )
+      onBalanceUpdate(balance)
     } catch (err) {
       console.warn('[BDK Sync] Sync tick failed:', err)
     } finally {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useLdk } from '../ldk/use-ldk'
 import { ScreenHeader } from '../components/ScreenHeader'
@@ -11,10 +12,12 @@ const MAX_DIGITS = 8
 type JitState =
   | { step: 'idle' }
   | { step: 'negotiating' }
-  | { step: 'ready'; openingFeeSats: bigint }
+  | { step: 'ready'; openingFeeSats: bigint; paymentHash: string }
+  | { step: 'success'; amountSats: bigint }
   | { step: 'error'; message: string }
 
 export function Lsps2Receive() {
+  const navigate = useNavigate()
   const ldk = useLdk()
   const [invoice, setInvoice] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -25,6 +28,7 @@ export function Lsps2Receive() {
   const amountButtonRef = useRef<HTMLButtonElement>(null)
   const processingRef = useRef(false)
   const requestJitInvoice = ldk.status === 'ready' ? ldk.requestJitInvoice : null
+  const paymentHistory = ldk.status === 'ready' ? ldk.paymentHistory : []
 
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
@@ -44,7 +48,11 @@ export function Lsps2Receive() {
       .then((result) => {
         if (stale) return
         setInvoice(result.bolt11)
-        setJitState({ step: 'ready', openingFeeSats: result.openingFeeMsat / 1000n })
+        setJitState({
+          step: 'ready',
+          openingFeeSats: result.openingFeeMsat / 1000n,
+          paymentHash: result.paymentHash,
+        })
       })
       .catch((err: unknown) => {
         if (stale) return
@@ -60,6 +68,20 @@ export function Lsps2Receive() {
       stale = true
     }
   }, [requestJitInvoice, confirmedAmountSats])
+
+  // Watch payment history for the JIT payment to be claimed
+  useEffect(() => {
+    if (jitState.step !== 'ready') return
+    const match = paymentHistory.find(
+      (p) =>
+        p.paymentHash === jitState.paymentHash &&
+        p.direction === 'inbound' &&
+        p.status === 'succeeded'
+    )
+    if (match) {
+      setJitState({ step: 'success', amountSats: match.amountMsat / 1000n })
+    }
+  }, [paymentHistory, jitState])
 
   const handleCopy = useCallback(async () => {
     if (!invoice) return
@@ -124,6 +146,38 @@ export function Lsps2Receive() {
         <div className="flex flex-1 flex-col items-center justify-center px-6">
           <p className="text-lg font-semibold text-on-dark">Failed to load wallet</p>
           <p className="mt-2 text-sm text-red-400">{ldk.error.message}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Success screen
+  if (jitState.step === 'success') {
+    return (
+      <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
+        <ScreenHeader title="LSPS2 Receive" backTo="/settings/advanced" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/20">
+            <svg
+              className="h-10 w-10 text-green-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-lg font-semibold text-on-dark">Payment received</p>
+          <p className="font-display text-4xl font-bold text-on-dark">
+            {formatBtc(jitState.amountSats)}
+          </p>
+          <button
+            className="mt-4 rounded-xl bg-accent px-8 py-3 text-sm font-semibold text-white transition-transform active:scale-95"
+            onClick={() => void navigate('/')}
+          >
+            Done
+          </button>
         </div>
       </div>
     )

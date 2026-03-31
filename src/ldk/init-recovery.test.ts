@@ -187,9 +187,13 @@ vi.mock('lightningdevkit', () => ({
       get_channel_handshake_config: vi.fn(() => ({
         set_negotiate_scid_privacy: vi.fn(),
         set_negotiate_anchors_zero_fee_htlc_tx: vi.fn(),
+        set_max_inbound_htlc_value_in_flight_percent_of_channel: vi.fn(),
       })),
       get_channel_handshake_limits: vi.fn(() => ({
         set_trust_own_funding_0conf: vi.fn(),
+      })),
+      get_channel_config: vi.fn(() => ({
+        set_accept_underpaying_htlcs: vi.fn(),
       })),
     })),
   },

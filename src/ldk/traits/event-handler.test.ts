@@ -13,8 +13,10 @@ vi.mock('lightningdevkit', () => {
   class Event_PaymentClaimable extends MockEvent {
     payment_hash = new Uint8Array([1, 2, 3])
     amount_msat = BigInt(100000)
+    via_channel_id = { write: () => new Uint8Array([7, 8]) }
     purpose = {
       preimage: () => new Option_ThirtyTwoBytesZ_Some(new Uint8Array([4, 5, 6])),
+      constructor: { name: 'PaymentPurpose_Bolt11InvoicePayment' },
     }
   }
   class Event_PaymentClaimed extends MockEvent {
@@ -40,9 +42,11 @@ vi.mock('lightningdevkit', () => {
   }
   class Event_ChannelPending extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
+    counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
   }
   class Event_ChannelReady extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
+    counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
   }
   class ClosureReason_CounterpartyForceClosed {}
   class ClosureReason_HolderForceClosed {}
@@ -91,6 +95,12 @@ vi.mock('lightningdevkit', () => {
     channel_id = { write: () => new Uint8Array([0xee, 0xff]) }
     funding_info = {}
   }
+  class Event_HTLCHandlingFailed extends MockEvent {
+    prev_channel_id = { write: () => new Uint8Array([0xaa, 0xbb]) }
+    failed_next_destination = { constructor: { name: 'TestDestination' } }
+  }
+  class PaymentPurpose_Bolt11InvoicePayment {}
+  class PaymentPurpose_SpontaneousPayment {}
 
   class Option_ThirtyTwoBytesZ_Some {
     some: Uint8Array
@@ -151,6 +161,9 @@ vi.mock('lightningdevkit', () => {
     Event_PaymentPathSuccessful,
     Event_PaymentPathFailed,
     Event_DiscardFunding,
+    Event_HTLCHandlingFailed,
+    PaymentPurpose_Bolt11InvoicePayment,
+    PaymentPurpose_SpontaneousPayment,
     Option_ThirtyTwoBytesZ_Some,
     Option_ThirtyTwoBytesZ_None,
     Option_u64Z_Some,
@@ -324,18 +337,32 @@ describe('createEventHandler', () => {
   it('claims payment on PaymentClaimable with preimage', () => {
     handleEvent(new Event_PaymentClaimable())
     expect(mockClaimFunds).toHaveBeenCalledWith(new Uint8Array([4, 5, 6]))
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('PaymentClaimable'),
+      expect.stringContaining('paymentHash:'),
+      expect.any(String),
+      expect.stringContaining('amount_msat:'),
+      expect.any(String),
+      expect.stringContaining('purpose:'),
+      expect.any(String)
+    )
   })
 
   it('warns when PaymentClaimable has no preimage', () => {
     /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
     const event = Object.assign(new Event_PaymentClaimable(), {
-      purpose: { preimage: () => new Option_ThirtyTwoBytesZ_None() },
+      purpose: {
+        preimage: () => new Option_ThirtyTwoBytesZ_None(),
+        constructor: { name: 'TestPurpose' },
+      },
     })
     /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
     handleEvent(event)
     expect(mockClaimFunds).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('no preimage'),
+      expect.any(String),
+      expect.stringContaining('purpose:'),
       expect.any(String),
       expect.stringContaining('cannot be claimed')
     )
@@ -411,13 +438,22 @@ describe('createEventHandler', () => {
     handleEvent(new Event_ChannelPending())
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('ChannelPending'),
+      expect.stringContaining('channelId:'),
+      expect.any(String),
+      expect.stringContaining('counterparty:'),
       expect.any(String)
     )
   })
 
   it('logs ChannelReady', () => {
     handleEvent(new Event_ChannelReady())
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('ChannelReady'), expect.any(String))
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ChannelReady'),
+      expect.stringContaining('channelId:'),
+      expect.any(String),
+      expect.stringContaining('counterparty:'),
+      expect.any(String)
+    )
   })
 
   it('logs ChannelClosed with reason', () => {
