@@ -764,12 +764,12 @@ Surface this in the Restore page UI as a progress bar.
 
 **Acceptance Criteria:**
 
-- [ ] VSS recovery downloads monitors in parallel chunks of 10
-- [ ] Total recovery timeout of 2 minutes with clear error message
-- [ ] Recovery progress is reported to the UI
-- [ ] Failed individual downloads cause full rollback (existing behavior preserved)
-- [ ] All existing tests pass
-- [ ] CI passes
+- [x] VSS recovery downloads monitors in parallel chunks of 10
+- [x] Total recovery timeout of 2 minutes with clear error message
+- [x] Recovery progress reported via onRecoveryProgress callback
+- [x] Failed individual downloads cause full rollback (existing behavior preserved)
+- [x] All existing tests pass
+- [x] CI passes
 
 ---
 

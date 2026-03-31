@@ -169,6 +169,8 @@ export interface InitOptions {
   bdkDescriptors: { external: string; internal: string }
   vssClient?: VssClient | null
   persisterOptions?: PersisterOptions
+  /** Called during VSS recovery to report download progress. */
+  onRecoveryProgress?: (downloaded: number, total: number) => void
 }
 
 export function initializeLdk(options: InitOptions): Promise<InitResult> {
@@ -258,7 +260,12 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const feeEstimator = createFeeEstimator(LDK_CONFIG.esploraUrl)
   const broadcaster = createBroadcaster(LDK_CONFIG.esploraUrl)
 
-  // 3.5 VSS Recovery: if IDB is empty but VSS has data, download state
+  // 3.5 VSS Recovery: if IDB is empty but VSS has data, download state.
+  // Downloads monitors in parallel chunks for performance, with a total
+  // timeout to prevent tab kill on slow connections.
+  const VSS_RECOVERY_CHUNK_SIZE = 10
+  const VSS_RECOVERY_TIMEOUT_MS = 120_000 // 2 minutes
+
   let initialMonitorKeys: string[] = []
   const recoveredVersions = new Map<string, number>()
   let initialCmVersion = 0
@@ -274,23 +281,45 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
         if (manifest) {
           const monitorKeys = parseMonitorManifest(new TextDecoder().decode(manifest.value))
 
-          for (const key of monitorKeys) {
-            const obj = await vssClient.getObject(key)
-            if (!obj) throw new Error(`Monitor "${key}" listed in manifest but missing from VSS`)
-            // Validate the blob deserializes before persisting to IDB
-            const readResult = UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read(
-              obj.value,
-              keysManager.as_EntropySource(),
-              bdkSignerProvider
-            )
-            if (
-              !(readResult instanceof Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK)
-            ) {
-              throw new Error(`Monitor "${key}" from VSS failed deserialization — data is corrupt`)
+          // Download monitors in parallel chunks with overall timeout
+          const recoveryStart = Date.now()
+          for (let i = 0; i < monitorKeys.length; i += VSS_RECOVERY_CHUNK_SIZE) {
+            if (Date.now() - recoveryStart > VSS_RECOVERY_TIMEOUT_MS) {
+              throw new Error(
+                `VSS recovery timeout: downloaded ${writtenMonitorKeys.length}/${monitorKeys.length} monitors ` +
+                  `in ${Math.round((Date.now() - recoveryStart) / 1000)}s. Retry on a faster connection.`
+              )
             }
-            await idbPut('ldk_channel_monitors', key, obj.value)
-            writtenMonitorKeys.push(key)
-            recoveredVersions.set(key, obj.version)
+
+            const chunk = monitorKeys.slice(i, i + VSS_RECOVERY_CHUNK_SIZE)
+            const results = await Promise.all(chunk.map((key) => vssClient.getObject(key)))
+
+            for (let j = 0; j < results.length; j++) {
+              const obj = results[j]
+              const key = chunk[j]!
+              if (!obj) throw new Error(`Monitor "${key}" listed in manifest but missing from VSS`)
+              // Validate the blob deserializes before persisting to IDB
+              const readResult = UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read(
+                obj.value,
+                keysManager.as_EntropySource(),
+                bdkSignerProvider
+              )
+              if (
+                !(readResult instanceof Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK)
+              ) {
+                throw new Error(
+                  `Monitor "${key}" from VSS failed deserialization — data is corrupt`
+                )
+              }
+              await idbPut('ldk_channel_monitors', key, obj.value)
+              writtenMonitorKeys.push(key)
+              recoveredVersions.set(key, obj.version)
+            }
+
+            options.onRecoveryProgress?.(
+              Math.min(i + VSS_RECOVERY_CHUNK_SIZE, monitorKeys.length),
+              monitorKeys.length
+            )
           }
 
           const cm = await vssClient.getObject('channel_manager')
