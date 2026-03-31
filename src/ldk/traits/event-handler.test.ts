@@ -473,16 +473,19 @@ describe('createEventHandler', () => {
     )
   })
 
-  it('builds funding tx and calls funding_transaction_generated', () => {
+  it('builds funding tx and calls funding_transaction_generated', async () => {
     handleEvent(new Event_FundingGenerationReady())
 
-    expect(mockBdkWallet.build_tx).toHaveBeenCalled()
-    expect(mockBdkWallet.sign).toHaveBeenCalled()
-    expect(mockFundingTransactionGenerated).toHaveBeenCalledWith(
-      expect.anything(), // temporary_channel_id
-      expect.any(Uint8Array), // counterparty_node_id
-      mockExtractedTxBytes // raw tx bytes from psbt.extract_tx().to_bytes()
-    )
+    // FundingGenerationReady is now async (IIFE) — wait for promises to settle
+    await vi.waitFor(() => {
+      expect(mockBdkWallet.build_tx).toHaveBeenCalled()
+      expect(mockBdkWallet.sign).toHaveBeenCalled()
+      expect(mockFundingTransactionGenerated).toHaveBeenCalledWith(
+        expect.anything(), // temporary_channel_id
+        expect.any(Uint8Array), // counterparty_node_id
+        mockExtractedTxBytes // raw tx bytes from psbt.extract_tx().to_bytes()
+      )
+    })
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('funding tx registered'),
       expect.any(String),
@@ -493,15 +496,32 @@ describe('createEventHandler', () => {
     )
   })
 
-  it('does not persist tx when funding_transaction_generated fails', () => {
+  it('does not call funding_transaction_generated when IDB persist fails', async () => {
+    const { idbPut: mockPut } = await import('../../storage/idb')
+    vi.mocked(mockPut).mockRejectedValueOnce(new Error('IDB write failed'))
+
+    handleEvent(new Event_FundingGenerationReady())
+
+    await vi.waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to persist funding tx'),
+        expect.anything()
+      )
+    })
+    expect(mockFundingTransactionGenerated).not.toHaveBeenCalled()
+  })
+
+  it('does not persist tx when funding_transaction_generated fails', async () => {
     mockFundingTransactionGenerated.mockReturnValueOnce({ is_ok: () => false })
 
     handleEvent(new Event_FundingGenerationReady())
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('funding_transaction_generated failed'),
-      expect.anything()
-    )
+    await vi.waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('funding_transaction_generated failed'),
+        expect.anything()
+      )
+    })
   })
 
   it('broadcasts persisted tx on FundingTxBroadcastSafe', async () => {

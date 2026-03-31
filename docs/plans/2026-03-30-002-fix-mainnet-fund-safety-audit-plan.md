@@ -426,14 +426,14 @@ Payment persistence failures are M2 (medium) — funds are safe, only history is
 
 **Acceptance Criteria:**
 
-- [ ] `ldk_pending_broadcasts` added to STORES array, DB_VERSION bumped to 9
-- [ ] Broadcast and IDB write fire in parallel (not sequential)
-- [ ] Failed broadcasts are persisted to IDB and retried on startup
-- [ ] Funding tx IDB failure aborts channel (no call to `funding_transaction_generated`)
-- [ ] Wallet changeset persisted (awaited) after funding tx creation
-- [ ] Payment persistence has error logging
-- [ ] All existing tests pass
-- [ ] CI passes
+- [x] `ldk_pending_broadcasts` added to STORES array, DB_VERSION bumped to 9
+- [x] Broadcast and IDB write fire in parallel (not sequential)
+- [x] Failed broadcasts are persisted to IDB and retried on startup
+- [x] Funding tx IDB failure aborts channel (no call to `funding_transaction_generated`)
+- [x] Wallet changeset persisted (awaited) after funding tx creation
+- [x] Payment persistence has error logging
+- [x] All existing tests pass
+- [x] CI passes
 
 ---
 
