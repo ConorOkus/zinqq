@@ -427,7 +427,7 @@ export function Receive() {
                   receiveState.step === 'ready' &&
                   receiveState.invoicePath === 'jit' && (
                     <p className="text-xs text-[var(--color-on-dark-muted)]">
-                      Channel open fee: {formatBtc(openingFeeSats)}
+                      Setup fee: {formatBtc(openingFeeSats)}
                     </p>
                   )}
               </>
