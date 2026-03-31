@@ -52,6 +52,7 @@ import {
   type SyncNeededCallback,
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
+import { drainPendingBroadcasts } from './traits/broadcaster'
 import { LDK_CONFIG, ACTIVE_NETWORK } from './config'
 import { createLspsMessageHandler } from './lsps2/message-handler'
 import { LSPS2Client } from './lsps2/client'
@@ -648,6 +649,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       console.warn('[LDK Init] VSS migration failed (will retry on next startup):', err)
     }
   }
+
+  // Drain any pending broadcasts from IDB that were persisted but not
+  // successfully broadcast before a previous crash/tab close.
+  await drainPendingBroadcasts(ONCHAIN_CONFIG.esploraUrl)
 
   const node: LdkNode = {
     nodeId,

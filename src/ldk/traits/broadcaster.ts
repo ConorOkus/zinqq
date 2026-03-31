@@ -1,5 +1,6 @@
 import { BroadcasterInterface } from 'lightningdevkit'
 import { bytesToHex } from '../utils'
+import { idbPut, idbDelete, idbGetAll } from '../../storage/idb'
 
 const MAX_BROADCAST_RETRIES = 5
 const RETRY_DELAY_MS = 1_000
@@ -58,10 +59,39 @@ export function createBroadcaster(esploraUrl: string): BroadcasterInterface {
     broadcast_transactions(txs: Uint8Array[]): void {
       for (const tx of txs) {
         const txHex = bytesToHex(tx)
-        void broadcastWithRetry(esploraUrl, txHex).catch((err: unknown) => {
-          console.error('[LDK Broadcaster] CRITICAL: broadcast failed:', err)
-        })
+        // Fire IDB write and broadcast in parallel — broadcast is time-critical
+        // (force-close txs), IDB is for crash recovery on restart.
+        void idbPut('ldk_pending_broadcasts', txHex, {
+          txHex,
+          createdAt: Date.now(),
+        }).catch((err: unknown) =>
+          console.error('[LDK Broadcaster] Failed to persist pending tx:', err)
+        )
+        void broadcastWithRetry(esploraUrl, txHex)
+          .then(() => idbDelete('ldk_pending_broadcasts', txHex))
+          .catch((err: unknown) => {
+            console.error('[LDK Broadcaster] CRITICAL: broadcast failed:', err)
+          })
       }
     },
   })
+}
+
+/**
+ * Drain any pending broadcasts from IDB that were persisted but not
+ * successfully broadcast (e.g., browser crashed mid-broadcast).
+ * Called once on startup after LDK init.
+ */
+export async function drainPendingBroadcasts(esploraUrl: string): Promise<void> {
+  const pending = await idbGetAll<{ txHex: string }>('ldk_pending_broadcasts')
+  if (pending.size === 0) return
+
+  console.log('[LDK Broadcaster] Draining', pending.size, 'pending broadcast(s) from IDB')
+  for (const [key, { txHex }] of pending) {
+    void broadcastWithRetry(esploraUrl, txHex)
+      .then(() => idbDelete('ldk_pending_broadcasts', key))
+      .catch((err: unknown) =>
+        console.error('[LDK Broadcaster] Pending broadcast retry failed:', err)
+      )
+  }
 }

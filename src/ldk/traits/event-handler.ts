@@ -178,7 +178,7 @@ function handleEvent(
       feePaidMsat: null,
       createdAt: Date.now(),
       failureReason: null,
-    })
+    }).catch((err: unknown) => console.error('[LDK Event] Failed to persist inbound payment:', err))
     onPaymentEvent?.({ type: 'claimed', paymentHash, amountMsat: event.amount_msat })
     return
   }
@@ -192,7 +192,9 @@ function handleEvent(
     const feePaid = event.fee_paid_msat
     const feePaidMsat = feePaid instanceof Option_u64Z_Some ? feePaid.some : null
     console.log('[LDK Event] PaymentSent:', paymentHash)
-    void updatePaymentStatus(paymentIdHex, 'succeeded', feePaidMsat)
+    void updatePaymentStatus(paymentIdHex, 'succeeded', feePaidMsat).catch((err: unknown) =>
+      console.error('[LDK Event] Failed to update outbound payment status:', err)
+    )
     onPaymentEvent?.({
       type: 'sent',
       paymentHash: paymentIdHex,
@@ -214,7 +216,9 @@ function handleEvent(
       reason = describePaymentFailure(reasonOpt.some)
     }
     console.warn('[LDK Event] PaymentFailed:', paymentHash, reason)
-    void updatePaymentStatus(paymentIdHex, 'failed', null, reason)
+    void updatePaymentStatus(paymentIdHex, 'failed', null, reason).catch((err: unknown) =>
+      console.error('[LDK Event] Failed to update failed payment status:', err)
+    )
     onPaymentEvent?.({ type: 'failed', paymentHash: paymentIdHex, reason })
     return
   }
@@ -307,64 +311,77 @@ function handleEvent(
   }
 
   // Channel funding — build funding tx with BDK wallet, extract raw bytes,
-  // and pass to LDK's funding_transaction_generated()
+  // and pass to LDK's funding_transaction_generated().
+  // Wrapped in async IIFE: handle_event returns ok() immediately, the async
+  // work runs in the background. This lets us await IDB persistence before
+  // notifying LDK, preventing fund loss if persistence fails.
   if (event instanceof Event_FundingGenerationReady) {
-    try {
-      const scriptPubkey = ScriptBuf.from_bytes(event.output_script)
-      const amount = Amount.from_sat(event.channel_value_satoshis)
-      const recipient = new Recipient(scriptPubkey, amount)
+    void (async () => {
+      try {
+        const scriptPubkey = ScriptBuf.from_bytes(event.output_script)
+        const amount = Amount.from_sat(event.channel_value_satoshis)
+        const recipient = new Recipient(scriptPubkey, amount)
 
-      // TxBuilder methods consume self — must chain calls.
-      // nlocktime(0) required: LDK rejects funding txs with non-final locktime,
-      // and BDK defaults to current block height for anti-fee-sniping.
-      const psbt = bdkWallet.build_tx().nlocktime(0).add_recipient(recipient).finish()
-      bdkWallet.sign(psbt, new SignOptions())
+        // TxBuilder methods consume self — must chain calls.
+        // nlocktime(0) required: LDK rejects funding txs with non-final locktime,
+        // and BDK defaults to current block height for anti-fee-sniping.
+        const psbt = bdkWallet.build_tx().nlocktime(0).add_recipient(recipient).finish()
+        bdkWallet.sign(psbt, new SignOptions())
 
-      // Extract raw tx bytes from the signed PSBT via native BDK API
-      const rawTxBytes = psbt.extract_tx().to_bytes()
+        // Extract raw tx bytes from the signed PSBT via native BDK API
+        const rawTxBytes = psbt.extract_tx().to_bytes()
 
-      // Notify LDK of the funding transaction
-      const result = channelManager.funding_transaction_generated(
-        event.temporary_channel_id,
-        event.counterparty_node_id,
-        rawTxBytes
-      )
-      if (!result.is_ok()) {
-        const apiErr = result instanceof Result_NoneAPIErrorZ_Err ? result.err : null
-        console.error(
-          '[LDK Event] FundingGenerationReady: funding_transaction_generated failed:',
-          apiErr ?? 'unknown error'
+        // Persist funding tx to IDB BEFORE notifying LDK. If IDB fails,
+        // abort the channel (it will timeout) — no fund loss since the tx
+        // was never broadcast.
+        const tempChannelIdHex = bytesToHex(event.temporary_channel_id.write())
+        const txHex = bytesToHex(rawTxBytes)
+        try {
+          await idbPut('ldk_funding_txs', tempChannelIdHex, txHex)
+        } catch (err: unknown) {
+          console.error(
+            '[LDK Event] CRITICAL: Failed to persist funding tx — aborting channel:',
+            err
+          )
+          return
+        }
+
+        // Notify LDK of the funding transaction
+        const result = channelManager.funding_transaction_generated(
+          event.temporary_channel_id,
+          event.counterparty_node_id,
+          rawTxBytes
         )
-        return
-      }
+        if (!result.is_ok()) {
+          const apiErr = result instanceof Result_NoneAPIErrorZ_Err ? result.err : null
+          console.error(
+            '[LDK Event] FundingGenerationReady: funding_transaction_generated failed:',
+            apiErr ?? 'unknown error'
+          )
+          return
+        }
 
-      // Persist the raw tx hex to IDB for broadcasting when FundingTxBroadcastSafe fires.
-      // IDB survives page reloads, unlike the previous in-memory Map cache.
-      const tempChannelIdHex = bytesToHex(event.temporary_channel_id.write())
-      const txHex = bytesToHex(rawTxBytes)
-      void idbPut('ldk_funding_txs', tempChannelIdHex, txHex).catch((err: unknown) =>
-        console.error('[LDK Event] Failed to persist funding tx to IDB:', err)
-      )
-
-      console.log(
-        '[LDK Event] FundingGenerationReady: funding tx registered',
-        'channel_value:',
-        event.channel_value_satoshis.toString(),
-        'sats',
-        'tempChannelId:',
-        tempChannelIdHex.substring(0, 16) + '...'
-      )
-
-      // Persist wallet state after successful funding
-      const changeset = bdkWallet.take_staged()
-      if (changeset && !changeset.is_empty()) {
-        void putChangeset(changeset.to_json()).catch((err: unknown) =>
-          console.error('[BDK] CRITICAL: failed to persist changeset after funding tx', err)
+        console.log(
+          '[LDK Event] FundingGenerationReady: funding tx registered',
+          'channel_value:',
+          event.channel_value_satoshis.toString(),
+          'sats',
+          'tempChannelId:',
+          tempChannelIdHex.substring(0, 16) + '...'
         )
+
+        // Persist wallet state after successful funding. Awaited to prevent
+        // changeset loss on crash (per learnings: bdk-address-reveal-not-persisted).
+        const changeset = bdkWallet.take_staged()
+        if (changeset && !changeset.is_empty()) {
+          await putChangeset(changeset.to_json()).catch((err: unknown) =>
+            console.error('[BDK] CRITICAL: failed to persist changeset after funding tx:', err)
+          )
+        }
+      } catch (err: unknown) {
+        console.error('[LDK Event] FundingGenerationReady: failed to build funding tx:', err)
       }
-    } catch (err: unknown) {
-      console.error('[LDK Event] FundingGenerationReady: failed to build funding tx:', err)
-    }
+    })()
     return
   }
 

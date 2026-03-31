@@ -53,6 +53,7 @@ vi.mock('./traits/fee-estimator', () => ({
 }))
 vi.mock('./traits/broadcaster', () => ({
   createBroadcaster: vi.fn(() => ({})),
+  drainPendingBroadcasts: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('./traits/filter', () => ({
   createFilter: vi.fn(() => ({
