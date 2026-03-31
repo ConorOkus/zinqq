@@ -19,13 +19,15 @@ import {
 } from './onchain-context'
 import { fullScanBdkWallet } from './init'
 import { ONCHAIN_CONFIG } from './config'
+import { ACTIVE_NETWORK } from '../ldk/config'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { useLdk } from '../ldk/use-ldk'
 import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 
 const FEE_TARGET_BLOCKS = 6
-const DEFAULT_FEE_RATE_SAT_VB = 1n
+const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4n : 1n
+const MIN_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 2n : 1n
 const MAX_FEE_SATS = 50_000n
 
 async function getFeeRate(esploraClient: EsploraClient): Promise<bigint> {
@@ -172,6 +174,11 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       syncHandleRef.current?.pause()
       try {
         const resolvedFeeRate = feeRateSatVb ?? (await getFeeRate(esplora))
+        if (resolvedFeeRate < MIN_FEE_RATE_SAT_VB) {
+          throw new Error(
+            `Fee rate ${resolvedFeeRate.toString()} sat/vB is below minimum for ${ACTIVE_NETWORK}`
+          )
+        }
         const psbt = buildPsbt(new FeeRate(resolvedFeeRate))
 
         // Fee sanity check

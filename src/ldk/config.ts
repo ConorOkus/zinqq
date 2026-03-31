@@ -68,4 +68,11 @@ export const LDK_CONFIG: LdkConfig = {
   lspToken: import.meta.env.VITE_LSP_TOKEN as string | undefined,
 }
 
+if (!LDK_CONFIG.wsProxyUrl) {
+  throw new Error(
+    `[LDK Config] wsProxyUrl is empty for ${networkId}. ` +
+      'Set VITE_WS_PROXY_URL to the WebSocket proxy endpoint.'
+  )
+}
+
 export const ACTIVE_NETWORK: NetworkId = networkId as NetworkId

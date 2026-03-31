@@ -40,7 +40,8 @@ vi.mock('lightningdevkit', () => {
         return new Result_OK(new MockHumanReadableName(user, domain))
       },
     },
-    Currency: { LDKCurrency_Signet: 'signet' },
+    Currency: { LDKCurrency_Signet: 'signet', LDKCurrency_Bitcoin: 'bitcoin' },
+    Network: { LDKNetwork_Signet: 4, LDKNetwork_Bitcoin: 0 },
     Option_u64Z_Some: class {},
     Option_AmountZ_Some: class {},
     Amount_Bitcoin: class {},
@@ -54,6 +55,55 @@ vi.mock('lightningdevkit', () => {
 vi.mock('../lnurl/resolve-lnurl', () => ({
   type: {} as never, // type-only import, no runtime needed
 }))
+
+describe('classifyPaymentInput — on-chain addresses', () => {
+  it('accepts signet on-chain address on signet', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput('tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
+    expect(result.type).toBe('onchain')
+  })
+
+  it('rejects mainnet bech32 address on signet', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput('bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq')
+    expect(result.type).toBe('error')
+  })
+
+  it('rejects mainnet P2PKH address on signet', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput('1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa')
+    expect(result.type).toBe('error')
+  })
+
+  it('rejects mainnet P2SH address on signet', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy')
+    expect(result.type).toBe('error')
+  })
+})
+
+describe('classifyPaymentInput — BIP 321 URI validation', () => {
+  it('rejects BIP 321 URI with mainnet address on signet', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput('bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq')
+    expect(result.type).toBe('error')
+    if (result.type === 'error') {
+      expect(result.message).toContain('different Bitcoin network')
+    }
+  })
+
+  it('accepts BIP 321 URI with signet address on signet', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput(
+      'bitcoin:tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx?amount=0.001'
+    )
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.address).toBe('tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
+      expect(result.amountSats).toBe(100_000n)
+    }
+  })
+})
 
 describe('classifyPaymentInput — BIP 353', () => {
   it('parses user@domain as bip353', async () => {

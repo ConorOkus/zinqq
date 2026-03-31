@@ -7,6 +7,7 @@ import {
   deriveVssEncryptionKey,
   deriveVssStoreId,
 } from './keys'
+import { ACTIVE_NETWORK } from '../ldk/config'
 
 // Deduplicate concurrent calls from React StrictMode double-mount.
 let walletInitPromise: ReturnType<typeof doInitializeWallet> | null = null
@@ -18,7 +19,10 @@ async function doInitializeWallet() {
     await storeMnemonic(mnemonic)
   }
   const ldkSeed = deriveLdkSeed(mnemonic)
-  const bdkDescriptors = deriveBdkDescriptors(mnemonic, 'signet')
+  const bdkDescriptors = deriveBdkDescriptors(
+    mnemonic,
+    ACTIVE_NETWORK === 'mainnet' ? 'bitcoin' : 'signet'
+  )
   const vssEncryptionKey = deriveVssEncryptionKey(mnemonic)
   const vssStoreId = await deriveVssStoreId(ldkSeed)
   return { ldkSeed, bdkDescriptors, vssEncryptionKey, vssStoreId }

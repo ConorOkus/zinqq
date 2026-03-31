@@ -527,9 +527,9 @@ describe('createEventHandler', () => {
     })
   })
 
-  it('warns on BumpTransaction', () => {
+  it('logs critical error on BumpTransaction', () => {
     handleEvent(new Event_BumpTransaction())
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('BumpTransaction'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('BumpTransaction'))
   })
 
   it('silently handles PaymentPathSuccessful', () => {

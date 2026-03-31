@@ -377,8 +377,13 @@ function handleEvent(
   }
 
   if (event instanceof Event_BumpTransaction) {
-    // TODO: Implement CPFP with BDK UTXOs for anchor channels
-    console.warn('[LDK Event] BumpTransaction: not yet implemented — cannot bump fees')
+    // TODO: Implement CPFP with BDK UTXOs for anchor channels.
+    // Anchor channels are disabled in UserConfig, so this should not fire for new
+    // channels. If it does, it means a pre-existing anchor channel is force-closing.
+    console.error(
+      '[LDK Event] CRITICAL: BumpTransaction received but CPFP not implemented. ' +
+        'Anchor channel force-close transaction may be stuck.'
+    )
     return
   }
 

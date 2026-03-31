@@ -110,6 +110,11 @@ function createUserConfig(): UserConfig {
   const handshakeConfig = config.get_channel_handshake_config()
   handshakeConfig.set_negotiate_scid_privacy(true)
 
+  // Disable anchor channels until Event_BumpTransaction CPFP is implemented.
+  // Without CPFP, force-close commitment txs cannot be fee-bumped during
+  // high-fee periods, risking fund loss.
+  handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(false)
+
   // Allow 0-conf inbound channels from trusted peers (the LSP)
   const handshakeLimits = config.get_channel_handshake_limits()
   handshakeLimits.set_trust_own_funding_0conf(true)

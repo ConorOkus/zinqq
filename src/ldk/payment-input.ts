@@ -10,6 +10,17 @@ import {
   Result_OfferBolt12ParseErrorZ_OK,
   Result_HumanReadableNameNoneZ_OK,
 } from 'lightningdevkit'
+import { ACTIVE_NETWORK, type NetworkId } from './config'
+
+const NETWORK_CURRENCY: Record<NetworkId, Currency> = {
+  signet: Currency.LDKCurrency_Signet,
+  mainnet: Currency.LDKCurrency_Bitcoin,
+}
+
+const ON_CHAIN_RE: Record<NetworkId, RegExp> = {
+  signet: /^(tb1|bcrt1|[mn2])[a-zA-Z0-9]{25,87}$/,
+  mainnet: /^(bc1)[a-z0-9]{25,87}$|^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/,
+}
 export interface LnurlPayMetadata {
   domain: string
   user: string
@@ -78,8 +89,10 @@ export function classifyPaymentInput(raw: string): ParsedPaymentInput {
     return parseBip353(input)
   }
 
-  // Fallback: treat as on-chain address if it looks like one
-  if (/^(tb1|tpub|bcrt1|[mn2])[a-zA-Z0-9]+$/.test(input)) {
+  // Fallback: treat as on-chain address if it looks like one.
+  // Use lowercased input for bech32 matching (BIP 173 is case-insensitive,
+  // QR scanners often produce uppercase BC1Q... addresses).
+  if (ON_CHAIN_RE[ACTIVE_NETWORK].test(lower)) {
     return { type: 'onchain', address: input, amountSats: null }
   }
 
@@ -93,8 +106,8 @@ function parseBolt11(raw: string): ParsedPaymentInput {
   }
   const invoice = result.res
 
-  // Check network — must be Signet for this wallet
-  if (invoice.currency() !== Currency.LDKCurrency_Signet) {
+  // Check network — must match the active network
+  if (invoice.currency() !== NETWORK_CURRENCY[ACTIVE_NETWORK]) {
     return { type: 'error', message: 'Invoice is for a different Bitcoin network' }
   }
 
@@ -126,6 +139,11 @@ function parseBolt12Offer(raw: string): ParsedPaymentInput {
     return { type: 'error', message: 'Invalid BOLT 12 offer' }
   }
   const offer = result.res
+
+  // TODO: Add network validation for BOLT 12 offers. Offers encode chain hashes
+  // via offer.chains(), but the LDK WASM bindings (v0.1.8-0) do not expose this
+  // method. Without it, a signet offer scanned on mainnet would be accepted —
+  // payment would fail at the routing layer with a confusing error.
 
   // Check expiry
   if (offer.is_expired_no_std(BigInt(Math.floor(Date.now() / 1000)))) {
@@ -203,6 +221,12 @@ function parseBip321(input: string): ParsedPaymentInput {
   // On-chain fallback
   if (!address) {
     return { type: 'error', message: 'Bitcoin URI has no payment method' }
+  }
+
+  // Validate address against the active network before accepting.
+  // Lowercase for bech32 case-insensitivity (BIP 173).
+  if (!ON_CHAIN_RE[ACTIVE_NETWORK].test(address.toLowerCase())) {
+    return { type: 'error', message: 'Address is for a different Bitcoin network' }
   }
 
   let amountSats: bigint | null = null

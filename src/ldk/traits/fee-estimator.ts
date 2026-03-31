@@ -4,8 +4,8 @@ import { FeeEstimator, ConfirmationTarget } from 'lightningdevkit'
 const DEFAULT_FEE_RATES: Record<ConfirmationTarget, number> = {
   [ConfirmationTarget.LDKConfirmationTarget_MaximumFeeEstimate]: 50_000,
   [ConfirmationTarget.LDKConfirmationTarget_UrgentOnChainSweep]: 25_000,
-  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 1_000,
-  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]: 1_000,
+  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 2_500,
+  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_AnchorChannelFee]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_NonAnchorChannelFee]: 5_000,
   [ConfirmationTarget.LDKConfirmationTarget_ChannelCloseMinimum]: 1_000,
