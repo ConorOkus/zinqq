@@ -11,6 +11,8 @@ import { formatBtc } from '../utils/format-btc'
 import { buildBip321Uri } from '../onchain/bip321'
 import { CopyIcon } from '../components/icons'
 
+type QrPage = 'unified' | 'bolt12'
+
 const MAX_DIGITS = 8
 
 type InvoicePath = 'none' | 'standard' | 'jit'
@@ -39,8 +41,10 @@ export function Receive() {
   const [editingAmount, setEditingAmount] = useState(false)
   const [amountDigits, setAmountDigits] = useState('')
   const [confirmedAmountDigits, setConfirmedAmountDigits] = useState('')
+  const [activeQrPage, setActiveQrPage] = useState<QrPage>('unified')
   const overlayRef = useRef<HTMLDivElement>(null)
   const amountButtonRef = useRef<HTMLButtonElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const requestCounterRef = useRef(0)
 
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
@@ -50,6 +54,7 @@ export function Receive() {
   const peersReconnected = ldk.status === 'ready' ? ldk.peersReconnected : false
   const channelChangeCounter = ldk.status === 'ready' ? ldk.channelChangeCounter : 0
   const paymentHistory = ldk.status === 'ready' ? ldk.paymentHistory : []
+  const bolt12Offer = ldk.status === 'ready' ? ldk.bolt12Offer : null
 
   const confirmedAmountSats = confirmedAmountDigits ? BigInt(confirmedAmountDigits) : 0n
   const editingAmountSats = amountDigits ? BigInt(amountDigits) : 0n
@@ -214,15 +219,17 @@ export function Receive() {
     ? buildBip321Uri({ address, amountSats: confirmedAmountSats, invoice })
     : ''
 
+  const copyValue = activeQrPage === 'bolt12' && bolt12Offer ? bolt12Offer : bip321Uri
+
   const handleCopy = useCallback(async () => {
-    if (!bip321Uri) return
+    if (!copyValue) return
     try {
-      await navigator.clipboard.writeText(bip321Uri)
+      await navigator.clipboard.writeText(copyValue)
       setCopied(true)
     } catch {
       // Address is displayed and selectable as fallback
     }
-  }, [bip321Uri])
+  }, [copyValue])
 
   useEffect(() => {
     if (!copied) return
@@ -231,13 +238,20 @@ export function Receive() {
   }, [copied])
 
   const handleShare = useCallback(async () => {
-    if (!bip321Uri || typeof navigator.share !== 'function') return
+    if (!copyValue || typeof navigator.share !== 'function') return
     try {
-      await navigator.share({ text: bip321Uri })
+      await navigator.share({ text: copyValue })
     } catch {
       // User cancelled or share unavailable
     }
-  }, [bip321Uri])
+  }, [copyValue])
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const page = Math.round(el.scrollLeft / el.clientWidth)
+    setActiveQrPage(page === 1 ? 'bolt12' : 'unified')
+  }, [])
 
   const handleNumpadKey = useCallback((key: NumpadKey) => {
     setAmountDigits((prev) => numpadDigitReducer(prev, key, MAX_DIGITS))
@@ -416,20 +430,67 @@ export function Receive() {
                   </button>
                 )}
 
-                <div
-                  className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
-                  aria-label={`QR code for Bitcoin address ${address}${confirmedAmountSats > 0n ? `, amount ${formatBtc(confirmedAmountSats)}` : ''}`}
-                >
-                  <QRCodeSVG value={qrValue} size={220} />
+                <div className="w-full max-w-[300px]">
+                  <div
+                    ref={scrollRef}
+                    className="flex snap-x snap-mandatory overflow-x-auto scrollbar-none"
+                    onScroll={handleScroll}
+                  >
+                    {/* Page 1: Unified BIP 321 QR */}
+                    <div className="flex w-full shrink-0 snap-center justify-center">
+                      <div
+                        className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
+                        aria-label={`QR code for Bitcoin address ${address}${confirmedAmountSats > 0n ? `, amount ${formatBtc(confirmedAmountSats)}` : ''}`}
+                      >
+                        <QRCodeSVG value={qrValue} size={220} />
+                      </div>
+                    </div>
+
+                    {/* Page 2: BOLT 12 Offer QR */}
+                    {bolt12Offer && (
+                      <div className="flex w-full shrink-0 snap-center justify-center">
+                        <div
+                          className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
+                          aria-label="QR code for BOLT 12 offer"
+                        >
+                          <QRCodeSVG value={bolt12Offer.toUpperCase()} size={220} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dot indicators */}
+                  {bolt12Offer && (
+                    <div className="mt-4 flex justify-center gap-2">
+                      <button
+                        className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'unified' ? 'bg-white' : 'bg-white/30'}`}
+                        onClick={() => {
+                          scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' })
+                        }}
+                        aria-label="Show unified payment QR"
+                      />
+                      <button
+                        className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'bolt12' ? 'bg-white' : 'bg-white/30'}`}
+                        onClick={() => {
+                          const el = scrollRef.current
+                          if (el) el.scrollTo({ left: el.clientWidth, behavior: 'smooth' })
+                        }}
+                        aria-label="Show BOLT 12 offer QR"
+                      />
+                    </div>
+                  )}
                 </div>
 
-                {openingFeeSats !== null &&
-                  receiveState.step === 'ready' &&
-                  receiveState.invoicePath === 'jit' && (
-                    <p className="text-xs text-[var(--color-on-dark-muted)]">
-                      Setup fee: {formatBtc(openingFeeSats)}
-                    </p>
-                  )}
+                {/* Label under QR */}
+                <p className="text-xs text-[var(--color-on-dark-muted)]">
+                  {activeQrPage === 'bolt12'
+                    ? 'Reusable QR code'
+                    : openingFeeSats !== null &&
+                        receiveState.step === 'ready' &&
+                        receiveState.invoicePath === 'jit'
+                      ? `Setup fee: ${formatBtc(openingFeeSats)}`
+                      : 'Request money by letting someone scan this QR code'}
+                </p>
               </>
             )}
           </div>
@@ -455,9 +516,11 @@ export function Receive() {
           )}
 
           <BottomSheet open={showSheet} onClose={() => setShowSheet(false)}>
-            <p className="text-sm font-semibold text-on-dark">Payment request</p>
+            <p className="text-sm font-semibold text-on-dark">
+              {activeQrPage === 'bolt12' ? 'BOLT 12 offer' : 'Payment request'}
+            </p>
             <p className="mt-3 select-text break-all font-mono text-xs text-[var(--color-on-dark-muted)]">
-              {bip321Uri}
+              {copyValue}
             </p>
             <button
               className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-accent text-sm font-semibold text-white transition-transform active:scale-[0.98]"
