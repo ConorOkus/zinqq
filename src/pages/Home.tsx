@@ -30,7 +30,7 @@ export function Home() {
 
   return (
     <div className="flex min-h-dvh flex-col justify-between bg-accent px-6 pt-4 text-on-accent">
-      <div className="flex justify-end pt-[env(safe-area-inset-top,0px)]">
+      <div className="-mr-2 flex justify-end pt-[env(safe-area-inset-top,0px)]">
         <button
           className="flex h-11 w-11 items-center justify-center rounded-full text-on-accent transition-colors active:bg-black/10"
           onClick={() => window.location.reload()}
