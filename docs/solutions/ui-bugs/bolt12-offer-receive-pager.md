@@ -1,5 +1,5 @@
 ---
-title: "Add swipeable BOLT 12 offer QR pager to receive screen"
+title: 'Add swipeable BOLT 12 offer QR pager to receive screen'
 category: ui-bugs
 date: 2026-04-01
 tags:
@@ -18,9 +18,9 @@ components:
   - src/pages/Home.tsx
 severity: medium
 related_prs:
-  - "#73"
-  - "#72"
-  - "#71"
+  - '#73'
+  - '#72'
+  - '#71'
 ---
 
 ## Problem
@@ -51,22 +51,22 @@ const scrollRef = useRef<HTMLDivElement>(null)
 
 const handleScroll = useCallback(() => {
   const el = scrollRef.current
-  if (!el || el.clientWidth === 0) return  // guard: zero clientWidth during layout
+  if (!el || el.clientWidth === 0) return // guard: zero clientWidth during layout
   const page = Math.round(el.scrollLeft / el.clientWidth)
   setActiveQrPage(page === 1 ? 'bolt12' : 'unified')
 }, [])
 ```
 
 ```tsx
-<div ref={scrollRef}
-     className="flex snap-x snap-mandatory overflow-x-auto scrollbar-none"
-     onScroll={handleScroll}>
+<div
+  ref={scrollRef}
+  className="flex snap-x snap-mandatory overflow-x-auto scrollbar-none"
+  onScroll={handleScroll}
+>
   {/* Page 1: Unified BIP 321 QR */}
   <div className="flex w-full shrink-0 snap-center justify-center">...</div>
   {/* Page 2: BOLT 12 Offer QR */}
-  {showBolt12 && (
-    <div className="flex w-full shrink-0 snap-center justify-center">...</div>
-  )}
+  {showBolt12 && <div className="flex w-full shrink-0 snap-center justify-center">...</div>}
 </div>
 ```
 
@@ -78,14 +78,15 @@ Made `address` optional in `buildBip321Uri` and added the `lno` field per the BI
 
 ```typescript
 export interface BuildBip321Options {
-  address?: string          // now optional — BOLT 12-only URIs omit it
+  address?: string // now optional — BOLT 12-only URIs omit it
   amountSats?: bigint
   invoice?: string | null
-  lno?: string | null       // BOLT 12 offer parameter per BIP 21
+  lno?: string | null // BOLT 12 offer parameter per BIP 21
 }
 ```
 
 Usage in Receive.tsx:
+
 - Unified QR includes `lno` when BOLT 12 is available: `lno: showBolt12 ? bolt12Offer : null`
 - Standalone BOLT 12 QR omits the address: `buildBip321Uri({ lno: bolt12Offer })`
 
@@ -107,14 +108,14 @@ Deleted the now-redundant standalone `Bolt12Offer.tsx` page (65 lines), its test
 
 All addressed in commit `fc1b886`:
 
-| Priority | Issue | Fix |
-|----------|-------|-----|
-| P1 | `activeQrPage` not reset when BOLT 12 page disappears — stale state causes wrong `copyValue` | Added `useEffect` to reset to `'unified'` when `!showBolt12` |
-| P2 | No unit tests for `lno` parameter in BIP 321 URIs | Added 6 tests to `bip321.test.ts` |
-| P2 | Dead files `Bolt12Offer.tsx` / `Bolt12Offer.test.tsx` left in tree | Deleted |
-| P2 | `handleScroll` divides by zero when `clientWidth === 0` | Added early-return guard |
-| P3 | Redundant `showBolt12 && bolt12Uri` double guard | Simplified to `showBolt12` |
-| P3 | Dot indicators were `<button>` with tiny touch targets | Changed to `<span aria-hidden="true">` |
+| Priority | Issue                                                                                        | Fix                                                          |
+| -------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| P1       | `activeQrPage` not reset when BOLT 12 page disappears — stale state causes wrong `copyValue` | Added `useEffect` to reset to `'unified'` when `!showBolt12` |
+| P2       | No unit tests for `lno` parameter in BIP 321 URIs                                            | Added 6 tests to `bip321.test.ts`                            |
+| P2       | Dead files `Bolt12Offer.tsx` / `Bolt12Offer.test.tsx` left in tree                           | Deleted                                                      |
+| P2       | `handleScroll` divides by zero when `clientWidth === 0`                                      | Added early-return guard                                     |
+| P3       | Redundant `showBolt12 && bolt12Uri` double guard                                             | Simplified to `showBolt12`                                   |
+| P3       | Dot indicators were `<button>` with tiny touch targets                                       | Changed to `<span aria-hidden="true">`                       |
 
 ## Prevention Strategies
 
