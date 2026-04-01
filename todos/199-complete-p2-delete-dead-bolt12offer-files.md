@@ -20,6 +20,7 @@ The route and navigation link for the BOLT 12 Offer settings page were removed, 
 ## Proposed Solutions
 
 ### Solution 1: Delete both files (Recommended)
+
 Remove `src/pages/Bolt12Offer.tsx` and `src/pages/Bolt12Offer.test.tsx`.
 
 - **Effort**: Small

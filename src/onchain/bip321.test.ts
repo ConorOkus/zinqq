@@ -53,7 +53,12 @@ describe('buildBip321Uri', () => {
 
   it('builds URI with address, amount, invoice, and lno', () => {
     expect(
-      buildBip321Uri({ address: 'tb1qtest', amountSats: 50000n, invoice: 'lntbs1...', lno: 'lno1abc' })
+      buildBip321Uri({
+        address: 'tb1qtest',
+        amountSats: 50000n,
+        invoice: 'lntbs1...',
+        lno: 'lno1abc',
+      })
     ).toBe('bitcoin:TB1QTEST?amount=0.00050000&lightning=lntbs1...&lno=lno1abc')
   })
 

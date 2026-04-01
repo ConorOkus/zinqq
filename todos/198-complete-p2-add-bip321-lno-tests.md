@@ -21,6 +21,7 @@ The `lno` parameter and address-less URI path added to `buildBip321Uri` have no 
 ## Proposed Solutions
 
 ### Solution 1: Add test cases to bip321.test.ts (Recommended)
+
 Add 4 test cases covering the above scenarios.
 
 - **Effort**: Small

@@ -14,6 +14,7 @@ The condition `showBolt12 && bolt12Uri` appears twice in Receive.tsx JSX. Since 
 ## Proposed Solutions
 
 ### Solution 1: Replace with just `showBolt12` (Recommended)
+
 Change both instances of `showBolt12 && bolt12Uri` to just `showBolt12`.
 
 - **Effort**: Small

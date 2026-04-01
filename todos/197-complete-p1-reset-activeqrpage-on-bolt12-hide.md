@@ -20,6 +20,7 @@ When `showBolt12` transitions from `true` to `false` (e.g., channels become unus
 ## Proposed Solutions
 
 ### Solution 1: Add reset effect (Recommended)
+
 Add `useEffect(() => { if (!showBolt12) setActiveQrPage('unified') }, [showBolt12])` to Receive.tsx.
 
 - **Pros**: Simple, direct, covers all cases
