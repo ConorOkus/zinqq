@@ -1,4 +1,3 @@
-import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
@@ -11,22 +10,6 @@ export function Home() {
   const onchain = useOnchain()
   const ldk = useLdk()
   const { total, pending, isLoading } = useUnifiedBalance()
-  const [refreshing, setRefreshing] = useState(false)
-
-  const syncNow = onchain.status === 'ready' ? onchain.syncNow : null
-
-  const handleRefresh = useCallback(() => {
-    if (refreshing) return
-    syncNow?.()
-    setRefreshing(true)
-  }, [refreshing, syncNow])
-
-  // Stop the spinner after a fixed duration since syncNow is fire-and-forget
-  useEffect(() => {
-    if (!refreshing) return
-    const id = setTimeout(() => setRefreshing(false), 3000)
-    return () => clearTimeout(id)
-  }, [refreshing])
 
   const hasError = onchain.status === 'error' || ldk.status === 'error'
 
@@ -50,11 +33,10 @@ export function Home() {
       <div className="flex justify-end pt-[env(safe-area-inset-top,0px)]">
         <button
           className="flex h-11 w-11 items-center justify-center rounded-full text-on-accent transition-colors active:bg-black/10"
-          onClick={handleRefresh}
+          onClick={() => window.location.reload()}
           aria-label="Refresh"
-          disabled={refreshing}
         >
-          <RefreshIcon className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshIcon className="h-5 w-5" />
         </button>
       </div>
       <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
