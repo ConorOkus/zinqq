@@ -220,13 +220,12 @@ export function Receive() {
     if (!showBolt12) setActiveQrPage('unified')
   }, [showBolt12])
 
-  // Build BIP 321 URIs
+  // Build BIP 321 URIs — lno lives on its own pager page, not in the unified URI
   const bip321Uri = address
     ? buildBip321Uri({
         address,
         amountSats: confirmedAmountSats,
         invoice,
-        lno: showBolt12 ? bolt12Offer : null,
       })
     : ''
   const bolt12Uri = bolt12Offer ? buildBip321Uri({ lno: bolt12Offer }) : ''
