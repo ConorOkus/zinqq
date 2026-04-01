@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { toBinary, fromBinary, create } from '@bufbuild/protobuf'
-import { VssClient, FixedHeaderProvider, VssError } from './vss-client'
+import { VssClient, FixedHeaderProvider, SignatureHeaderProvider, VssError } from './vss-client'
 import {
   GetObjectResponseSchema,
   PutObjectRequestSchema,
@@ -180,5 +180,72 @@ describe('FixedHeaderProvider', () => {
     const provider = new FixedHeaderProvider({ 'X-Custom': 'value' })
     const headers = await provider.getHeaders()
     expect(headers).toEqual({ 'X-Custom': 'value' })
+  })
+})
+
+describe('SignatureHeaderProvider', () => {
+  const secretKey = new Uint8Array(32).fill(42)
+
+  it('returns an authorization header with correct format', async () => {
+    const provider = new SignatureHeaderProvider(secretKey)
+    const headers = await provider.getHeaders()
+
+    expect(headers).toHaveProperty('authorization')
+    const auth = headers.authorization
+    // 66 hex chars (33-byte compressed pubkey) + 128 hex chars (64-byte compact sig) + timestamp digits
+    expect(auth.length).toBeGreaterThan(66 + 128)
+    const pubkeyHex = auth.slice(0, 66)
+    const sigHex = auth.slice(66, 66 + 128)
+    const timestamp = auth.slice(66 + 128)
+    expect(pubkeyHex).toMatch(/^[0-9a-f]{66}$/)
+    expect(sigHex).toMatch(/^[0-9a-f]{128}$/)
+    expect(Number(timestamp)).toBeCloseTo(Math.floor(Date.now() / 1000), -1)
+  })
+
+  it('produces a verifiable ECDSA signature', async () => {
+    const { getPublicKey, verify } = await import('@noble/secp256k1')
+    const { sha256 } = await import('@noble/hashes/sha2.js')
+
+    const provider = new SignatureHeaderProvider(secretKey)
+    const headers = await provider.getHeaders()
+    const auth = headers.authorization
+
+    const pubkeyHex = auth.slice(0, 66)
+    const sigHex = auth.slice(66, 66 + 128)
+    const timestamp = auth.slice(66 + 128)
+
+    const pubkeyBytes = getPublicKey(secretKey, true)
+    const signingConstant = new TextEncoder().encode(
+      'VSS Signature Authorizer Signing Salt Constant..................'
+    )
+    const timestampBytes = new TextEncoder().encode(timestamp)
+    const preimage = new Uint8Array(
+      signingConstant.length + pubkeyBytes.length + timestampBytes.length
+    )
+    preimage.set(signingConstant, 0)
+    preimage.set(pubkeyBytes, signingConstant.length)
+    preimage.set(timestampBytes, signingConstant.length + pubkeyBytes.length)
+    const hash = sha256(preimage)
+
+    const sigBytes = Uint8Array.from(
+      sigHex.match(/.{2}/g)!.map((b) => parseInt(b, 16))
+    )
+
+    expect(verify(sigBytes, hash, pubkeyBytes, { prehash: false })).toBe(true)
+    // Pubkey in header matches derived pubkey
+    expect(pubkeyHex).toBe(
+      Array.from(pubkeyBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+    )
+  })
+
+  it('makes a defensive copy of the secret key', async () => {
+    const key = new Uint8Array(32).fill(42)
+    const provider = new SignatureHeaderProvider(key)
+    key.fill(0) // mutate the original
+    const headers = await provider.getHeaders()
+    // Should still work with the original key value, not zeros
+    expect(headers.authorization.length).toBeGreaterThan(66 + 128)
   })
 })

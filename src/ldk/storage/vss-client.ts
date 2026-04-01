@@ -46,7 +46,7 @@ export class SignatureHeaderProvider implements VssHeaderProvider {
   #secretKey: Uint8Array
 
   constructor(secretKey: Uint8Array) {
-    this.#secretKey = secretKey
+    this.#secretKey = new Uint8Array(secretKey)
   }
 
   async getHeaders(): Promise<Record<string, string>> {
@@ -62,7 +62,10 @@ export class SignatureHeaderProvider implements VssHeaderProvider {
     preimage.set(timestampBytes, VSS_SIGNING_CONSTANT.length + pubkeyBytes.length)
 
     const hash = sha256(preimage)
-    const sigBytes = await secp256k1.signAsync(hash, this.#secretKey, { prehash: false })
+    const sigBytes = await secp256k1.signAsync(hash, this.#secretKey, {
+      prehash: false,
+      format: 'compact',
+    })
 
     return {
       authorization: bytesToHex(pubkeyBytes) + bytesToHex(sigBytes) + timestamp,
