@@ -8,7 +8,7 @@ Execute with real mainnet funds (small amounts). All tests should pass before pu
 - [ ] Mainnet Vercel project deployed with `VITE_NETWORK=mainnet`
 - [ ] VSS instance running and `VSS_ORIGIN` configured
 - [ ] LSP node online and funded at `64.23.159.177:9735`
-- [ ] App loads at `zinqq.com` without console errors
+- [ ] App loads at `zinqq.app` without console errors
 
 ## Lightning
 

@@ -1,6 +1,6 @@
 # Mainnet Rollback Procedure
 
-What to do if the mainnet deployment (`zinqq.com`) hits a critical bug after users have open channels.
+What to do if the mainnet deployment (`zinqq.app`) hits a critical bug after users have open channels.
 
 ## Severity Levels
 
@@ -63,7 +63,7 @@ If the counterparty is unresponsive or the bug prevents cooperative close:
 ### 6. Deploy fix and restore
 
 1. Fix the bug on a feature branch
-2. Test on signet (`testnet.zinqq.com`)
+2. Test on signet (`testnet.zinqq.app`)
 3. Deploy to mainnet
 4. Remove `VITE_MAINTENANCE_MODE` env var
 5. Restore LSP configuration
