@@ -117,10 +117,10 @@ function createUserConfig(): UserConfig {
   const handshakeConfig = config.get_channel_handshake_config()
   handshakeConfig.set_negotiate_scid_privacy(true)
 
-  // Enable anchor channels — BumpTransactionEventHandler (created in step 14)
-  // handles CPFP fee bumping for force-close commitment transactions using
-  // BDK wallet UTXOs via the WalletSource bridge.
-  handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(true)
+  // Anchor channels temporarily disabled while testing LSP compatibility.
+  // BumpTransactionEventHandler (step 14) is wired up and ready — re-enable
+  // once the LSP confirms anchor support.
+  handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(false)
 
   // LSPS2: allow the full channel capacity for inbound HTLCs. The default (10%)
   // is too restrictive for JIT channels where the entire payment arrives in a
