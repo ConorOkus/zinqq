@@ -8,12 +8,14 @@
 Two related features to make Zinq a proper Progressive Web App:
 
 ### 1. Install Button (Home Icon)
+
 - A **house icon** in the **top-left** of the home screen
 - Only visible when the app is **not** running as an installed PWA (detected via `display-mode: standalone` media query)
 - Tapping it triggers the browser's native `beforeinstallprompt` flow
 - Disappears once the app is installed or if the prompt isn't available
 
 ### 2. Service Worker with Update Detection
+
 - **Precache app shell** (HTML, JS, CSS, fonts) for faster loads — exclude the 12MB WASM file (too large, changes rarely)
 - **Runtime caching** for API responses with network-first strategy
 - **Update detection** — when a new SW version is available, notify the app via `postMessage` so it can prompt "New version available, tap to refresh"

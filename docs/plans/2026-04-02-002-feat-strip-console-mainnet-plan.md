@@ -1,5 +1,5 @@
 ---
-title: "feat: Strip console output on mainnet production builds"
+title: 'feat: Strip console output on mainnet production builds'
 type: feat
 status: completed
 date: 2026-04-02
@@ -52,51 +52,51 @@ esbuild: {
 
 These are persistence failures, channel operations, and signing errors. Wire to `captureError('critical', source, message, detail)`:
 
-| File | Lines | Signal |
-|------|-------|--------|
-| `src/ldk/traits/persist.ts` | 186, 208, 213 | Version conflict, write failure |
-| `src/ldk/traits/event-handler.ts` | 116, 216, 231, 255, 421, 436, 461, 470, 546, 559 | Event handling failures, funding tx failures |
-| `src/ldk/context.tsx` | 119, 133, 151, 626, 737, 745, 755 | Channel ops failures, persist failures |
-| `src/ldk/traits/bdk-signer-provider.ts` | 85, 100, 106 | Cannot derive address (CRITICAL) |
-| `src/ldk/traits/bdk-wallet-source.ts` | 55, 65, 82 | UTXO/signing failures |
-| `src/onchain/sync.ts` | 68 | CRITICAL: failed to persist ChangeSet |
-| `src/onchain/context.tsx` | 56 | CRITICAL: failed to persist changeset |
-| `src/onchain/init.ts` | 96 | CRITICAL: failed to persist ChangeSet after full scan |
-| `src/ldk/init.ts` | 417 | CRITICAL: persist failure |
+| File                                    | Lines                                            | Signal                                                |
+| --------------------------------------- | ------------------------------------------------ | ----------------------------------------------------- |
+| `src/ldk/traits/persist.ts`             | 186, 208, 213                                    | Version conflict, write failure                       |
+| `src/ldk/traits/event-handler.ts`       | 116, 216, 231, 255, 421, 436, 461, 470, 546, 559 | Event handling failures, funding tx failures          |
+| `src/ldk/context.tsx`                   | 119, 133, 151, 626, 737, 745, 755                | Channel ops failures, persist failures                |
+| `src/ldk/traits/bdk-signer-provider.ts` | 85, 100, 106                                     | Cannot derive address (CRITICAL)                      |
+| `src/ldk/traits/bdk-wallet-source.ts`   | 55, 65, 82                                       | UTXO/signing failures                                 |
+| `src/onchain/sync.ts`                   | 68                                               | CRITICAL: failed to persist ChangeSet                 |
+| `src/onchain/context.tsx`               | 56                                               | CRITICAL: failed to persist changeset                 |
+| `src/onchain/init.ts`                   | 96                                               | CRITICAL: failed to persist ChangeSet after full scan |
+| `src/ldk/init.ts`                       | 417                                              | CRITICAL: persist failure                             |
 
 #### Tier 2 — Error (operational, should capture)
 
 Wire to `captureError('error', source, message, detail)`:
 
-| File | Lines | Signal |
-|------|-------|--------|
-| `src/ldk/lsps2/client.ts` | 35 | LSPS2 get_info error |
+| File                         | Lines                | Signal                      |
+| ---------------------------- | -------------------- | --------------------------- |
+| `src/ldk/lsps2/client.ts`    | 35                   | LSPS2 get_info error        |
 | `src/ldk/sync/chain-sync.ts` | 75, 87, 93, 117, 249 | Sync errors, malformed data |
-| `src/pages/CloseChannel.tsx` | 106 | Close error |
-| `src/pages/OpenChannel.tsx` | 152 | Open error |
-| `src/pages/Receive.tsx` | 84 | Address generation failure |
-| `src/pages/Backup.tsx` | 37 | Mnemonic retrieval failure |
+| `src/pages/CloseChannel.tsx` | 106                  | Close error                 |
+| `src/pages/OpenChannel.tsx`  | 152                  | Open error                  |
+| `src/pages/Receive.tsx`      | 84                   | Address generation failure  |
+| `src/pages/Backup.tsx`       | 37                   | Mnemonic retrieval failure  |
 
 #### Tier 3 — Warning (degraded but recoverable, should capture)
 
 Wire to `captureError('warning', source, message, detail)`:
 
-| File | Lines | Signal |
-|------|-------|--------|
-| `src/ldk/sweep.ts` | 33, 44, 94, 128 | Partial sweep failures |
-| `src/ldk/init.ts` | 370, 376, 431, 452, 502, 718 | Recovery fallbacks |
-| `src/ldk/context.tsx` | 96, 515, 530, 576, 773, 824 | Peer management, LSP connect |
-| `src/onchain/sync.ts` | 86 | Sync tick failure |
-| `src/onchain/init.ts` | 27, 88 | Wallet restore fallback |
-| `src/onchain/address-utils.ts` | 17, 68 | Persist address reveal failure |
-| `src/ldk/sync/chain-sync.ts` | 73, 113, 183, 240 | RGS failures, partial check failures |
-| `src/ldk/traits/fee-estimator.ts` | 49 | Fee fetch failure |
-| `src/ldk/lsps2/message-handler.ts` | 100, 108, 116 | Message decode failures |
-| `src/ldk/storage/known-peers.ts` | 52, 55 | VSS sync failures |
-| `src/pages/Send.tsx` | 288 | Address resolution failure |
-| `src/pages/Restore.tsx` | 101 | Monitor missing from VSS |
-| `src/pages/Receive.tsx` | 145, 164 | Invoice creation failures |
-| `src/onchain/context.tsx` | 47 | Fee estimation fallback |
+| File                               | Lines                        | Signal                               |
+| ---------------------------------- | ---------------------------- | ------------------------------------ |
+| `src/ldk/sweep.ts`                 | 33, 44, 94, 128              | Partial sweep failures               |
+| `src/ldk/init.ts`                  | 370, 376, 431, 452, 502, 718 | Recovery fallbacks                   |
+| `src/ldk/context.tsx`              | 96, 515, 530, 576, 773, 824  | Peer management, LSP connect         |
+| `src/onchain/sync.ts`              | 86                           | Sync tick failure                    |
+| `src/onchain/init.ts`              | 27, 88                       | Wallet restore fallback              |
+| `src/onchain/address-utils.ts`     | 17, 68                       | Persist address reveal failure       |
+| `src/ldk/sync/chain-sync.ts`       | 73, 113, 183, 240            | RGS failures, partial check failures |
+| `src/ldk/traits/fee-estimator.ts`  | 49                           | Fee fetch failure                    |
+| `src/ldk/lsps2/message-handler.ts` | 100, 108, 116                | Message decode failures              |
+| `src/ldk/storage/known-peers.ts`   | 52, 55                       | VSS sync failures                    |
+| `src/pages/Send.tsx`               | 288                          | Address resolution failure           |
+| `src/pages/Restore.tsx`            | 101                          | Monitor missing from VSS             |
+| `src/pages/Receive.tsx`            | 145, 164                     | Invoice creation failures            |
+| `src/onchain/context.tsx`          | 47                           | Fee estimation fallback              |
 
 #### Excluded from captureError (strip silently)
 
@@ -194,7 +194,7 @@ grep -c "console\." dist/assets/*.js
 
 ## Sources & References
 
-- **Origin brainstorm:** [docs/brainstorms/2026-04-02-strip-console-mainnet-brainstorm.md](../brainstorms/2026-04-02-strip-console-mainnet-brainstorm.md) — Key decisions: strip all console.* including errors, build-time via esbuild, mainnet only, expand captureError coverage
+- **Origin brainstorm:** [docs/brainstorms/2026-04-02-strip-console-mainnet-brainstorm.md](../brainstorms/2026-04-02-strip-console-mainnet-brainstorm.md) — Key decisions: strip all console.\* including errors, build-time via esbuild, mainnet only, expand captureError coverage
 - **Institutional learning:** `docs/solutions/integration-issues/ldk-trait-defensive-hardening-patterns.md` — Documents that raw `console.error` in LDK traits was a known prototype shortcut
 - **Institutional learning:** `docs/solutions/infrastructure/mainnet-deployment-phased-rollout.md` — Specifies `captureError` API and IDB ring buffer design
 - Config file: `vite.config.ts`

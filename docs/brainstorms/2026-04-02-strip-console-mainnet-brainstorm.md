@@ -18,12 +18,14 @@ Remove all `console.*` calls (log, warn, error, info, debug) from mainnet produc
 Configure Vite's Terser minifier (or esbuild equivalent) to drop all `console.*` calls when building for mainnet production.
 
 **How it works:**
+
 - Vite already sets `import.meta.env.PROD` in production builds
 - The `VITE_NETWORK` env var is already loaded in `vite.config.ts` via `loadEnv(mode, ...)`
 - When `VITE_NETWORK=mainnet` and mode is `production`, configure the minifier's `drop_console` (Terser) or `drop` (esbuild) option to strip all console methods
 - No source code changes needed — all 159 `console.*` calls across 29 files are removed automatically
 
 **Scope:**
+
 - Strips: `console.log`, `console.warn`, `console.error`, `console.info`, `console.debug`
 - Only on: `VITE_NETWORK=mainnet` + production mode
 - Preserves: All console output in dev mode and signet production builds

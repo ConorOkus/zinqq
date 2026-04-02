@@ -109,12 +109,12 @@ The `vssSigningKey` flows through the component tree:
 
 ## Debugging Pitfalls
 
-| Attempt | Symptom | Fix |
-|---|---|---|
-| `FixedHeaderProvider({})` with no auth | 401 Unauthorized | Implement `SignatureHeaderProvider` |
-| Calling `.toCompactRawBytes()` on sign result | Runtime error: not a function | noble/secp256k1 v3 `signAsync` returns `Uint8Array` directly |
-| Omitting `{ prehash: false }` | "Signature was invalid" from server | Pass `prehash: false` since the message is pre-hashed with SHA256 |
-| Using `ldkSeed` directly as signing key | Code review flagged key-reuse risk | Derived dedicated key at `m/535'/2'` |
+| Attempt                                       | Symptom                             | Fix                                                               |
+| --------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| `FixedHeaderProvider({})` with no auth        | 401 Unauthorized                    | Implement `SignatureHeaderProvider`                               |
+| Calling `.toCompactRawBytes()` on sign result | Runtime error: not a function       | noble/secp256k1 v3 `signAsync` returns `Uint8Array` directly      |
+| Omitting `{ prehash: false }`                 | "Signature was invalid" from server | Pass `prehash: false` since the message is pre-hashed with SHA256 |
+| Using `ldkSeed` directly as signing key       | Code review flagged key-reuse risk  | Derived dedicated key at `m/535'/2'`                              |
 
 ## Prevention
 
