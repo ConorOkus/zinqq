@@ -91,6 +91,9 @@ vi.mock('./traits/bdk-signer-provider', () => ({
     signerProvider: {},
   })),
 }))
+vi.mock('./traits/bdk-wallet-source', () => ({
+  createBdkWalletSource: vi.fn(() => ({})),
+}))
 vi.mock('../onchain/init', () => ({
   initializeBdkWalletEager: vi.fn().mockResolvedValue({
     wallet: {},
@@ -276,6 +279,16 @@ vi.mock('lightningdevkit', () => ({
   InitFeatures: {
     constructor_empty: vi.fn(() => ({
       set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })),
+    })),
+  },
+  Wallet: {
+    constructor_new: vi.fn(() => ({
+      as_CoinSelectionSource: vi.fn(() => ({})),
+    })),
+  },
+  BumpTransactionEventHandler: {
+    constructor_new: vi.fn(() => ({
+      handle_event: vi.fn(),
     })),
   },
 }))

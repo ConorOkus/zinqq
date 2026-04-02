@@ -28,6 +28,7 @@ import {
   Result_NoneAPIErrorZ_Err,
   SocketAddress_TcpIpV4,
   SocketAddress_Hostname,
+  type BumpTransactionEventHandler,
   type ClosureReason,
   ClosureReason_CounterpartyForceClosed,
   ClosureReason_HolderForceClosed,
@@ -81,7 +82,8 @@ export function createEventHandler(
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
   onSyncNeeded?: SyncNeededCallback,
-  onConnectionNeeded?: ConnectionNeededCallback
+  onConnectionNeeded?: ConnectionNeededCallback,
+  bumpTxHandler?: BumpTransactionEventHandler
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -104,7 +106,8 @@ export function createEventHandler(
           onPaymentEvent,
           onChannelClosed,
           onSyncNeeded,
-          onConnectionNeeded
+          onConnectionNeeded,
+          bumpTxHandler
         )
       } catch (err: unknown) {
         console.error('[LDK Event] Unhandled error in event handler:', err)
@@ -147,7 +150,8 @@ function handleEvent(
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
   onSyncNeeded?: SyncNeededCallback,
-  onConnectionNeeded?: ConnectionNeededCallback
+  onConnectionNeeded?: ConnectionNeededCallback,
+  bumpTxHandler?: BumpTransactionEventHandler
 ): void {
   // Payment events
   if (event instanceof Event_PaymentClaimable) {
@@ -441,13 +445,19 @@ function handleEvent(
   }
 
   if (event instanceof Event_BumpTransaction) {
-    // TODO: Implement CPFP with BDK UTXOs for anchor channels.
-    // Anchor channels are disabled in UserConfig, so this should not fire for new
-    // channels. If it does, it means a pre-existing anchor channel is force-closing.
-    console.error(
-      '[LDK Event] CRITICAL: BumpTransaction received but CPFP not implemented. ' +
-        'Anchor channel force-close transaction may be stuck.'
-    )
+    if (bumpTxHandler) {
+      console.log('[LDK Event] BumpTransaction: handling CPFP fee bump')
+      try {
+        bumpTxHandler.handle_event(event.bump_transaction)
+      } catch (err: unknown) {
+        console.error('[LDK Event] BumpTransaction: CPFP handling failed:', err)
+      }
+    } else {
+      console.error(
+        '[LDK Event] CRITICAL: BumpTransaction received but no handler configured. ' +
+          'Anchor channel force-close transaction may be stuck.'
+      )
+    }
     return
   }
 

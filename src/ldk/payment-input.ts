@@ -10,7 +10,7 @@ import {
   Result_OfferBolt12ParseErrorZ_OK,
   Result_HumanReadableNameNoneZ_OK,
 } from 'lightningdevkit'
-import { ACTIVE_NETWORK, type NetworkId } from './config'
+import { ACTIVE_NETWORK, LDK_CONFIG, type NetworkId } from './config'
 
 const NETWORK_CURRENCY: Record<NetworkId, Currency> = {
   signet: Currency.LDKCurrency_Signet,
@@ -140,10 +140,18 @@ function parseBolt12Offer(raw: string): ParsedPaymentInput {
   }
   const offer = result.res
 
-  // TODO: Add network validation for BOLT 12 offers. Offers encode chain hashes
-  // via offer.chains(), but the LDK WASM bindings (v0.1.8-0) do not expose this
-  // method. Without it, a signet offer scanned on mainnet would be accepted —
-  // payment would fail at the routing layer with a confusing error.
+  // Validate offer chain hashes against the active network
+  const chains = offer.chains()
+  if (chains.length > 0) {
+    const genesisHash = LDK_CONFIG.genesisBlockHash
+    const matchesNetwork = chains.some((chainHash) => {
+      const hex = Array.from(chainHash, (b) => b.toString(16).padStart(2, '0')).join('')
+      return hex === genesisHash
+    })
+    if (!matchesNetwork) {
+      return { type: 'error', message: 'Offer is for a different Bitcoin network' }
+    }
+  }
 
   // Check expiry
   if (offer.is_expired_no_std(BigInt(Math.floor(Date.now() / 1000)))) {

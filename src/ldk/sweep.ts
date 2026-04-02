@@ -133,7 +133,8 @@ export async function sweepSpendableOutputs(
     }
 
     const txHex = bytesToHex(result.res)
-    const txid = await broadcastWithRetry(esploraUrl, txHex)
+    const { LDK_CONFIG: ldkConfig } = await import('./config')
+    const txid = await broadcastWithRetry(esploraUrl, txHex, ldkConfig.esploraFallbackUrl)
 
     // Clean up IDB entries atomically after successful broadcast
     await idbDeleteBatch('ldk_spendable_outputs', idbKeys)

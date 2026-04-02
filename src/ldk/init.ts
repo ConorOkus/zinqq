@@ -56,6 +56,8 @@ import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { drainPendingBroadcasts } from './traits/broadcaster'
+import { Wallet as LdkWallet, BumpTransactionEventHandler } from 'lightningdevkit'
+import { createBdkWalletSource } from './traits/bdk-wallet-source'
 import { LDK_CONFIG, ACTIVE_NETWORK } from './config'
 import { createLspsMessageHandler } from './lsps2/message-handler'
 import { LSPS2Client } from './lsps2/client'
@@ -117,7 +119,7 @@ function createUserConfig(): UserConfig {
   // Disable anchor channels until Event_BumpTransaction CPFP is implemented.
   // Without CPFP, force-close commitment txs cannot be fee-bumped during
   // high-fee periods, risking fund loss.
-  handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(false)
+  handshakeConfig.set_negotiate_anchors_zero_fee_htlc_tx(true)
 
   // LSPS2: allow the full channel capacity for inbound HTLCs. The default (10%)
   // is too restrictive for JIT channels where the entire payment arrives in a
@@ -270,7 +272,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   // 3. Create trait implementations
   const logger = createLogger()
   const feeEstimator = createFeeEstimator(LDK_CONFIG.esploraUrl)
-  const broadcaster = createBroadcaster(LDK_CONFIG.esploraUrl)
+  const broadcaster = createBroadcaster(LDK_CONFIG.esploraUrl, LDK_CONFIG.esploraFallbackUrl)
 
   // 3.5 VSS Recovery: if IDB is empty but VSS has data, download state.
   // Downloads monitors in parallel chunks for performance, with a total
@@ -628,7 +630,18 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     )
   }
 
-  // 14. Create EventHandler
+  // 14. Create BumpTransactionEventHandler for anchor channel CPFP
+  const bdkWalletSource = createBdkWalletSource(bdkWallet)
+  const ldkWallet = LdkWallet.constructor_new(bdkWalletSource, logger)
+  const coinSelectionSource = ldkWallet.as_CoinSelectionSource()
+  const bumpTxHandler = BumpTransactionEventHandler.constructor_new(
+    broadcaster,
+    coinSelectionSource,
+    bdkSignerProvider,
+    logger
+  )
+
+  // 15. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
   let channelClosedCallback: ChannelClosedCallback | undefined
   let syncNeededCallback: SyncNeededCallback | undefined
@@ -641,7 +654,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.(),
-    (...args) => connectionNeededCallback?.(...args)
+    (...args) => connectionNeededCallback?.(...args),
+    bumpTxHandler
   )
 
   // ChannelManager VSS version ref — seeded from recovery or migration, updated by persistChannelManager
@@ -706,7 +720,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // Drain any pending broadcasts from IDB that were persisted but not
   // successfully broadcast before a previous crash/tab close.
-  await drainPendingBroadcasts(ONCHAIN_CONFIG.esploraUrl)
+  await drainPendingBroadcasts(ONCHAIN_CONFIG.esploraUrl, LDK_CONFIG.esploraFallbackUrl)
 
   const node: LdkNode = {
     nodeId,

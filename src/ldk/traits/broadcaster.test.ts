@@ -49,7 +49,7 @@ describe('broadcastWithRetry', () => {
 
     const promise = broadcastWithRetry(ESPLORA_URL, TX_HEX)
     // Attach rejection handler before advancing timers to avoid unhandled rejection
-    const assertion = expect(promise).rejects.toThrow('All 5 broadcast attempts failed')
+    const assertion = expect(promise).rejects.toThrow('All broadcast attempts failed')
     await vi.advanceTimersByTimeAsync(TOTAL_RETRY_DELAY_MS)
     await assertion
   })
