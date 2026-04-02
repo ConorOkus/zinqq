@@ -20,5 +20,5 @@ routes = [
 # IMPORTANT: Set ALLOWED_ORIGINS to your wallet's production domain before deploying.
 # An empty value will cause the proxy to return 500 for all requests.
 [env.production.vars]
-ALLOWED_ORIGINS = "https://zinqq.app,https://testnet.zinqq.app"
+ALLOWED_ORIGINS = "https://zinqq.app,https://testnet.zinqq.app,https://zinqq-app-mainnet.vercel.app"
 ALLOWED_PORTS = "9735,9736,9737"

@@ -25,11 +25,15 @@ async function proxyToVss(request: Request): Promise<Response> {
   const targetUrl = `${vssOrigin}/vss/${vssPath}`
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': request.headers.get('content-type') ?? 'application/octet-stream',
+    }
+    const auth = request.headers.get('authorization')
+    if (auth) headers['Authorization'] = auth
+
     const upstream = await fetch(targetUrl, {
       method: request.method,
-      headers: {
-        'Content-Type': request.headers.get('content-type') ?? 'application/octet-stream',
-      },
+      headers,
       body:
         request.method !== 'GET' && request.method !== 'HEAD'
           ? await request.arrayBuffer()
