@@ -34,8 +34,8 @@ C7 from the safety audit. Without fee bumping, force-close scenarios on mainnet 
 
 ### 5. Deployment model: Separate Vercel projects (per infra brainstorm)
 
-- `zinqq.com` → mainnet (`VITE_NETWORK=mainnet`)
-- `testnet.zinqq.com` → signet (`VITE_NETWORK=signet`)
+- `zinqq.app` → mainnet (`VITE_NETWORK=mainnet`)
+- `testnet.zinqq.app` → signet (`VITE_NETWORK=signet`)
 
 ---
 

@@ -30,8 +30,8 @@ Three phases, each gated on the previous:
 
 Separate Vercel deployments per network (see brainstorm: `docs/brainstorms/2026-04-02-mainnet-deployment-brainstorm.md`):
 
-- `zinqq.com` → mainnet (`VITE_NETWORK=mainnet`)
-- `testnet.zinqq.com` → signet (`VITE_NETWORK=signet`)
+- `zinqq.app` → mainnet (`VITE_NETWORK=mainnet`)
+- `testnet.zinqq.app` → signet (`VITE_NETWORK=signet`)
 
 Config selected at build time via `VITE_NETWORK` env var in `src/ldk/config.ts:54`.
 
@@ -47,7 +47,7 @@ Config selected at build time via `VITE_NETWORK` env var in `src/ldk/config.ts:5
 
 - Deploy Cloudflare Workers proxy from `proxy/` to production
 - Use `zinqq.app` domain (e.g., `wss://proxy.zinqq.app`)
-- Verify `ALLOWED_ORIGINS` in `proxy/wrangler.toml:18-22` includes `zinqq.com`
+- Verify `ALLOWED_ORIGINS` in `proxy/wrangler.toml:18-22` includes `zinqq.app`
 - Add rate limiting to prevent abuse on public proxy
 - **Files:** `proxy/wrangler.toml`, Cloudflare dashboard config
 
