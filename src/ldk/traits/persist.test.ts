@@ -242,8 +242,10 @@ describe('createPersister', () => {
 
       // channel_monitor_updated should NOT have been called
       expect(mockChainMonitor.channel_monitor_updated).not.toHaveBeenCalled()
-      // IDB should NOT have been called (VSS failed before IDB attempt)
-      expect(idbPutMock).not.toHaveBeenCalled()
+      // IDB monitor store should NOT have been written (VSS failed before IDB attempt).
+      // captureError writes to ldk_error_log via idbPut, so filter those out.
+      const monitorPuts = idbPutMock.mock.calls.filter(([store]) => store !== 'ldk_error_log')
+      expect(monitorPuts).toHaveLength(0)
     })
 
     it('calls onVssUnavailable after 10s of failures', async () => {

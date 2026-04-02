@@ -629,7 +629,8 @@ describe('createEventHandler', () => {
 
     await vi.waitFor(() => {
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to persist funding tx'),
+        '[LDK Event]',
+        'Failed to persist funding tx — aborting channel',
         expect.anything()
       )
     })
@@ -643,8 +644,9 @@ describe('createEventHandler', () => {
 
     await vi.waitFor(() => {
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('funding_transaction_generated failed'),
-        expect.anything()
+        '[LDK Event]',
+        'FundingGenerationReady: funding_transaction_generated failed',
+        ''
       )
     })
   })
@@ -724,7 +726,8 @@ describe('createEventHandler', () => {
     })
     expect(() => handleEvent(badEvent)).not.toThrow()
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Unhandled error'),
+      '[LDK Event]',
+      'Unhandled error in event handler',
       expect.anything()
     )
   })
