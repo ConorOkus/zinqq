@@ -10,6 +10,7 @@ import {
 } from 'lightningdevkit'
 import { type Wallet, SignOptions, Psbt } from '@bitcoindevkit/bdk-wallet-web'
 import { revealNextAddress } from '../../onchain/address-utils'
+import { captureError } from '../../storage/error-log'
 import { hexToBytes } from '../utils'
 
 // P2WPKH witness: ~107 weight units (DER sig + compressed pubkey)
@@ -52,7 +53,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
 
         return Result_CVec_UtxoZNoneZ.constructor_ok(utxos)
       } catch (err: unknown) {
-        console.error('[BDK WalletSource] list_confirmed_utxos failed:', err)
+        captureError('critical', 'BDK WalletSource', 'list_confirmed_utxos failed', String(err))
         return Result_CVec_UtxoZNoneZ.constructor_err()
       }
     },
@@ -62,7 +63,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
         const scriptBytes = revealNextAddress(bdkWallet, 'CPFP change')
         return Result_CVec_u8ZNoneZ.constructor_ok(scriptBytes)
       } catch (err: unknown) {
-        console.error('[BDK WalletSource] get_change_script failed:', err)
+        captureError('critical', 'BDK WalletSource', 'get_change_script failed', String(err))
         return Result_CVec_u8ZNoneZ.constructor_err()
       }
     },
@@ -79,7 +80,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
         const txBytes = signedTx.to_bytes()
         return Result_TransactionNoneZ.constructor_ok(txBytes)
       } catch (err: unknown) {
-        console.error('[BDK WalletSource] sign_psbt failed:', err)
+        captureError('critical', 'BDK WalletSource', 'sign_psbt failed', String(err))
         return Result_TransactionNoneZ.constructor_err()
       }
     },

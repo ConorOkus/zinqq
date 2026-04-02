@@ -51,6 +51,7 @@ function lnurlCorsProxy(): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const isMainnetProd = env.VITE_NETWORK === 'mainnet' && mode === 'production'
   return {
     plugins: [
       react(),
@@ -102,6 +103,9 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    esbuild: {
+      drop: isMainnetProd ? ['console'] : [],
+    },
     worker: {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       plugins: (): PluginOption[] => [wasm(), topLevelAwait()],

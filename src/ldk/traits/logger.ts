@@ -1,4 +1,5 @@
 import { Logger, Level, type Record } from 'lightningdevkit'
+import { captureError } from '../../storage/error-log'
 
 export function createLogger(): Logger {
   return Logger.new_impl({
@@ -20,9 +21,11 @@ export function createLogger(): Logger {
           console.info(prefix, message)
           break
         case Level.LDKLevel_Warn:
+          captureError('warning', `LDK:${module}`, message)
           console.warn(prefix, message)
           break
         case Level.LDKLevel_Error:
+          captureError('error', `LDK:${module}`, message)
           console.error(prefix, message)
           break
       }

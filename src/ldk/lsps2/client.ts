@@ -6,6 +6,7 @@
  */
 
 import { hexToBytes } from '../utils'
+import { captureError } from '../../storage/error-log'
 import type { JsonRpcResponse } from './types'
 import {
   type OpeningFeeParams,
@@ -32,6 +33,7 @@ export class LSPS2Client {
     const response = await this.sendLsps2Request(lspNodeId, 'lsps2.get_info', params)
 
     if (response.error) {
+      captureError('error', 'LSPS2', 'get_info error', JSON.stringify(response.error))
       throw new Error(lsps2ErrorMessage(response.error.code))
     }
 
@@ -133,6 +135,7 @@ export class LSPS2Client {
   ): Promise<JsonRpcResponse> {
     const id = crypto.randomUUID()
     const payload = serializeJsonRpcRequest(id, method, params)
+    console.log('[LSPS2] Sending:', method, JSON.stringify(params))
     const pubkeyBytes = hexToBytes(lspNodeId)
     return this.sendRequest(pubkeyBytes, payload)
   }

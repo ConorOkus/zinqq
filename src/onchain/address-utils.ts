@@ -1,5 +1,6 @@
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 import { putChangeset } from './storage/changeset'
+import { captureError } from '../storage/error-log'
 
 /**
  * Reveal the next unused external address from the BDK wallet and persist
@@ -14,7 +15,7 @@ export function revealNextAddress(wallet: Wallet, tag: string): Uint8Array {
   const staged = wallet.take_staged()
   if (staged && !staged.is_empty()) {
     void putChangeset(staged.to_json()).catch((err: unknown) =>
-      console.warn(`[${tag}] Failed to persist address reveal changeset:`, err)
+      captureError('warning', tag, 'Failed to persist address reveal changeset', String(err))
     )
   }
 
@@ -65,7 +66,7 @@ export function peekAddressAtIndex(wallet: Wallet, channelKeysId: Uint8Array): U
   const staged = wallet.take_staged()
   if (staged && !staged.is_empty()) {
     void putChangeset(staged.to_json()).catch((err: unknown) =>
-      console.warn('[peekAddressAtIndex] Failed to persist changeset:', err)
+      captureError('warning', 'peekAddressAtIndex', 'Failed to persist changeset', String(err))
     )
   }
 

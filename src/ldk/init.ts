@@ -75,6 +75,7 @@ import {
 } from './storage/known-peers'
 import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
+import { captureError } from '../storage/error-log'
 
 import type { CmPersistContext } from './storage/persist-cm'
 
@@ -367,13 +368,22 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       } catch (err: unknown) {
         // Roll back partial IDB writes so the app can start fresh
         if (writtenMonitorKeys.length > 0 || wroteChannelManager) {
-          console.warn('[LDK Init] VSS recovery failed, rolling back partial IDB writes')
+          captureError(
+            'warning',
+            'LDK Init',
+            'VSS recovery failed, rolling back partial IDB writes'
+          )
           await idbDeleteBatch('ldk_channel_monitors', writtenMonitorKeys).catch(() => {})
           if (wroteChannelManager) await idbDelete('ldk_channel_manager', 'primary').catch(() => {})
         }
         recoveredVersions.clear()
         initialCmVersion = 0
-        console.warn('[LDK Init] VSS recovery failed, continuing with fresh state:', err)
+        captureError(
+          'warning',
+          'LDK Init',
+          'VSS recovery failed, continuing with fresh state',
+          String(err)
+        )
       }
     } else {
       initialMonitorKeys = [...idbMonitors.keys()]
@@ -414,9 +424,11 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   )
   setChainMonitor(chainMonitor)
   onPersistFailure(({ key, error }) => {
-    console.error(
-      `[LDK Init] CRITICAL: Persist failure for ${key}, channel operations halted`,
-      error
+    captureError(
+      'critical',
+      'LDK Init',
+      `Persist failure for ${key}, channel operations halted`,
+      error.message
     )
   })
 
@@ -428,7 +440,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     if (result instanceof Result_NetworkGraphDecodeErrorZ_OK) {
       networkGraph = result.res
     } else {
-      console.warn('[LDK Init] Failed to restore NetworkGraph, creating fresh')
+      captureError('warning', 'LDK Init', 'Failed to restore NetworkGraph, creating fresh')
       networkGraph = NetworkGraph.constructor_new(LDK_CONFIG.network, logger)
     }
   } else {
@@ -449,7 +461,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     if (result instanceof Result_ProbabilisticScorerDecodeErrorZ_OK) {
       scorer = result.res
     } else {
-      console.warn('[LDK Init] Failed to restore Scorer, creating fresh')
+      captureError('warning', 'LDK Init', 'Failed to restore Scorer, creating fresh')
       scorer = ProbabilisticScorer.constructor_new(decayParams, networkGraph, logger)
     }
   } else {
@@ -499,9 +511,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       // Defense-in-depth: if deserialization fails (e.g., stale CM from a
       // previous wallet that survived an IDB clear race), discard and create
       // fresh rather than crashing. Only safe when there are no monitors.
-      console.warn(
-        '[LDK Init] ChannelManager deserialization failed with no monitors — ' +
-          'discarding stale CM and creating fresh. This can happen after a wallet restore.'
+      captureError(
+        'warning',
+        'LDK Init',
+        'ChannelManager deserialization failed with no monitors — discarding stale CM and creating fresh. This can happen after a wallet restore.'
       )
       await idbDelete('ldk_channel_manager', 'primary')
     } else {
@@ -715,7 +728,12 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       }
     } catch (err: unknown) {
       // Migration failure is non-fatal — VSS writes will begin on next persist
-      console.warn('[LDK Init] VSS migration failed (will retry on next startup):', err)
+      captureError(
+        'warning',
+        'LDK Init',
+        'VSS migration failed (will retry on next startup)',
+        String(err)
+      )
     }
   }
 

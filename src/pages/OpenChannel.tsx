@@ -9,6 +9,7 @@ import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
 import { numpadDigitReducer } from '../components/numpad-reducer'
 import { Check, XClose } from '../components/icons'
+import { captureError } from '../storage/error-log'
 
 const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/
 
@@ -149,7 +150,7 @@ export function OpenChannel() {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[OpenChannel] error:', err)
+      captureError('error', 'OpenChannel', 'Channel open error', String(err))
       setCurrentStep({ step: 'error', message })
     } finally {
       openingRef.current = false

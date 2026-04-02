@@ -13,6 +13,7 @@ import { LDK_CONFIG } from '../ldk/config'
 import { clearAllStores, idbPut } from '../storage/idb'
 import { MONITOR_MANIFEST_KEY, parseMonitorManifest } from '../ldk/traits/persist'
 import { KNOWN_PEERS_VSS_KEY, parseKnownPeers } from '../ldk/storage/known-peers'
+import { captureError } from '../storage/error-log'
 
 type RestoreState =
   | { status: 'input' }
@@ -98,7 +99,11 @@ export function Restore() {
           if (obj) {
             monitors.push({ key, value: obj.value })
           } else {
-            console.warn(`[Restore] Monitor "${key}" listed in manifest but missing from VSS`)
+            captureError(
+              'warning',
+              'Restore',
+              `Monitor "${key}" listed in manifest but missing from VSS`
+            )
           }
         }
       }

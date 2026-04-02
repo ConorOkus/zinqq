@@ -9,6 +9,7 @@ import { idbGetAll, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex } from './utils'
 import { broadcastWithRetry } from './traits/broadcaster'
 import { ACTIVE_NETWORK } from './config'
+import { captureError } from '../storage/error-log'
 
 const FEE_TARGET_BLOCKS = 6
 const DEFAULT_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 4 : 1
@@ -30,18 +31,16 @@ async function fetchFeeRate(esploraUrl: string): Promise<number> {
         MIN_FEE_RATE_SAT_VB
       )
       if (capped < Math.ceil(satPerVb)) {
-        console.warn(
-          '[Sweep] Fee rate capped from',
-          Math.ceil(satPerVb),
-          'to',
-          MAX_FEE_RATE_SAT_VB,
-          'sat/vB'
+        captureError(
+          'warning',
+          'Sweep',
+          `Fee rate capped from ${Math.ceil(satPerVb)} to ${MAX_FEE_RATE_SAT_VB} sat/vB`
         )
       }
       return capped
     }
   } catch (err: unknown) {
-    console.warn('[Sweep] Fee estimation failed, using default:', err)
+    captureError('warning', 'Sweep', 'Fee estimation failed, using default', String(err))
   }
   return DEFAULT_FEE_RATE_SAT_VB
 }
@@ -91,7 +90,11 @@ export async function sweepSpendableOutputs(
         if (result instanceof Result_SpendableOutputDescriptorDecodeErrorZ_OK) {
           descriptors.push(result.res)
         } else {
-          console.error('[Sweep] Failed to deserialize SpendableOutputDescriptor for key:', key)
+          captureError(
+            'error',
+            'Sweep',
+            `Failed to deserialize SpendableOutputDescriptor for key: ${key}`
+          )
           valid = false
           break
         }
@@ -125,10 +128,10 @@ export async function sweepSpendableOutputs(
 
     if (!(result instanceof Result_TransactionNoneZ_OK)) {
       // spend_spendable_outputs can fail if outputs are dust or uneconomical
-      console.warn(
-        '[Sweep] spend_spendable_outputs failed — outputs may be dust or timelocked',
-        'descriptors:',
-        allDescriptors.length
+      captureError(
+        'warning',
+        'Sweep',
+        `spend_spendable_outputs failed — outputs may be dust or timelocked, descriptors: ${allDescriptors.length}`
       )
       return { swept: 0, skipped: skipped + allDescriptors.length, txid: null }
     }

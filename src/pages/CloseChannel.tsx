@@ -6,6 +6,7 @@ import { formatBtc } from '../utils/format-btc'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { Check, XClose } from '../components/icons'
 import type { ChannelInfoWithId } from '../ldk/types'
+import { captureError } from '../storage/error-log'
 
 const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/
 const HEX_RE = /^[0-9a-f]+$/
@@ -103,7 +104,7 @@ export function CloseChannel() {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[CloseChannel] close error:', err)
+      captureError('error', 'CloseChannel', 'Close error', String(err))
       setCurrentStep({
         step: 'error',
         message,

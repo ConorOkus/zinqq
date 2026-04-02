@@ -27,8 +27,13 @@ export function captureError(
   detail?: string
 ): void {
   const prefix = `[${source}]`
-  const consoleFn = severity === 'critical' || severity === 'error' ? console.error : console.warn
-  consoleFn(prefix, message, detail ?? '')
+  // Use direct console.error/console.warn calls (not a variable reference)
+  // so esbuild's drop:['console'] can strip them on mainnet builds.
+  if (severity === 'critical' || severity === 'error') {
+    console.error(prefix, message, detail ?? '')
+  } else {
+    console.warn(prefix, message, detail ?? '')
+  }
 
   const entry: ErrorLogEntry = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -40,7 +45,8 @@ export function captureError(
   }
 
   void idbPut('ldk_error_log', entry.id, entry).catch(() => {
-    // If IDB write fails, the console.error above is the fallback
+    // On mainnet, console calls are stripped at build time — if this IDB write
+    // also fails, the error is silently lost. This is accepted as best-effort.
   })
 
   // Prune old entries every 10th capture to avoid IDB churn

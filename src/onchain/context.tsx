@@ -22,6 +22,7 @@ import { ONCHAIN_CONFIG } from './config'
 import { ACTIVE_NETWORK } from '../ldk/config'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
+import { captureError } from '../storage/error-log'
 import { useLdk } from '../ldk/use-ldk'
 import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 
@@ -44,7 +45,7 @@ async function getFeeRate(esploraClient: EsploraClient): Promise<bigint> {
       return BigInt(Math.ceil(satPerVb))
     }
   } catch (err: unknown) {
-    console.warn('[Onchain] Fee estimation failed, using default:', err)
+    captureError('warning', 'Onchain', 'Fee estimation failed, using default', String(err))
   }
   return DEFAULT_FEE_RATE_SAT_VB
 }
@@ -53,7 +54,7 @@ function persistChangeset(wallet: Wallet): void {
   const staged = wallet.take_staged()
   if (staged && !staged.is_empty()) {
     void putChangeset(staged.to_json()).catch((err: unknown) =>
-      console.error('[Onchain] CRITICAL: failed to persist changeset:', err)
+      captureError('critical', 'Onchain', 'Failed to persist changeset', String(err))
     )
   }
 }

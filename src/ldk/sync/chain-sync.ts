@@ -14,6 +14,7 @@ import { txidBytesToHex } from '../utils'
 import { idbPut } from '../../storage/idb'
 import { persistChannelManager, type CmPersistContext } from '../storage/persist-cm'
 import type { SyncStatus } from '../ldk-context'
+import { captureError } from '../../storage/error-log'
 
 export async function syncOnce(
   confirmables: Confirm[],
@@ -70,9 +71,14 @@ export async function syncOnce(
       )
       const failedTxChecks = txResults.filter((r) => r.status === 'rejected')
       if (failedTxChecks.length > 0) {
-        console.warn(`[LDK Sync] ${failedTxChecks.length}/${txidEntries.length} txid checks failed`)
+        captureError(
+          'warning',
+          'LDK Sync',
+          `${failedTxChecks.length}/${txidEntries.length} txid checks failed`
+        )
         for (const r of failedTxChecks) {
-          if (r.status === 'rejected') console.error('[LDK Sync] Tx check error:', r.reason)
+          if (r.status === 'rejected')
+            captureError('error', 'LDK Sync', 'Tx check error', String(r.reason))
         }
       }
     }
@@ -84,13 +90,13 @@ export async function syncOnce(
         outputEntries.map(async ([key]) => {
           const colonIdx = key.indexOf(':')
           if (colonIdx === -1) {
-            console.error(`[LDK Sync] Malformed watched output key: ${key}`)
+            captureError('error', 'LDK Sync', `Malformed watched output key: ${key}`)
             return
           }
           const txid = key.slice(0, colonIdx)
           const vout = parseInt(key.slice(colonIdx + 1), 10)
           if (isNaN(vout)) {
-            console.error(`[LDK Sync] Invalid vout in watched output key: ${key}`)
+            captureError('error', 'LDK Sync', `Invalid vout in watched output key: ${key}`)
             return
           }
           const spend = await esplora.getOutspend(txid, vout)
@@ -110,11 +116,14 @@ export async function syncOnce(
       )
       const failedOutputChecks = outputResults.filter((r) => r.status === 'rejected')
       if (failedOutputChecks.length > 0) {
-        console.warn(
-          `[LDK Sync] ${failedOutputChecks.length}/${outputEntries.length} output checks failed`
+        captureError(
+          'warning',
+          'LDK Sync',
+          `${failedOutputChecks.length}/${outputEntries.length} output checks failed`
         )
         for (const r of failedOutputChecks) {
-          if (r.status === 'rejected') console.error('[LDK Sync] Output check error:', r.reason)
+          if (r.status === 'rejected')
+            captureError('error', 'LDK Sync', 'Output check error', String(r.reason))
         }
       }
     }
@@ -180,7 +189,7 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       rgsHandle = await initRapidGossipSync(config.networkGraph, config.logger, config.rgsUrl)
       console.log('[LDK Sync] Rapid Gossip Sync initialized')
     } catch (err) {
-      console.warn('[LDK Sync] RGS init failed, will retry:', err)
+      captureError('warning', 'LDK Sync', 'RGS init failed, will retry', String(err))
       rgsInitStarted = false // allow retry on next tick
     }
   }
@@ -237,7 +246,7 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
           await syncRapidGossip(rgsHandle, config.rgsUrl)
           await idbPut('ldk_network_graph', 'primary', config.networkGraph.write())
         } catch (err) {
-          console.warn('[LDK Sync] RGS periodic sync failed:', err)
+          captureError('warning', 'LDK Sync', 'RGS periodic sync failed', String(err))
         }
       }
 
@@ -246,7 +255,7 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       currentBackoff = config.intervalMs
       config.onStatusChange?.('synced')
     } catch (err) {
-      console.error('[LDK Sync] Sync error:', err)
+      captureError('error', 'LDK Sync', 'Sync error', String(err))
       consecutiveErrors++
       currentBackoff = Math.min(currentBackoff * 2, MAX_BACKOFF_MS)
       if (consecutiveErrors >= STALE_THRESHOLD) {

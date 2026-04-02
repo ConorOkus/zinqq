@@ -10,6 +10,7 @@ import { numpadDigitReducer } from '../components/numpad-reducer'
 import { formatBtc } from '../utils/format-btc'
 import { buildBip321Uri } from '../onchain/bip321'
 import { CopyIcon } from '../components/icons'
+import { captureError } from '../storage/error-log'
 
 type QrPage = 'unified' | 'bolt12'
 
@@ -81,7 +82,7 @@ export function Receive() {
       try {
         setAddress(generateAddress())
       } catch (err) {
-        console.error('[Receive] Failed to generate address:', err)
+        captureError('error', 'Receive', 'Failed to generate address', String(err))
         setAddressError(err instanceof Error ? err.message : 'Failed to generate address')
       }
     }
@@ -142,7 +143,7 @@ export function Receive() {
         })
         .catch((err: unknown) => {
           if (requestCounterRef.current !== thisRequest) return
-          console.warn('[Receive] JIT invoice failed:', err)
+          captureError('warning', 'Receive', 'JIT invoice failed', String(err))
           setInvoice(null)
           setPaymentHash(null)
           setOpeningFeeSats(null)
@@ -161,7 +162,7 @@ export function Receive() {
       setInvoiceError(null)
       setReceiveState({ step: 'ready', invoicePath: 'standard' })
     } catch (err) {
-      console.warn('[Receive] Failed to create invoice:', err)
+      captureError('warning', 'Receive', 'Failed to create invoice', String(err))
       setInvoice(null)
       setPaymentHash(null)
       if (confirmedAmountSats > 0n) {

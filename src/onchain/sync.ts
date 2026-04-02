@@ -1,6 +1,7 @@
 import type { Wallet, EsploraClient } from '@bitcoindevkit/bdk-wallet-web'
 import { ONCHAIN_CONFIG } from './config'
 import { putChangeset } from './storage/changeset'
+import { captureError } from '../storage/error-log'
 
 export interface OnchainSyncHandle {
   stop: () => void
@@ -65,7 +66,7 @@ export function startOnchainSyncLoop(
         try {
           await putChangeset(staged.to_json())
         } catch (err) {
-          console.error('[BDK Sync] CRITICAL: failed to persist ChangeSet:', err)
+          captureError('critical', 'BDK Sync', 'Failed to persist ChangeSet', String(err))
         }
       }
 
@@ -83,7 +84,7 @@ export function startOnchainSyncLoop(
       )
       onBalanceUpdate(balance)
     } catch (err) {
-      console.warn('[BDK Sync] Sync tick failed:', err)
+      captureError('warning', 'BDK Sync', 'Sync tick failed', String(err))
     } finally {
       clearTimeout(syncTimerId)
       isSyncing = false

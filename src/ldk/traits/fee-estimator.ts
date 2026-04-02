@@ -1,4 +1,5 @@
 import { FeeEstimator, ConfirmationTarget } from 'lightningdevkit'
+import { captureError } from '../../storage/error-log'
 
 // Default fee rates in sat/KW (1 sat/vB = 250 sat/KW)
 const DEFAULT_FEE_RATES: Record<ConfirmationTarget, number> = {
@@ -46,7 +47,12 @@ export function createFeeEstimator(esploraUrl: string): FeeEstimator {
         cache = { rates, fetchedAt: Date.now() }
       })
       .catch((err: unknown) => {
-        console.warn('[LDK FeeEstimator] Failed to fetch fee estimates, using defaults:', err)
+        captureError(
+          'warning',
+          'LDK FeeEstimator',
+          'Failed to fetch fee estimates, using defaults',
+          String(err)
+        )
       })
   }
 

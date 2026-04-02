@@ -24,6 +24,7 @@ import {
   type Init,
 } from 'lightningdevkit'
 import { bytesToHex } from '../utils'
+import { captureError } from '../../storage/error-log'
 import {
   LSPS_MESSAGE_TYPE,
   MAX_LSPS_MESSAGE_BYTES,
@@ -97,7 +98,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
         const bytes = msg.write()
 
         if (bytes.length > MAX_LSPS_MESSAGE_BYTES) {
-          console.warn('[LSPS2] Dropping oversized message:', bytes.length, 'bytes')
+          captureError('warning', 'LSPS2', `Dropping oversized message: ${bytes.length} bytes`)
           return Result_NoneLightningErrorZ.constructor_ok()
         }
 
@@ -105,7 +106,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
         try {
           text = new TextDecoder().decode(bytes)
         } catch {
-          console.warn('[LSPS2] Failed to decode message as UTF-8')
+          captureError('warning', 'LSPS2', 'Failed to decode message as UTF-8')
           return Result_NoneLightningErrorZ.constructor_ok()
         }
 
@@ -113,7 +114,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
         try {
           response = deserializeJsonRpcResponse(text)
         } catch (err) {
-          console.warn('[LSPS2] Failed to parse JSON-RPC response:', err)
+          captureError('warning', 'LSPS2', 'Failed to parse JSON-RPC response', String(err))
           return Result_NoneLightningErrorZ.constructor_ok()
         }
 

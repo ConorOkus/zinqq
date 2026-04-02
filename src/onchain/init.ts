@@ -1,6 +1,7 @@
 import { Wallet, EsploraClient, ChangeSet, type Network } from '@bitcoindevkit/bdk-wallet-web'
 import { ONCHAIN_CONFIG } from './config'
 import { getChangeset, putChangeset } from './storage/changeset'
+import { captureError } from '../storage/error-log'
 
 export interface BdkWallet {
   wallet: Wallet
@@ -24,7 +25,12 @@ async function createOrRestoreWallet(
       console.log('[BDK Init] Restored wallet from persisted ChangeSet')
       return wallet
     } catch (err) {
-      console.warn('[BDK Init] Failed to restore from ChangeSet, creating fresh wallet:', err)
+      captureError(
+        'warning',
+        'BDK Init',
+        'Failed to restore from ChangeSet, creating fresh wallet',
+        String(err)
+      )
     }
   }
 
@@ -85,7 +91,7 @@ export async function fullScanBdkWallet(
     wallet.apply_update(update)
     console.log('[BDK] Full scan complete')
   } catch (err) {
-    console.warn('[BDK] Full scan failed, wallet may have stale data:', err)
+    captureError('warning', 'BDK', 'Full scan failed, wallet may have stale data', String(err))
   }
 
   const staged = wallet.take_staged()
@@ -93,7 +99,7 @@ export async function fullScanBdkWallet(
     try {
       await putChangeset(staged.to_json())
     } catch (err) {
-      console.error('[BDK] CRITICAL: failed to persist ChangeSet after full scan:', err)
+      captureError('critical', 'BDK', 'Failed to persist ChangeSet after full scan', String(err))
     }
   }
 }

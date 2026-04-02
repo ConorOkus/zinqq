@@ -106,9 +106,11 @@ export function createPersister(options: PersisterOptions = {}): {
                 const serverKeys = parseMonitorManifest(new TextDecoder().decode(serverObj.value))
                 for (const k of serverKeys) monitorKeys.add(k)
               } catch (e) {
-                console.warn(
-                  '[LDK Persist] Server manifest parse failed, overwriting with local keys:',
-                  e
+                captureError(
+                  'warning',
+                  'LDK Persist',
+                  'Server manifest parse failed, overwriting with local keys',
+                  String(e)
                 )
               }
               const merged = new TextEncoder().encode(JSON.stringify([...monitorKeys]))
@@ -124,7 +126,7 @@ export function createPersister(options: PersisterOptions = {}): {
             /* retry failed, fall through to warning */
           }
         }
-        console.warn('[LDK Persist] Failed to write monitor manifest:', err)
+        captureError('warning', 'LDK Persist', 'Failed to write monitor manifest', String(err))
       }
     })
   }
@@ -167,8 +169,10 @@ export function createPersister(options: PersisterOptions = {}): {
         // Version conflict: re-fetch server version, compare, retry (capped)
         if (vssClient && isVssConflict(err) && conflictRetries < MAX_CONFLICT_RETRIES) {
           conflictRetries++
-          console.warn(
-            `[LDK Persist] Version conflict for ${key}, resolving (attempt ${conflictRetries}/${MAX_CONFLICT_RETRIES})...`
+          captureError(
+            'warning',
+            'LDK Persist',
+            `Version conflict for ${key}, resolving (attempt ${conflictRetries}/${MAX_CONFLICT_RETRIES})...`
           )
           try {
             const serverObj = await vssClient.getObject(key)
@@ -183,19 +187,27 @@ export function createPersister(options: PersisterOptions = {}): {
                 return
               }
               // Different data — log critical but use server version for next write attempt
-              console.error(
-                `[LDK Persist] CRITICAL: True version conflict for ${key}. ` +
-                  `Server version: ${serverObj.version}. Retrying with corrected version.`
+              captureError(
+                'critical',
+                'LDK Persist',
+                `True version conflict for ${key}. Server version: ${serverObj.version}. Retrying with corrected version.`
               )
             } else {
               // Key was deleted on the server — reset version to 0
               versionCache.set(key, 0)
-              console.warn(
-                `[LDK Persist] Key ${key} not found on server during conflict resolution, resetting version to 0`
+              captureError(
+                'warning',
+                'LDK Persist',
+                `Key ${key} not found on server during conflict resolution, resetting version to 0`
               )
             }
           } catch (resolveErr: unknown) {
-            console.error('[LDK Persist] Failed to resolve version conflict:', resolveErr)
+            captureError(
+              'error',
+              'LDK Persist',
+              'Failed to resolve version conflict',
+              String(resolveErr)
+            )
           }
           // Retry immediately with corrected version
           continue
@@ -205,12 +217,14 @@ export function createPersister(options: PersisterOptions = {}): {
         // Do NOT reset conflictRetries: subsequent conflicts go straight to
         // backoff (intentional — prevents infinite conflict-retry loops).
         if (vssClient && isVssConflict(err)) {
-          console.error(
-            `[LDK Persist] Conflict resolution exhausted for ${key} after ${MAX_CONFLICT_RETRIES} attempts, falling back to backoff`
+          captureError(
+            'critical',
+            'LDK Persist',
+            `Conflict resolution exhausted for ${key} after ${MAX_CONFLICT_RETRIES} attempts, falling back to backoff`
           )
         }
 
-        console.error(`[LDK Persist] Write failed for ${key}:`, err)
+        captureError('critical', 'LDK Persist', `Persist write failed for ${key}`, String(err))
         await new Promise((resolve) => setTimeout(resolve, backoff))
         totalWaitMs += backoff
         backoff = Math.min(backoff * 2, MAX_BACKOFF_MS)
@@ -292,14 +306,19 @@ export function createPersister(options: PersisterOptions = {}): {
               versionCache.delete(key)
             })
             .catch((err: unknown) => {
-              console.error(`[LDK Persist] Failed to delete ${key} from VSS:`, err)
+              captureError('error', 'LDK Persist', `Failed to delete ${key} from VSS`, String(err))
             })
         : Promise.resolve()
 
       deleteVss
         .then(() => idbDelete('ldk_channel_monitors', key))
         .catch((err: unknown) => {
-          console.error('[LDK Persist] Failed to delete archived channel monitor:', err)
+          captureError(
+            'error',
+            'LDK Persist',
+            'Failed to delete archived channel monitor',
+            String(err)
+          )
         })
     },
   })

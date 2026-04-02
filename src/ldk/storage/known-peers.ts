@@ -1,4 +1,5 @@
 import { idbGetAll, idbPut, idbDelete } from '../../storage/idb'
+import { captureError } from '../../storage/error-log'
 import { VssError, type VssClient } from './vss-client'
 import { ErrorCode } from './proto/vss_pb'
 
@@ -49,10 +50,10 @@ async function syncPeersToVss(): Promise<void> {
         const value = new TextEncoder().encode(JSON.stringify(obj))
         vssVersion = await vssClient.putObject(KNOWN_PEERS_VSS_KEY, value, vssVersion)
       } catch (retryErr: unknown) {
-        console.warn('[known-peers] VSS conflict retry failed:', retryErr)
+        captureError('warning', 'known-peers', 'VSS conflict retry failed', String(retryErr))
       }
     } else {
-      console.warn('[known-peers] VSS sync failed:', err)
+      captureError('warning', 'known-peers', 'VSS sync failed', String(err))
     }
   }
 }

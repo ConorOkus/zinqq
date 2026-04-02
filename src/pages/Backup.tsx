@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { MnemonicWordGrid } from '../components/MnemonicWordGrid'
 import { getMnemonic } from '../wallet/mnemonic'
+import { captureError } from '../storage/error-log'
 
 const AUTO_HIDE_MS = 60_000
 
@@ -34,7 +35,7 @@ export function Backup() {
       setState({ status: 'revealed', words: mnemonic.split(' ') })
       setCountdown(AUTO_HIDE_MS / 1000)
     } catch (err) {
-      console.error('Failed to retrieve mnemonic:', err)
+      captureError('error', 'Backup', 'Failed to retrieve mnemonic', String(err))
       setState({
         status: 'error',
         message: 'Unable to retrieve seed phrase. Please restart the app and try again.',

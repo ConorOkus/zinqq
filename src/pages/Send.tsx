@@ -14,6 +14,7 @@ import { ScreenHeader } from '../components/ScreenHeader'
 import { Numpad, type NumpadKey } from '../components/Numpad'
 import { numpadDigitReducer } from '../components/numpad-reducer'
 import { Check, XClose, ArrowRight } from '../components/icons'
+import { captureError } from '../storage/error-log'
 import {
   RecentPaymentDetails_AwaitingInvoice,
   RecentPaymentDetails_Pending,
@@ -285,7 +286,7 @@ export function Send() {
       } catch (err) {
         if (controller.signal.aborted) return
         const message = err instanceof Error ? err.message : String(err)
-        console.warn('[Send] Address resolution failed:', message)
+        captureError('warning', 'Send', 'Address resolution failed', message)
         setInputError(message)
       } finally {
         setIsResolving(false)

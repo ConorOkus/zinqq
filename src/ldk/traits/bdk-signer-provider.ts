@@ -7,6 +7,7 @@ import {
   ShutdownScript,
 } from 'lightningdevkit'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
+import { captureError } from '../../storage/error-log'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { revealNextAddress, peekAddressAtIndex } from '../../onchain/address-utils'
@@ -82,7 +83,12 @@ export function createBdkSignerProvider(
         const script = peekAddressAtIndex(bdkWallet, channel_keys_id)
         return Result_CVec_u8ZNoneZ.constructor_ok(script)
       } catch (err) {
-        console.error('[BdkSignerProvider] CRITICAL: Cannot derive destination address:', err)
+        captureError(
+          'critical',
+          'BdkSignerProvider',
+          'Cannot derive destination address',
+          String(err)
+        )
         return Result_CVec_u8ZNoneZ.constructor_err()
       }
     },
@@ -97,13 +103,13 @@ export function createBdkSignerProvider(
           const shutdownScript = ShutdownScript.constructor_new_p2wpkh(pubkeyHash)
           return Result_ShutdownScriptNoneZ.constructor_ok(shutdownScript)
         }
-        console.error(
-          '[BdkSignerProvider] CRITICAL: Unexpected script format (length=%d, prefix=0x%s)',
-          script.length,
-          script[0]?.toString(16)
+        captureError(
+          'critical',
+          'BdkSignerProvider',
+          `Unexpected script format (length=${script.length}, prefix=0x${script[0]?.toString(16)})`
         )
       } catch (err) {
-        console.error('[BdkSignerProvider] CRITICAL: Cannot derive shutdown address:', err)
+        captureError('critical', 'BdkSignerProvider', 'Cannot derive shutdown address', String(err))
       }
       return Result_ShutdownScriptNoneZ.constructor_err()
     },
