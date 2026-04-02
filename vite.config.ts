@@ -95,7 +95,7 @@ export default defineConfig(({ mode }) => {
               options: {
                 cacheName: 'wasm-cache',
                 expiration: { maxEntries: 1 },
-                cacheableResponse: { statuses: [0, 200] },
+                cacheableResponse: { statuses: [200] },
               },
             },
           ],

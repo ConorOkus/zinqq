@@ -6,10 +6,6 @@ import { WalletProvider } from './wallet/context'
 import { WalletGate } from './wallet/wallet-gate'
 import './index.css'
 
-if ('serviceWorker' in navigator) {
-  void navigator.serviceWorker.register('/sw.js', { scope: '/' })
-}
-
 const root = document.getElementById('root')
 if (!root) {
   throw new Error('Root element #root not found. Check index.html.')

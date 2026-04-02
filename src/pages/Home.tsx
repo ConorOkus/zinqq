@@ -6,7 +6,6 @@ import { useUnifiedBalance } from '../hooks/use-unified-balance'
 import { usePwaInstall } from '../hooks/use-pwa-install'
 import { BalanceDisplay } from '../components/BalanceDisplay'
 import { ArrowUpRight, ArrowDownLeft, RefreshIcon, HomeIcon } from '../components/icons'
-import { UpdateBanner } from '../components/UpdateBanner'
 
 export function Home() {
   const navigate = useNavigate()
@@ -73,7 +72,6 @@ export function Home() {
           </button>
         </div>
       )}
-      <UpdateBanner />
       <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
 
       <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+0.75rem+env(safe-area-inset-bottom,0px))]">

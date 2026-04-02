@@ -4,13 +4,6 @@ interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
-interface PwaInstallState {
-  canInstall: boolean
-  isIos: boolean
-  isStandalone: boolean
-  promptInstall: () => void
-}
-
 function getIsIos(): boolean {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window)
 }
@@ -18,15 +11,16 @@ function getIsIos(): boolean {
 function getIsStandalone(): boolean {
   return (
     window.matchMedia('(display-mode: standalone)').matches ||
-    ('standalone' in navigator && (navigator as { standalone: boolean }).standalone)
+    ('standalone' in navigator &&
+      (navigator as { standalone?: boolean }).standalone === true)
   )
 }
 
-export function usePwaInstall(): PwaInstallState {
+export function usePwaInstall() {
   const deferredPrompt = useRef<BeforeInstallPromptEvent | null>(null)
   const [canInstall, setCanInstall] = useState(false)
-  const [isStandalone] = useState(getIsStandalone)
-  const isIos = !isStandalone && getIsIos()
+  const isStandalone = getIsStandalone()
+  const [isIos] = useState(() => !getIsStandalone() && getIsIos())
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -42,10 +36,15 @@ export function usePwaInstall(): PwaInstallState {
   const promptInstall = () => {
     const prompt = deferredPrompt.current
     if (!prompt) return
-    void prompt.prompt().then(({ outcome }) => {
-      if (outcome === 'accepted') setCanInstall(false)
-      deferredPrompt.current = null
-    })
+    void prompt
+      .prompt()
+      .then(({ outcome }) => {
+        if (outcome === 'accepted') setCanInstall(false)
+        deferredPrompt.current = null
+      })
+      .catch(() => {
+        deferredPrompt.current = null
+      })
   }
 
   return { canInstall, isIos, isStandalone, promptInstall }
