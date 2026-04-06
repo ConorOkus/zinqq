@@ -24,7 +24,7 @@ vi.mock('./config', () => ({
   LDK_CONFIG: {
     network: 0,
     esploraUrl: 'https://example.com/api',
-    chainPollIntervalMs: 30_000,
+    chainPollIntervalMs: 60_000,
     wsProxyUrl: 'wss://example.com',
     peerTimerIntervalMs: 10_000,
     rgsUrl: 'https://example.com/snapshot',
