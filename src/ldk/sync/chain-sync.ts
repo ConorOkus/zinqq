@@ -59,9 +59,11 @@ export async function syncOnce(
         txidEntries.map(async ([txidHex]) => {
           const status = await esplora.getTxStatus(txidHex)
           if (status.confirmed && status.block_hash && status.block_height != null) {
-            const header = await esplora.getBlockHeader(status.block_hash)
-            const rawTx = await esplora.getTxHex(txidHex)
-            const proof = await esplora.getTxMerkleProof(txidHex)
+            const [header, rawTx, proof] = await Promise.all([
+              esplora.getBlockHeader(status.block_hash),
+              esplora.getTxHex(txidHex),
+              esplora.getTxMerkleProof(txidHex, status.block_hash),
+            ])
             const txdata = [TwoTuple_usizeTransactionZ.constructor_new(proof.pos, rawTx)]
             for (const confirmable of confirmables) {
               confirmable.transactions_confirmed(header, txdata, status.block_height)
@@ -103,9 +105,11 @@ export async function syncOnce(
           if (spend.spent && spend.txid) {
             const status = await esplora.getTxStatus(spend.txid)
             if (status.confirmed && status.block_hash && status.block_height != null) {
-              const header = await esplora.getBlockHeader(status.block_hash)
-              const rawTx = await esplora.getTxHex(spend.txid)
-              const proof = await esplora.getTxMerkleProof(spend.txid)
+              const [header, rawTx, proof] = await Promise.all([
+                esplora.getBlockHeader(status.block_hash),
+                esplora.getTxHex(spend.txid),
+                esplora.getTxMerkleProof(spend.txid, status.block_hash),
+              ])
               const txdata = [TwoTuple_usizeTransactionZ.constructor_new(proof.pos, rawTx)]
               for (const confirmable of confirmables) {
                 confirmable.transactions_confirmed(header, txdata, status.block_height)

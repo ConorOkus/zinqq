@@ -19,7 +19,7 @@ const ONCHAIN_CONFIGS: Record<NetworkId, OnchainConfig> = {
     explorerUrl: 'https://mutinynet.com',
     syncIntervalMs: 180_000,
     fullScanGapLimit: 20,
-    syncParallelRequests: 5,
+    syncParallelRequests: 2,
     esploraMaxRetries: 3,
   },
   mainnet: {
@@ -28,7 +28,7 @@ const ONCHAIN_CONFIGS: Record<NetworkId, OnchainConfig> = {
     explorerUrl: 'https://mempool.space',
     syncIntervalMs: 180_000,
     fullScanGapLimit: 20,
-    syncParallelRequests: 5,
+    syncParallelRequests: 2,
     esploraMaxRetries: 3,
   },
 }

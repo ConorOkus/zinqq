@@ -81,12 +81,15 @@ export async function fullScanBdkWallet(
   wallet: Wallet,
   esploraClient: EsploraClient
 ): Promise<void> {
+  // Higher parallelism than incremental sync (ONCHAIN_CONFIG.syncParallelRequests = 2)
+  // because full scan runs once on wallet creation and benefits from faster throughput.
+  const FULL_SCAN_PARALLEL_REQUESTS = 4
   try {
     const fullScanRequest = wallet.start_full_scan()
     const update = await esploraClient.full_scan(
       fullScanRequest,
       ONCHAIN_CONFIG.fullScanGapLimit,
-      ONCHAIN_CONFIG.syncParallelRequests
+      FULL_SCAN_PARALLEL_REQUESTS
     )
     wallet.apply_update(update)
     console.log('[BDK] Full scan complete')
