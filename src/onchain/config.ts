@@ -38,4 +38,5 @@ const onchainBase = ONCHAIN_CONFIGS[ACTIVE_NETWORK]
 export const ONCHAIN_CONFIG: OnchainConfig = {
   ...onchainBase,
   esploraUrl: (import.meta.env.VITE_ESPLORA_URL as string | undefined) ?? onchainBase.esploraUrl,
+  explorerUrl: (import.meta.env.VITE_EXPLORER_URL as string | undefined) ?? onchainBase.explorerUrl,
 }
