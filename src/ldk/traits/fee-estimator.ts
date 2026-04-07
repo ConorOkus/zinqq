@@ -5,7 +5,7 @@ import { getCachedFeeRate } from '../../shared/fee-cache'
 const DEFAULT_FEE_RATES: Record<ConfirmationTarget, number> = {
   [ConfirmationTarget.LDKConfirmationTarget_MaximumFeeEstimate]: 50_000,
   [ConfirmationTarget.LDKConfirmationTarget_UrgentOnChainSweep]: 25_000,
-  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 2_500,
+  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 253,
   [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_AnchorChannelFee]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_NonAnchorChannelFee]: 5_000,
