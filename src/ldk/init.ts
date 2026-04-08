@@ -398,6 +398,45 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       }
     } else {
       initialMonitorKeys = [...idbMonitors.keys()]
+
+      // IDB has data — seed VSS version cache so writes don't start at 0.
+      // Without this, every write gets a 409 conflict because the server
+      // version is higher than 0 from previous sessions.
+      try {
+        const keysToSeed = [
+          'channel_manager',
+          MONITOR_MANIFEST_KEY,
+          KNOWN_PEERS_VSS_KEY,
+          ...initialMonitorKeys,
+        ]
+        const results = await Promise.all(
+          keysToSeed.map(async (key) => {
+            const obj = await vssClient.getObject(key)
+            return obj ? { key, version: obj.version } : null
+          })
+        )
+        let seeded = 0
+        for (const result of results) {
+          if (result) {
+            if (result.key === 'channel_manager') {
+              initialCmVersion = result.version
+            } else {
+              recoveredVersions.set(result.key, result.version)
+            }
+            seeded++
+          }
+        }
+        if (seeded > 0) {
+          console.log(`[LDK Init] Seeded ${seeded} VSS version(s) from server`)
+        }
+      } catch (err: unknown) {
+        captureError(
+          'warning',
+          'LDK Init',
+          'Failed to seed VSS versions, conflict retries will handle mismatches',
+          String(err)
+        )
+      }
     }
   }
 
