@@ -790,6 +790,7 @@ export function LdkProvider({
                   () => drainEventsRef.current?.()
                 )
                   .then((conn) => {
+                    activeConnections.current.get(LDK_CONFIG.lspNodeId)?.disconnect()
                     activeConnections.current.set(LDK_CONFIG.lspNodeId, conn)
                     console.log('[ldk] Connected to LSP')
                   })
