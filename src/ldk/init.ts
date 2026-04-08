@@ -156,7 +156,9 @@ function initWasm(): Promise<void> {
   return wasmInitPromise
 }
 
-// Multi-tab lock: prevent two tabs from running independent ChannelManagers
+// Multi-tab lock: prevent two tabs from running independent ChannelManagers.
+// Uses `steal: true` so the most recently opened tab always wins. This avoids
+// stale locks from crashed tabs, bfcache, or service workers blocking restore.
 async function acquireWalletLock(): Promise<void> {
   if (!navigator.locks) {
     throw new Error(
@@ -165,12 +167,8 @@ async function acquireWalletLock(): Promise<void> {
     )
   }
 
-  return new Promise<void>((resolve, reject) => {
-    void navigator.locks.request('zinqq-lock', { ifAvailable: true }, (lock) => {
-      if (!lock) {
-        reject(new Error('Wallet is already open in another tab'))
-        return Promise.resolve()
-      }
+  return new Promise<void>((resolve) => {
+    void navigator.locks.request('zinqq-lock', { steal: true }, () => {
       resolve()
       // Hold the lock by returning a never-resolving promise
       return new Promise<void>(() => {})
