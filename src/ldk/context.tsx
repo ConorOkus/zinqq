@@ -778,13 +778,10 @@ export function LdkProvider({
           // causes LDK to tear down the duplicate and disconnect.
           getKnownPeers()
             .then(async (peers) => {
-              // Auto-connect to LSP so JIT channels are ready when needed.
-              // Only do this if the LSP is NOT already a known peer — known
-              // peers are reconnected in the loop below, which also polls for
-              // channel usability.
-              const lspIsKnownPeer =
-                LDK_CONFIG.lspNodeId && peers.has(LDK_CONFIG.lspNodeId)
-              if (LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost && !lspIsKnownPeer) {
+              // Auto-connect to LSP only if it's NOT already a known peer —
+              // known peers are reconnected in the loop below, which also
+              // polls for channel usability.
+              if (LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost && !peers.has(LDK_CONFIG.lspNodeId)) {
                 void doConnectToPeer(
                   node.peerManager,
                   LDK_CONFIG.lspNodeId,
