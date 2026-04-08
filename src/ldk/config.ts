@@ -61,13 +61,15 @@ const base = NETWORK_CONFIGS[networkId as NetworkId]
 
 export const LDK_CONFIG: LdkConfig = {
   ...base,
-  esploraUrl: (import.meta.env.VITE_ESPLORA_URL as string | undefined) ?? base.esploraUrl,
-  wsProxyUrl: (import.meta.env.VITE_WS_PROXY_URL as string | undefined) ?? base.wsProxyUrl,
-  vssUrl: (import.meta.env.VITE_VSS_URL as string | undefined) ?? base.vssUrl,
-  lspNodeId: (import.meta.env.VITE_LSP_NODE_ID as string | undefined) ?? base.lspNodeId,
-  lspHost: (import.meta.env.VITE_LSP_HOST as string | undefined) ?? base.lspHost,
-  lspPort: Number(import.meta.env.VITE_LSP_PORT ?? base.lspPort),
-  lspToken: (import.meta.env.VITE_LSP_TOKEN as string | undefined) ?? base.lspToken,
+  esploraUrl: ((import.meta.env.VITE_ESPLORA_URL as string | undefined) ?? base.esploraUrl).trim(),
+  wsProxyUrl: ((import.meta.env.VITE_WS_PROXY_URL as string | undefined) ?? base.wsProxyUrl).trim(),
+  vssUrl: ((import.meta.env.VITE_VSS_URL as string | undefined) ?? base.vssUrl).trim(),
+  lspNodeId: ((import.meta.env.VITE_LSP_NODE_ID as string | undefined) ?? base.lspNodeId).trim(),
+  lspHost: ((import.meta.env.VITE_LSP_HOST as string | undefined) ?? base.lspHost).trim(),
+  lspPort: Number(
+    ((import.meta.env.VITE_LSP_PORT as string | undefined) ?? String(base.lspPort)).trim()
+  ),
+  lspToken: ((import.meta.env.VITE_LSP_TOKEN as string | undefined) ?? base.lspToken)?.trim(),
 }
 
 if (!LDK_CONFIG.wsProxyUrl) {
