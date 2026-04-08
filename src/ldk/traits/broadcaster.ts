@@ -25,7 +25,8 @@ async function postTxToEsplora(
   if (
     lower.includes('transaction already in block chain') ||
     lower.includes('txn-already-known') ||
-    lower.includes('txn-already-confirmed')
+    lower.includes('txn-already-confirmed') ||
+    lower.includes('insufficient fee, rejecting replacement')
   ) {
     return { status: 'known' }
   }
