@@ -74,6 +74,20 @@ export function LdkProvider({
   // WebSocket onmessage callback so the UI updates immediately on peer messages.
   const drainEventsRef = useRef<(() => void) | null>(null)
 
+  /** Connect to a peer and track the connection. Disconnects any stale entry first. */
+  const connectAndTrack = async (
+    peerManager: import('lightningdevkit').PeerManager,
+    pubkey: string,
+    host: string,
+    port: number
+  ): Promise<void> => {
+    const conn = await doConnectToPeer(peerManager, pubkey, host, port, () =>
+      drainEventsRef.current?.()
+    )
+    activeConnections.current.get(pubkey)?.disconnect()
+    activeConnections.current.set(pubkey, conn)
+  }
+
   const shutdown = useCallback(() => {
     console.log('[LDK Context] Shutting down LDK node for restore')
     teardownRef.current?.()
@@ -88,11 +102,7 @@ export function LdkProvider({
   const connectToPeer = useCallback(
     async (pubkey: string, host: string, port: number): Promise<void> => {
       if (!nodeRef.current) throw new Error('Node not initialized')
-      const conn = await doConnectToPeer(nodeRef.current.peerManager, pubkey, host, port, () =>
-        drainEventsRef.current?.()
-      )
-      activeConnections.current.get(pubkey)?.disconnect()
-      activeConnections.current.set(pubkey, conn)
+      await connectAndTrack(nodeRef.current.peerManager, pubkey, host, port)
       putKnownPeer(pubkey, host, port).catch((err: unknown) =>
         captureError('warning', 'LDK', 'Failed to persist known peer', String(err))
       )
@@ -250,11 +260,7 @@ export function LdkProvider({
       const lspPort = LDK_CONFIG.lspPort
       if (lspHost) {
         try {
-          const conn = await doConnectToPeer(node.peerManager, lspNodeId, lspHost, lspPort, () =>
-            drainEventsRef.current?.()
-          )
-          activeConnections.current.get(lspNodeId)?.disconnect()
-          activeConnections.current.set(lspNodeId, conn)
+          await connectAndTrack(node.peerManager, lspNodeId, lspHost, lspPort)
         } catch {
           // Connection attempt failed — verify LSP is actually reachable.
           // On mobile browsers, WebSockets die when backgrounded; the peer
@@ -264,11 +270,7 @@ export function LdkProvider({
             .some((p) => bytesToHex(p.get_counterparty_node_id()) === lspNodeId)
 
           if (!isConnected) {
-            const conn = await doConnectToPeer(node.peerManager, lspNodeId, lspHost, lspPort, () =>
-              drainEventsRef.current?.()
-            )
-            activeConnections.current.get(lspNodeId)?.disconnect()
-            activeConnections.current.set(lspNodeId, conn)
+            await connectAndTrack(node.peerManager, lspNodeId, lspHost, lspPort)
           }
         }
       }
@@ -546,21 +548,14 @@ export function LdkProvider({
           // Reconnect peers when LDK signals ConnectionNeeded (e.g., pending
           // HTLCs require the peer to be online). Uses addresses from the event.
           setConnectionNeededCallback((nodeIdHex, host, port) => {
-            void doConnectToPeer(node.peerManager, nodeIdHex, host, port, () =>
-              drainEventsRef.current?.()
-            )
-              .then((conn) => {
-                activeConnections.current.get(nodeIdHex)?.disconnect()
-                activeConnections.current.set(nodeIdHex, conn)
-              })
-              .catch((err: unknown) => {
-                captureError(
-                  'warning',
-                  'LDK',
-                  `ConnectionNeeded reconnect failed: ${nodeIdHex.substring(0, 16)}…`,
-                  String(err)
-                )
-              })
+            void connectAndTrack(node.peerManager, nodeIdHex, host, port).catch((err: unknown) => {
+              captureError(
+                'warning',
+                'LDK',
+                `ConnectionNeeded reconnect failed: ${nodeIdHex.substring(0, 16)}…`,
+                String(err)
+              )
+            })
           })
 
           cleanupEventHandlerFn = cleanupEventHandler
@@ -804,16 +799,13 @@ export function LdkProvider({
               // known peers are reconnected in the loop below, which also
               // polls for channel usability.
               if (LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost && !peers.has(LDK_CONFIG.lspNodeId)) {
-                void doConnectToPeer(
+                void connectAndTrack(
                   node.peerManager,
                   LDK_CONFIG.lspNodeId,
                   LDK_CONFIG.lspHost,
-                  LDK_CONFIG.lspPort,
-                  () => drainEventsRef.current?.()
+                  LDK_CONFIG.lspPort
                 )
-                  .then((conn) => {
-                    activeConnections.current.get(LDK_CONFIG.lspNodeId)?.disconnect()
-                    activeConnections.current.set(LDK_CONFIG.lspNodeId, conn)
+                  .then(() => {
                     console.log('[ldk] Connected to LSP')
                   })
                   .catch((err: unknown) => {
@@ -835,12 +827,9 @@ export function LdkProvider({
               }
               console.log(`[ldk] reconnecting to ${peers.size} known peer(s)`)
               const results = await Promise.allSettled(
-                Array.from(peers.entries()).map(async ([pubkey, { host, port }]) => {
-                  const conn = await doConnectToPeer(node.peerManager, pubkey, host, port, () =>
-                    drainEventsRef.current?.()
-                  )
-                  activeConnections.current.set(pubkey, conn)
-                })
+                Array.from(peers.entries()).map(([pubkey, { host, port }]) =>
+                  connectAndTrack(node.peerManager, pubkey, host, port)
+                )
               )
               const succeeded = results.filter((r) => r.status === 'fulfilled').length
               const failed = results.filter((r) => r.status === 'rejected').length
