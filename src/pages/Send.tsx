@@ -98,9 +98,9 @@ function recipientLabel(
   if (label) return label
   switch (parsed.type) {
     case 'bolt11':
-      return parsed.description ?? 'Lightning Invoice'
+      return parsed.description || 'Lightning Invoice'
     case 'bolt12':
-      return parsed.description ?? 'Lightning Offer'
+      return parsed.description || 'Lightning Offer'
   }
 }
 
