@@ -26,6 +26,7 @@ import { captureError } from '../storage/error-log'
 import { useLdk } from '../ldk/use-ldk'
 import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 import { getFeeRate as getSharedFeeRate } from '../shared/fee-cache'
+import { formatBtc } from '../utils/format-btc'
 
 const FEE_TARGET_BLOCKS = 6
 const MIN_FEE_RATE_SAT_VB = ACTIVE_NETWORK === 'mainnet' ? 2n : 1n
@@ -59,7 +60,7 @@ function discardStagedChanges(wallet: Wallet): void {
 function mapSendError(err: unknown): Error {
   if (err instanceof InsufficientFunds) {
     return new Error(
-      `Insufficient funds. Available: ${err.available.to_sat().toString()} sats, needed: ${err.needed.to_sat().toString()} sats`
+      `Insufficient funds. Available: ${formatBtc(err.available.to_sat())}, needed: ${formatBtc(err.needed.to_sat())}`
     )
   }
   if (err instanceof Error) {
@@ -68,7 +69,7 @@ function mapSendError(err: unknown): Error {
       return new Error('This address is for a different Bitcoin network')
     }
     if (msg.includes('dust')) {
-      return new Error('Amount is below the minimum (294 sats)')
+      return new Error(`Amount is below the minimum (${formatBtc(294n)})`)
     }
     return err
   }
@@ -194,7 +195,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         const fee = psbt.fee().to_sat()
         if (fee > MAX_FEE_SATS) {
           discardStagedChanges(wallet)
-          throw new Error(`Fee too high: ${fee.toString()} sats exceeds safety limit`)
+          throw new Error(`Fee too high: ${formatBtc(fee)} exceeds safety limit`)
         }
 
         wallet.sign(psbt, new SignOptions())
@@ -293,7 +294,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         const { fee } = await estimateFee(address, amountSats)
         if (amountSats + fee + reserve > available) {
           throw new Error(
-            `Insufficient funds after reserving ${ANCHOR_RESERVE_SATS.toString()} sats for Lightning channel safety`
+            `Insufficient funds after reserving ${formatBtc(ANCHOR_RESERVE_SATS)} for Lightning channel safety`
           )
         }
       }
@@ -342,7 +343,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       const { amount } = await estimateMaxSendable(addr.toString())
       if (amount <= 0n) {
         throw new Error(
-          `Insufficient funds after reserving ${ANCHOR_RESERVE_SATS.toString()} sats for Lightning channel safety`
+          `Insufficient funds after reserving ${formatBtc(ANCHOR_RESERVE_SATS)} for Lightning channel safety`
         )
       }
       return buildSignBroadcast(

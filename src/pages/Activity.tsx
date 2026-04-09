@@ -1,3 +1,4 @@
+import { Link } from 'react-router'
 import { useTransactionHistory } from '../hooks/use-transaction-history'
 import { formatBtc } from '../utils/format-btc'
 import { ArrowUpRight, ArrowDownLeft } from '../components/icons'
@@ -36,7 +37,12 @@ export function Activity() {
       ) : (
         <div className="-mx-6 flex-1 overflow-y-auto">
           {transactions.map((tx) => (
-            <div key={tx.id} className="flex items-center gap-4 px-6 py-4">
+            <Link
+              key={tx.id}
+              to={`/activity/${tx.id}`}
+              state={{ tx }}
+              className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-white/5"
+            >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-accent">
                 {tx.direction === 'sent' ? (
                   <ArrowUpRight className="h-5 w-5" />
@@ -66,7 +72,7 @@ export function Activity() {
                 {tx.direction === 'sent' ? '-' : '+'}
                 {formatBtc(tx.amountSats)}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

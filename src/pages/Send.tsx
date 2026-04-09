@@ -347,7 +347,7 @@ export function Send() {
 
           // Phase 2 validation: dust limit
           if (effectiveAmount < MIN_DUST_SATS) {
-            setInputError('Amount must be at least 294 sats (dust limit)')
+            setInputError(`Amount must be at least ${formatBtc(MIN_DUST_SATS)} (dust limit)`)
             return
           }
 

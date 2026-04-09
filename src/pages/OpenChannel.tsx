@@ -85,12 +85,12 @@ export function OpenChannel() {
     setAmountError(null)
 
     if (amountSats < MIN_CHANNEL_SATS) {
-      setAmountError(`Minimum channel size is ${MIN_CHANNEL_SATS.toLocaleString()} sats`)
+      setAmountError(`Minimum channel size is ${formatBtc(MIN_CHANNEL_SATS)}`)
       return
     }
 
     if (amountSats > MAX_CHANNEL_SATS) {
-      setAmountError(`Maximum channel size is ${MAX_CHANNEL_SATS.toLocaleString()} sats`)
+      setAmountError(`Maximum channel size is ${formatBtc(MAX_CHANNEL_SATS)}`)
       return
     }
 

@@ -318,7 +318,7 @@ describe('Send', () => {
       await user.click(nextBtns[nextBtns.length - 1]!)
 
       await waitFor(() => {
-        expect(screen.getByText(/at least 294 sats/i)).toBeInTheDocument()
+        expect(screen.getByText(/at least ₿294.*dust limit/i)).toBeInTheDocument()
       })
     })
   })
