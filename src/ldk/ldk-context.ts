@@ -44,7 +44,11 @@ export type LdkContextValue =
       ) => { bolt11: string; paymentHash: string }
       requestJitInvoice: (amountMsat: bigint, description: string) => Promise<JitInvoiceResult>
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
-      sendBolt12Payment: (offer: Offer, amountMsat?: bigint, payerNote?: string) => Uint8Array
+      sendBolt12Payment: (
+        offer: Offer,
+        amountMsat?: bigint,
+        payerNote?: string
+      ) => Promise<Uint8Array>
 
       abandonPayment: (paymentId: Uint8Array) => void
       getPaymentResult: (paymentId: Uint8Array) => PaymentResult | null

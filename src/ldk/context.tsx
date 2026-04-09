@@ -392,9 +392,23 @@ export function LdkProvider({
   )
 
   const sendBolt12Payment = useCallback(
-    (offer: Offer, amountMsat?: bigint, payerNote?: string): Uint8Array => {
+    async (offer: Offer, amountMsat?: bigint, payerNote?: string): Promise<Uint8Array> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
+
+      // Ensure LSP is connected so onion messages can route.
+      // On mobile browsers, WebSockets die when backgrounded.
+      const lspNodeId = LDK_CONFIG.lspNodeId
+      const lspHost = LDK_CONFIG.lspHost
+      if (lspNodeId && lspHost) {
+        const isConnected = node.peerManager
+          .list_peers()
+          .some((p) => bytesToHex(p.get_counterparty_node_id()) === lspNodeId)
+
+        if (!isConnected) {
+          await connectAndTrack(node.peerManager, lspNodeId, lspHost, LDK_CONFIG.lspPort)
+        }
+      }
 
       // Use 8 random bytes for payment ID (safe u128 range per institutional learning)
       const paymentId = crypto.getRandomValues(new Uint8Array(32))

@@ -554,7 +554,7 @@ export function Send() {
   }, [onchain, sendStep])
 
   // --- Lightning: Confirm send ---
-  const handleLnConfirm = useCallback(() => {
+  const handleLnConfirm = useCallback(async () => {
     if (sendingRef.current) return
     if (ldk.status !== 'ready' || sendStep.step !== 'ln-review') return
 
@@ -572,7 +572,7 @@ export function Send() {
           )
           break
         case 'bolt12':
-          paymentId = ldk.sendBolt12Payment(
+          paymentId = await ldk.sendBolt12Payment(
             parsed.offer,
             parsed.amountMsat === null ? amountMsat : undefined
           )
@@ -880,7 +880,7 @@ export function Send() {
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
             className="h-14 w-full rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
-            onClick={handleLnConfirm}
+            onClick={() => void handleLnConfirm()}
           >
             Confirm Send
           </button>

@@ -49,7 +49,7 @@ function readyLdk(
     bdkEsploraClient: {} as never,
     setSyncNeeded: () => {},
     sendBolt11Payment: () => new Uint8Array(32),
-    sendBolt12Payment: () => new Uint8Array(32),
+    sendBolt12Payment: () => Promise.resolve(new Uint8Array(32)),
     abandonPayment: () => {},
     getPaymentResult: () => null,
     listRecentPayments: () => [],
