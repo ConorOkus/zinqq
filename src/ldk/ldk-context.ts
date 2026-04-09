@@ -30,6 +30,7 @@ export type LdkContextValue =
       syncStatus: SyncStatus
       connectToPeer: (pubkey: string, host: string, port: number) => Promise<void>
       forgetPeer: (pubkey: string) => Promise<void>
+      disconnectPeer: (pubkey: string) => void
       createChannel: (counterpartyPubkey: Uint8Array, channelValueSats: bigint) => boolean
       closeChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
       forceCloseChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
@@ -74,4 +75,4 @@ export const defaultLdkContextValue: LdkContextValue = {
   error: null,
 }
 
-export const LdkContext = createContext<LdkContextValue>(defaultLdkContextValue)
+export const LdkContext = createContext<LdkContextValue | null>(null)

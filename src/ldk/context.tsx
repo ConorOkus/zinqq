@@ -181,6 +181,14 @@ export function LdkProvider({
     await deleteKnownPeer(pubkey)
   }, [])
 
+  const disconnectPeer = useCallback((pubkey: string): void => {
+    const conn = activeConnections.current.get(pubkey)
+    if (conn) {
+      conn.disconnect()
+      activeConnections.current.delete(pubkey)
+    }
+  }, [])
+
   // Payment result store: tracks outcomes of in-flight payments.
   // Bounded to 100 entries to prevent unbounded memory growth.
   const MAX_PAYMENT_RESULTS = 100
@@ -684,6 +692,7 @@ export function LdkProvider({
             syncStatus: 'syncing',
             connectToPeer,
             forgetPeer,
+            disconnectPeer,
             createChannel,
             closeChannel,
             forceCloseChannel,
@@ -929,6 +938,7 @@ export function LdkProvider({
   }, [
     connectToPeer,
     forgetPeer,
+    disconnectPeer,
     createChannel,
     closeChannel,
     forceCloseChannel,

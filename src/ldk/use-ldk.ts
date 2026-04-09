@@ -6,5 +6,9 @@ import { LdkContext, type LdkContextValue } from './ldk-context'
  * Throws if called outside of any LdkContext provider tree.
  */
 export function useLdk(): LdkContextValue {
-  return useContext(LdkContext)
+  const ctx = useContext(LdkContext)
+  if (ctx === null) {
+    throw new Error('useLdk must be used within an LdkProvider')
+  }
+  return ctx
 }
