@@ -256,7 +256,20 @@ export function LdkProvider({
           activeConnections.current.get(lspNodeId)?.disconnect()
           activeConnections.current.set(lspNodeId, conn)
         } catch {
-          // May already be connected, continue
+          // Connection attempt failed — verify LSP is actually reachable.
+          // On mobile browsers, WebSockets die when backgrounded; the peer
+          // may appear stale. If not connected, retry once before giving up.
+          const isConnected = node.peerManager
+            .list_peers()
+            .some((p) => bytesToHex(p.get_counterparty_node_id()) === lspNodeId)
+
+          if (!isConnected) {
+            const conn = await doConnectToPeer(node.peerManager, lspNodeId, lspHost, lspPort, () =>
+              drainEventsRef.current?.()
+            )
+            activeConnections.current.get(lspNodeId)?.disconnect()
+            activeConnections.current.set(lspNodeId, conn)
+          }
         }
       }
 
