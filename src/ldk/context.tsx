@@ -528,6 +528,14 @@ export function LdkProvider({
             ;(window as unknown as Record<string, unknown>).__ldkNode = safeNode
           }
 
+          // Expose recovery functions for agent/programmatic access.
+          // Available in all environments so agents can check recovery status,
+          // read the deposit address, and dismiss the success banner.
+          ;(window as unknown as Record<string, unknown>).__recovery = {
+            getState: readRecoveryState,
+            dismiss: () => clearRecoveryState(vssClient),
+          }
+
           // Zero secret keys on page unload to limit memory exposure
           const zeroSecretOnUnload = () => {
             node.nodeSecretKey.fill(0)
