@@ -20,6 +20,10 @@ interface LdkConfig {
   genesisBlockHash: string
 }
 
+// Note: vssUrl uses a relative path (/api/vss-proxy) that requires a proxy:
+// - Dev: Vite's server.proxy config (vite.config.ts)
+// - Production: Vercel rewrite rules (vercel.json)
+// - pnpm preview: NOT supported — Vite's preview server doesn't run proxy config
 const NETWORK_CONFIGS: Record<NetworkId, LdkConfig> = {
   signet: {
     network: Network.LDKNetwork_Signet,
