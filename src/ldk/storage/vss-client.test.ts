@@ -4,6 +4,8 @@ import { VssClient, FixedHeaderProvider, SignatureHeaderProvider, VssError } fro
 import {
   GetObjectResponseSchema,
   PutObjectRequestSchema,
+  DeleteObjectRequestSchema,
+  ListKeyVersionsRequestSchema,
   KeyValueSchema,
   ErrorResponseSchema,
   ErrorCode,
@@ -114,6 +116,68 @@ describe('VssClient', () => {
     })
   })
 
+  describe('deleteObject', () => {
+    it('sends a protobuf-encoded DeleteObjectRequest', async () => {
+      let capturedUrl = ''
+      let capturedBody: Uint8Array | null = null
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        capturedUrl = String(input)
+        capturedBody = new Uint8Array(init!.body as ArrayBuffer)
+        return new Response(new Uint8Array(0), { status: 200 })
+      })
+
+      const client = makeClient()
+      await client.deleteObject('my-key', 3)
+
+      expect(capturedUrl).toBe(`${TEST_URL}/deleteObject`)
+      expect(capturedBody).not.toBeNull()
+
+      const decoded = fromBinary(DeleteObjectRequestSchema, capturedBody!)
+      expect(decoded.storeId).toBe(TEST_STORE_ID)
+      expect(decoded.keyValue).toBeDefined()
+      expect(decoded.keyValue!.key).toMatch(/^[0-9a-f]{64}$/)
+      expect(decoded.keyValue!.version).toBe(3n)
+    })
+
+    it('throws on error response', async () => {
+      const errorMsg = create(ErrorResponseSchema, {
+        errorCode: ErrorCode.NO_SUCH_KEY_EXCEPTION,
+        message: 'Key not found',
+      })
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(toBinary(ErrorResponseSchema, errorMsg), { status: 404 })
+      )
+
+      const client = makeClient()
+      await expect(client.deleteObject('nonexistent', 1)).rejects.toThrow(VssError)
+    })
+  })
+
+  describe('putObjects (batch)', () => {
+    it('sends multiple items in a single request', async () => {
+      let capturedBody: Uint8Array | null = null
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedBody = new Uint8Array(init!.body as ArrayBuffer)
+        return new Response(new Uint8Array(0), { status: 200 })
+      })
+
+      const client = makeClient()
+      await client.putObjects([
+        { key: 'key-a', value: new TextEncoder().encode('value-a'), version: 0 },
+        { key: 'key-b', value: new TextEncoder().encode('value-b'), version: 1 },
+        { key: 'key-c', value: new TextEncoder().encode('value-c'), version: 2 },
+      ])
+
+      expect(capturedBody).not.toBeNull()
+      const decoded = fromBinary(PutObjectRequestSchema, capturedBody!)
+      expect(decoded.storeId).toBe(TEST_STORE_ID)
+      expect(decoded.transactionItems).toHaveLength(3)
+      expect(decoded.transactionItems[0]!.version).toBe(0n)
+      expect(decoded.transactionItems[1]!.version).toBe(1n)
+      expect(decoded.transactionItems[2]!.version).toBe(2n)
+    })
+  })
+
   describe('error handling', () => {
     it('throws VssError with CONFLICT_EXCEPTION on 409', async () => {
       const errorMsg = create(ErrorResponseSchema, {
@@ -147,7 +211,7 @@ describe('VssClient', () => {
   })
 
   describe('listKeyVersions', () => {
-    it('returns all keys with pagination', async () => {
+    it('returns all keys with pagination and forwards pageToken', async () => {
       const page1 = create(ListKeyVersionsResponseSchema, {
         keyVersions: [
           create(KeyValueSchema, { key: 'a', version: 1n }),
@@ -161,8 +225,10 @@ describe('VssClient', () => {
       })
 
       let callCount = 0
-      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const capturedBodies: Uint8Array[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
         callCount++
+        capturedBodies.push(new Uint8Array(init!.body as ArrayBuffer))
         const data = callCount === 1 ? page1 : page2
         return new Response(toBinary(ListKeyVersionsResponseSchema, data), { status: 200 })
       })
@@ -174,6 +240,10 @@ describe('VssClient', () => {
       expect(results[0]).toEqual({ key: 'a', version: 1 })
       expect(results[2]).toEqual({ key: 'c', version: 3 })
       expect(callCount).toBe(2)
+
+      // Verify pageToken was forwarded in the second request
+      const secondRequest = fromBinary(ListKeyVersionsRequestSchema, capturedBodies[1]!)
+      expect(secondRequest.pageToken).toBe('page2')
     })
   })
 })

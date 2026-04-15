@@ -45,9 +45,10 @@ vi.mock('../ldk/payment-input', () => ({
   },
 }))
 
-function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextValue) {
-  const oc = onchainValue ?? defaultOnchainContextValue
-  const lk = ldkValue ?? {
+function readyLdkContext(
+  overrides?: Partial<Extract<LdkContextValue, { status: 'ready' }>>
+): LdkContextValue {
+  return {
     ...defaultLdkContextValue,
     status: 'ready' as const,
     node: {} as never,
@@ -81,9 +82,19 @@ function renderSend(onchainValue?: OnchainContextValue, ldkValue?: LdkContextVal
     vssStatus: 'ok' as const,
     vssClient: null,
     shutdown: () => {},
+    ...overrides,
   }
+}
+
+function renderSend(
+  onchainValue?: OnchainContextValue,
+  ldkValue?: LdkContextValue,
+  initialEntries?: string[] | Array<{ pathname: string; state?: unknown }>
+) {
+  const oc = onchainValue ?? defaultOnchainContextValue
+  const lk = ldkValue ?? readyLdkContext()
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <LdkContext value={lk}>
         <OnchainContext value={oc}>
           <Send />
@@ -432,41 +443,13 @@ describe('Send', () => {
 
     it('shows error when bolt11 amount exceeds lightning capacity', async () => {
       const user = userEvent.setup()
-      renderSend(readyContext(), {
-        ...defaultLdkContextValue,
-        status: 'ready' as const,
-        node: {} as never,
-        nodeId: 'test',
-        error: null,
-        syncStatus: 'synced' as const,
-        peersReconnected: true,
-        connectToPeer: vi.fn(),
-        forgetPeer: vi.fn(),
-        disconnectPeer: vi.fn(),
-        createChannel: vi.fn(),
-        bdkWallet: {} as never,
-        bdkEsploraClient: {} as never,
-        setSyncNeeded: vi.fn(),
-        sendBolt11Payment: vi.fn(),
-        sendBolt12Payment: vi.fn(),
-
-        closeChannel: vi.fn(),
-        forceCloseChannel: vi.fn(),
-        listChannels: vi.fn(() => []),
-        abandonPayment: vi.fn(),
-        getPaymentResult: vi.fn(() => null),
-        listRecentPayments: vi.fn(() => []),
-        outboundCapacityMsat: vi.fn(() => 1000n), // Very low capacity
-        lightningBalanceSats: 1n,
-        createInvoice: vi.fn(() => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' })),
-        requestJitInvoice: vi.fn(),
-        channelChangeCounter: 0,
-        paymentHistory: [],
-        bolt12Offer: null,
-        vssStatus: 'ok' as const,
-        vssClient: null,
-        shutdown: () => {},
-      })
+      renderSend(
+        readyContext(),
+        readyLdkContext({
+          outboundCapacityMsat: vi.fn(() => 1000n),
+          lightningBalanceSats: 1n,
+        })
+      )
 
       await submitRecipient(user, 'lntbs_with_amount')
 
@@ -476,7 +459,82 @@ describe('Send', () => {
     })
   })
 
-  describe('error retry', () => {
+  describe('send max', () => {
+    it('tapping balance fills numpad with unified balance', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext())
+
+      await submitRecipient(user, 'tb1qtest')
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+
+      // Tap the balance button to fill send-max
+      await user.click(screen.getByText(/available/i))
+      // Unified balance = onchain (50000) + lightning (1_000_000) = 1_050_000
+      expect(screen.getByText('₿1,050,000')).toBeInTheDocument()
+    })
+
+    it('calls estimateMaxSendable and sendMax on confirm', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await submitRecipient(user, 'tb1qtest')
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByText(/available/i))
+
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
+      })
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).toHaveBeenCalled()
+    })
+  })
+
+  describe('error done and retry', () => {
+    it('shows Try Again button for retryable broadcast error', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        sendToAddress: vi.fn().mockRejectedValue(new Error('Broadcast failed')),
+      })
+      renderSend(ctx)
+
+      await submitRecipient(user, 'tb1qtest')
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+
+      await typeOnNumpad(user, '10000')
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/send failed/i)).toBeInTheDocument()
+      })
+
+      // Broadcast failure is retryable — should show "Try Again"
+      expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+    })
+
     it('returns to review screen on retry', async () => {
       const user = userEvent.setup()
       const ctx = readyContext({
@@ -510,6 +568,39 @@ describe('Send', () => {
         expect(screen.getByText(/review/i)).toBeInTheDocument()
       })
       expect(screen.getByText('₿10,000')).toBeInTheDocument()
+    })
+  })
+
+  describe('QR scanner location.state', () => {
+    it('routes scanned bolt11 with amount directly to review', async () => {
+      renderSend(readyContext(), readyLdkContext(), [
+        { pathname: '/send', state: { scannedInput: 'lntbs_with_amount' } },
+      ])
+
+      await waitFor(() => {
+        expect(screen.getByText(/review/i)).toBeInTheDocument()
+      })
+      expect(screen.getByText('₿50,000')).toBeInTheDocument()
+    })
+
+    it('routes scanned bolt11 without amount to numpad', async () => {
+      renderSend(readyContext(), readyLdkContext(), [
+        { pathname: '/send', state: { scannedInput: 'lntbs_no_amount' } },
+      ])
+
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+    })
+
+    it('shows error for invalid scanned input', async () => {
+      renderSend(readyContext(), readyLdkContext(), [
+        { pathname: '/send', state: { scannedInput: 'lntbs_invalid' } },
+      ])
+
+      await waitFor(() => {
+        expect(screen.getByText(/invalid lightning invoice/i)).toBeInTheDocument()
+      })
     })
   })
 })

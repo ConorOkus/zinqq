@@ -52,6 +52,15 @@ describe('vssEncrypt / vssDecrypt', () => {
     expect(Array.from(decrypted)).toEqual(Array.from(plaintext))
   })
 
+  it('throws on wrong-length key', () => {
+    const shortKey = new Uint8Array(16)
+    const longKey = new Uint8Array(64)
+    const plaintext = new TextEncoder().encode('test')
+    expect(() => vssEncrypt(shortKey, plaintext)).toThrow('Key must be exactly 32 bytes')
+    expect(() => vssEncrypt(longKey, plaintext)).toThrow('Key must be exactly 32 bytes')
+    expect(() => vssDecrypt(shortKey, new Uint8Array(40))).toThrow('Key must be exactly 32 bytes')
+  })
+
   it('cipherBlob is nonce (12 bytes) + ciphertext + tag (16 bytes)', () => {
     const plaintext = new Uint8Array(50)
     const cipherBlob = vssEncrypt(key, plaintext)

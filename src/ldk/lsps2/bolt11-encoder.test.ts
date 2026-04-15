@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './bolt11-encoder'
 import * as secp256k1 from '@noble/secp256k1'
+import { bech32 } from '@scure/base'
 
 // Generate a test keypair
 const testPrivateKey = new Uint8Array(32)
@@ -145,5 +146,106 @@ describe('encodeBolt11Invoice', () => {
     const invoice1 = await encodeBolt11Invoice({ ...base, paymentHash }, testPrivateKey)
     const invoice2 = await encodeBolt11Invoice({ ...base, paymentHash: hash2 }, testPrivateKey)
     expect(invoice1).not.toBe(invoice2)
+  })
+
+  it('decodes to correct fields when independently parsed (cross-validation)', async () => {
+    const routeHint: RouteHintEntry = {
+      pubkey: lspPubkey,
+      shortChannelId: (100n << 40n) | (200n << 16n) | 1n,
+      feeBaseMsat: 1000,
+      feeProportionalMillionths: 100,
+      cltvExpiryDelta: 144,
+    }
+
+    const invoice = await encodeBolt11Invoice(
+      {
+        amountMsat: 50_000_000n,
+        paymentHash,
+        paymentSecret,
+        description: 'cross-validation test',
+        expirySecs: 3600,
+        minFinalCltvExpiry: 146,
+        payeeNodeId: testPubkey,
+        routeHints: [[routeHint]],
+        timestamp: 1700000000,
+      },
+      testPrivateKey
+    )
+
+    // --- Independent decoder using @scure/base bech32 ---
+    const { prefix: hrp, words } = bech32.decode(invoice as `${string}1${string}`, 2000)
+
+    // Verify HRP: 50_000_000 msat = 500_000_000 pico-BTC = 500u
+    expect(hrp).toBe('lntbs500u')
+
+    // Convert 5-bit words to bytes; when padRemaining is true, leftover bits
+    // are shifted into a final byte (matching the encoder's signing preimage)
+    function wordsToBytes(w: number[], padRemaining = false): Uint8Array {
+      const result: number[] = []
+      let bits = 0
+      let value = 0
+      for (const word of w) {
+        value = (value << 5) | (word & 0x1f)
+        bits += 5
+        while (bits >= 8) {
+          bits -= 8
+          result.push((value >>> bits) & 0xff)
+        }
+      }
+      if (padRemaining && bits > 0) {
+        result.push((value << (8 - bits)) & 0xff)
+      }
+      return new Uint8Array(result)
+    }
+
+    // Skip timestamp (7 words), then parse tagged fields
+    let pos = 7
+
+    // Signature is last 104 words (65 bytes in 5-bit = ceil(65*8/5) = 104)
+    const dataWords = Array.from(words.slice(0, words.length - 104))
+    const sigWords = Array.from(words.slice(words.length - 104))
+
+    const fields: Map<number, number[]> = new Map()
+    while (pos < dataWords.length) {
+      const tag = dataWords[pos]!
+      const len = (dataWords[pos + 1]! << 5) | dataWords[pos + 2]!
+      const data = dataWords.slice(pos + 3, pos + 3 + len)
+      if (!fields.has(tag)) fields.set(tag, data)
+      pos += 3 + len
+    }
+
+    // Verify payment hash (tag 1, 32 bytes)
+    const decodedHash = wordsToBytes(fields.get(1)!)
+    expect(Array.from(decodedHash.slice(0, 32))).toEqual(Array.from(paymentHash))
+
+    // Verify payment secret (tag 16, 32 bytes)
+    const decodedSecret = wordsToBytes(fields.get(16)!)
+    expect(Array.from(decodedSecret.slice(0, 32))).toEqual(Array.from(paymentSecret))
+
+    // Verify description (tag 13)
+    const decodedDesc = new TextDecoder().decode(wordsToBytes(fields.get(13)!))
+    expect(decodedDesc).toBe('cross-validation test')
+
+    // Verify payee node ID (tag 19, 33 bytes)
+    const decodedPayee = wordsToBytes(fields.get(19)!)
+    expect(Array.from(decodedPayee.slice(0, 33))).toEqual(Array.from(testPubkey))
+
+    // Verify signature is valid (65 bytes = 64-byte compact sig + 1 recovery byte)
+    const sigBytes = wordsToBytes(sigWords)
+    const compactSig = sigBytes.slice(0, 64)
+    const recoveryByte = sigBytes[64]
+
+    // Reconstruct the signing preimage: sha256(hrp_bytes || data_bytes_with_padding)
+    const hrpBytes = new TextEncoder().encode(hrp)
+    const dataBytes = wordsToBytes(dataWords, true)
+    const preimage = new Uint8Array(hrpBytes.length + dataBytes.length)
+    preimage.set(hrpBytes)
+    preimage.set(dataBytes, hrpBytes.length)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', preimage)
+    const messageHash = new Uint8Array(hashBuffer)
+
+    const isValid = secp256k1.verify(compactSig, messageHash, testPubkey, { prehash: false })
+    expect(isValid).toBe(true)
+    expect(recoveryByte).toBeLessThanOrEqual(3)
   })
 })
