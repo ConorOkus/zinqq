@@ -39,7 +39,12 @@ import { msatToSatFloor } from '../utils/msat'
 import { captureError } from '../storage/error-log'
 import { selectCheapestParams, calculateOpeningFee, type JitInvoiceResult } from './lsps2/types'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
-import { readRecoveryState, writeRecoveryState, clearRecoveryState, seedRecoveryVssVersion } from './recovery/recovery-state'
+import {
+  readRecoveryState,
+  writeRecoveryState,
+  clearRecoveryState,
+  seedRecoveryVssVersion,
+} from './recovery/recovery-state'
 import { sweepSpendableOutputs } from './sweep'
 import { revealNextAddress } from '../onchain/address-utils'
 import { ONCHAIN_CONFIG } from '../onchain/config'
@@ -732,7 +737,11 @@ export function LdkProvider({
 
                 if (result.swept > 0) {
                   // Sweep succeeded — transition to sweep_confirmed
-                  const updated = { ...state, status: 'sweep_confirmed' as const, updatedAt: Date.now() }
+                  const updated = {
+                    ...state,
+                    status: 'sweep_confirmed' as const,
+                    updatedAt: Date.now(),
+                  }
                   await writeRecoveryState(updated, vssClient)
                   notifyRecoveryStateChanged()
                   console.log('[Recovery] Auto-sweep succeeded, txid:', result.txid)

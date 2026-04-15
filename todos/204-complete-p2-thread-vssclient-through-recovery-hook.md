@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p2
-issue_id: "204"
+issue_id: '204'
 tags: [code-review, architecture, recovery]
 dependencies: []
 ---
@@ -27,11 +27,13 @@ Breaks from the established `versionCache` Map pattern in `persist.ts`. On confl
 ## Proposed Solutions
 
 ### Option A: Expose vssClient from LdkContext (Recommended)
+
 - Add `vssClient: VssClient | null` to the `LdkContextValue` ready state
 - `useRecovery` reads it from context instead of taking a parameter
 - **Effort:** Small | **Risk:** Low
 
 ### Option B: Create a RecoveryProvider
+
 - Wrap `useRecovery` in a dedicated provider that receives `vssClient` from LdkProvider
 - More separation but more boilerplate
 - **Effort:** Medium | **Risk:** Low
@@ -44,8 +46,8 @@ Breaks from the established `versionCache` Map pattern in `persist.ts`. On confl
 
 ## Work Log
 
-| Date | Action | Learnings |
-|------|--------|-----------|
+| Date       | Action                           | Learnings                                                    |
+| ---------- | -------------------------------- | ------------------------------------------------------------ |
 | 2026-04-14 | Created from PR #128 code review | Architecture mismatch: entry path is durable, UI path is not |
 
 ## Resources

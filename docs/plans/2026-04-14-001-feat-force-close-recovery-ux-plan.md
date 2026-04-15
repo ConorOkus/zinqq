@@ -1,5 +1,5 @@
 ---
-title: "feat: Force Close Recovery UX"
+title: 'feat: Force Close Recovery UX'
 type: feat
 status: completed
 date: 2026-04-14
@@ -23,7 +23,7 @@ This plan implements a recovery UX: a persistent home-screen banner that guides 
 5. Both failures are logged via `captureError` but produce **zero user-facing feedback**
 6. User sees balance drop to zero with no explanation
 
-The LSP cannot be relied on to CPFP on their side — observed in production. The current `ANCHOR_RESERVE_SATS = 10_000n` only prevents *spending below* that threshold; it doesn't *create* the reserve for Lightning-only users.
+The LSP cannot be relied on to CPFP on their side — observed in production. The current `ANCHOR_RESERVE_SATS = 10_000n` only prevents _spending below_ that threshold; it doesn't _create_ the reserve for Lightning-only users.
 
 (see brainstorm: `docs/brainstorms/2026-04-14-force-close-recovery-ux-brainstorm.md` — "Why This Approach" section)
 
@@ -37,26 +37,28 @@ The recovery flow has six states:
 idle → needs_recovery → deposit_shown → deposit_detected → sweep_confirmed → dismissed
 ```
 
-| State | Trigger | UI | Persisted |
-|-------|---------|-----|-----------|
-| `idle` | Default / recovery complete + dismissed | No banner | No |
-| `needs_recovery` | CPFP fails with insufficient funds | Warning banner on home | Yes (VSS + IDB) |
-| `deposit_shown` | User opens recovery screen | Recovery screen with QR + address | Yes (VSS + IDB) |
-| `deposit_detected` | Wallet sync finds new UTXO | Banner updates: "Recovering..." | Yes |
-| `sweep_confirmed` | Sweep tx broadcast succeeds | Success banner (dismissible) | Yes |
-| `dismissed` | User dismisses success banner | No banner → idle | Cleared |
+| State              | Trigger                                 | UI                                | Persisted       |
+| ------------------ | --------------------------------------- | --------------------------------- | --------------- |
+| `idle`             | Default / recovery complete + dismissed | No banner                         | No              |
+| `needs_recovery`   | CPFP fails with insufficient funds      | Warning banner on home            | Yes (VSS + IDB) |
+| `deposit_shown`    | User opens recovery screen              | Recovery screen with QR + address | Yes (VSS + IDB) |
+| `deposit_detected` | Wallet sync finds new UTXO              | Banner updates: "Recovering..."   | Yes             |
+| `sweep_confirmed`  | Sweep tx broadcast succeeds             | Success banner (dismissible)      | Yes             |
+| `dismissed`        | User dismisses success banner           | No banner → idle                  | Cleared         |
 
 ### Detection: Which closures trigger recovery?
 
 Only force closes produce anchor outputs that need CPFP. Filter `Event_ChannelClosed` by `ClosureReason`:
 
 **Triggers recovery check:**
+
 - `ClosureReason_CounterpartyForceClosed`
 - `ClosureReason_CommitmentTxConfirmed`
 - `ClosureReason_HolderForceClosed`
 - `ClosureReason_HTLCsTimedOut`
 
 **Does NOT trigger:**
+
 - `ClosureReason_LegacyCooperativeClosure`
 - `ClosureReason_CounterpartyInitiatedCooperativeClosure`
 - `ClosureReason_LocallyInitiatedCooperativeClosure`
@@ -72,12 +74,12 @@ Key: `force_close_recovery`
 ```typescript
 interface RecoveryState {
   status: 'needs_recovery' | 'deposit_shown' | 'deposit_detected' | 'sweep_confirmed'
-  stuckBalanceSat: number          // channel local balance at close
-  depositAddress: string           // stable address for the recovery deposit
-  depositNeededSat: number         // rounded-up estimate for fee bump
-  channelIds: string[]             // hex channel IDs (supports multiple force closes)
-  createdAt: number                // unix timestamp
-  updatedAt: number                // unix timestamp
+  stuckBalanceSat: number // channel local balance at close
+  depositAddress: string // stable address for the recovery deposit
+  depositNeededSat: number // rounded-up estimate for fee bump
+  channelIds: string[] // hex channel IDs (supports multiple force closes)
+  createdAt: number // unix timestamp
+  updatedAt: number // unix timestamp
 }
 ```
 
@@ -108,10 +110,12 @@ Three new layers:
 #### Phase 1: Detection & State Management
 
 **Files to modify:**
+
 - `src/ldk/traits/event-handler.ts` — Add `onRecoveryNeeded` callback, detect insufficient-funds CPFP failure, filter force-close ClosureReasons
 - `src/ldk/sweep.ts` — Return a richer `SweepResult` that distinguishes "no UTXOs" from other failures
 
 **Files to create:**
+
 - `src/ldk/recovery/recovery-state.ts` — Recovery state manager (read/write VSS+IDB, version cache)
 - `src/ldk/recovery/use-recovery.ts` — React hook exposing recovery state + actions
 
@@ -141,9 +145,11 @@ Follow the existing `versionCache` + `putObject` pattern. On startup, read recov
 #### Phase 2: UI — Banner & Recovery Screen
 
 **Files to modify:**
+
 - `src/pages/Home.tsx` — Conditionally render `RecoveryBanner` between `BalanceDisplay` and action buttons
 
 **Files to create:**
+
 - `src/components/RecoveryBanner.tsx` — Warning banner (non-dismissible) and success banner (dismissible)
 - `src/pages/RecoverFunds.tsx` — Full recovery screen with QR code, address, amounts, timelock
 - Route registration in `src/App.tsx` (or equivalent router config)
@@ -153,12 +159,14 @@ Follow the existing `versionCache` + `putObject` pattern. On startup, read recov
 Follows the existing `UpdateBanner.tsx` pattern. Positioned inside the Home component between `BalanceDisplay` and the action buttons div. Uses `bg-black/15` on the accent background for visual consistency.
 
 Two states:
+
 1. **Warning** — non-dismissible, shows "Your funds are safe" + subtitle, taps to `/recover`
 2. **Success** — dismissible, shows "Funds recovered!" + timelock estimate
 
 **RecoverFunds.tsx:**
 
 Dark background sub-flow screen (same pattern as Send Review, Close Channel). Sections:
+
 1. Explanation paragraph — calm, no jargon
 2. Details card — stuck balance + deposit needed (BIP 177 format)
 3. QR code + address pill with copy button (reuse `receive-overlay` patterns)
@@ -169,6 +177,7 @@ Dark background sub-flow screen (same pattern as Send Review, Close Channel). Se
 #### Phase 3: Auto-Recovery & Lifecycle
 
 **Files to modify:**
+
 - `src/onchain/sync.ts` or the sync callback chain — After each wallet sync, if recovery state is `needs_recovery` or `deposit_shown`, check for new confirmed UTXOs and auto-retry the sweep
 - `src/ldk/traits/event-handler.ts` — Startup sweep should also update recovery state on success
 
@@ -183,6 +192,7 @@ Dark background sub-flow screen (same pattern as Send Review, Close Channel). Se
 **Startup restoration:**
 
 On LDK init, after reading recovery state from IDB:
+
 - If `needs_recovery` or `deposit_shown` → show banner immediately
 - If `deposit_detected` or `sweep_confirmed` → show appropriate banner state
 - Run startup sweep as usual — if it succeeds and recovery state exists, transition to `sweep_confirmed`
@@ -225,12 +235,12 @@ If the user deposits some but not enough, the next wallet sync recalculates `dep
 
 ## Dependencies & Risks
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| CPFP error message is opaque (can't distinguish "no UTXOs" from other failures) | Medium | High | Parse error string from `BumpTransactionEventHandler`; fall back to checking UTXO count directly |
-| VSS version conflict on recovery state write | Low | Medium | Use existing version cache pattern with retry logic |
-| Stale recovery state on restored device | Low | Medium | Verify against `ldk_spendable_outputs` IDB store on each sync |
-| Fee spike makes deposited amount insufficient | Medium | Medium | Dynamic recalculation; pad initial estimate by 50% |
+| Risk                                                                            | Likelihood | Impact | Mitigation                                                                                       |
+| ------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------ |
+| CPFP error message is opaque (can't distinguish "no UTXOs" from other failures) | Medium     | High   | Parse error string from `BumpTransactionEventHandler`; fall back to checking UTXO count directly |
+| VSS version conflict on recovery state write                                    | Low        | Medium | Use existing version cache pattern with retry logic                                              |
+| Stale recovery state on restored device                                         | Low        | Medium | Verify against `ldk_spendable_outputs` IDB store on each sync                                    |
+| Fee spike makes deposited amount insufficient                                   | Medium     | Medium | Dynamic recalculation; pad initial estimate by 50%                                               |
 
 ## Sources & References
 

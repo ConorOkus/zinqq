@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p2
-issue_id: "206"
+issue_id: '206'
 tags: [code-review, quality, recovery]
 dependencies: []
 ---
@@ -21,6 +21,7 @@ Compare with `src/pages/Receive.tsx:239` which wraps clipboard in try/catch.
 ## Proposed Solutions
 
 ### Option A: Wrap in try/catch (Recommended)
+
 - Add try/catch to `copyAddress` callback
 - Show error state or silently fail (consistent with Receive pattern)
 - **Effort:** Small | **Risk:** Low
@@ -32,9 +33,9 @@ Compare with `src/pages/Receive.tsx:239` which wraps clipboard in try/catch.
 
 ## Work Log
 
-| Date | Action | Learnings |
-|------|--------|-----------|
-| 2026-04-14 | Created from PR #128 code review | |
+| Date       | Action                           | Learnings |
+| ---------- | -------------------------------- | --------- |
+| 2026-04-14 | Created from PR #128 code review |           |
 
 ## Resources
 

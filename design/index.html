@@ -46,36 +46,78 @@
         <!-- Recovery Banner (toggle via JS) -->
         <div id="recovery-banner" class="recovery-banner" onclick="navigate('recover')">
           <div class="recovery-banner__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+              />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
           </div>
           <div class="recovery-banner__text">
             <div class="recovery-banner__title">Your funds are safe</div>
             <div class="recovery-banner__subtitle">A small deposit is needed to unlock them</div>
           </div>
-          <svg class="recovery-banner__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
+          <svg
+            class="recovery-banner__chevron"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="9 18 15 12 9 6" />
           </svg>
         </div>
 
         <!-- Success Banner (shown after recovery, dismissible) -->
-        <div id="recovery-success-banner" class="recovery-banner recovery-banner--success" style="display: none">
+        <div
+          id="recovery-success-banner"
+          class="recovery-banner recovery-banner--success"
+          style="display: none"
+        >
           <div class="recovery-banner__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
           <div class="recovery-banner__text">
             <div class="recovery-banner__title">Funds recovered!</div>
             <div class="recovery-banner__subtitle">Available in approximately 14 days</div>
           </div>
-          <button class="recovery-banner__dismiss" onclick="event.stopPropagation(); dismissRecoverySuccess()" aria-label="Dismiss">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
+          <button
+            class="recovery-banner__dismiss"
+            onclick="
+              event.stopPropagation()
+              dismissRecoverySuccess()
+            "
+            aria-label="Dismiss"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -767,9 +809,16 @@
       <section id="recover" class="screen screen--dark screen--sub-flow recover">
         <header class="screen-header">
           <button class="screen-header__back" onclick="navigate('home')" aria-label="Back">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"/>
-              <polyline points="12 19 5 12 12 5"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
             </svg>
           </button>
           <span class="screen-header__title">Recover Funds</span>
@@ -777,7 +826,10 @@
 
         <div class="recover__content">
           <div class="recover__explanation">
-            <p>Your payment channel closed unexpectedly. Your funds are safe — a small deposit is needed to move them back to your wallet.</p>
+            <p>
+              Your payment channel closed unexpectedly. Your funds are safe — a small deposit is
+              needed to move them back to your wallet.
+            </p>
           </div>
 
           <div class="recover__details">
@@ -785,7 +837,7 @@
               <span class="recover__label">Stuck balance</span>
               <span class="recover__value">₿120,000</span>
             </div>
-            <hr class="recover__divider"/>
+            <hr class="recover__divider" />
             <div class="recover__row">
               <span class="recover__label">Deposit needed</span>
               <span class="recover__value recover__value--highlight">₿25,000</span>
@@ -795,59 +847,77 @@
           <div class="recover__qr-section">
             <div class="recover__qr">
               <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-                <rect width="200" height="200" fill="white"/>
-                <rect x="10" y="10" width="50" height="50" fill="black"/>
-                <rect x="15" y="15" width="40" height="40" fill="white"/>
-                <rect x="22" y="22" width="26" height="26" fill="black"/>
-                <rect x="140" y="10" width="50" height="50" fill="black"/>
-                <rect x="145" y="15" width="40" height="40" fill="white"/>
-                <rect x="152" y="22" width="26" height="26" fill="black"/>
-                <rect x="10" y="140" width="50" height="50" fill="black"/>
-                <rect x="15" y="145" width="40" height="40" fill="white"/>
-                <rect x="22" y="152" width="26" height="26" fill="black"/>
-                <rect x="70" y="10" width="10" height="10" fill="black"/>
-                <rect x="90" y="10" width="10" height="10" fill="black"/>
-                <rect x="110" y="10" width="10" height="10" fill="black"/>
-                <rect x="70" y="30" width="10" height="10" fill="black"/>
-                <rect x="100" y="30" width="10" height="10" fill="black"/>
-                <rect x="80" y="50" width="10" height="10" fill="black"/>
-                <rect x="110" y="50" width="10" height="10" fill="black"/>
-                <rect x="10" y="70" width="10" height="10" fill="black"/>
-                <rect x="30" y="70" width="10" height="10" fill="black"/>
-                <rect x="70" y="70" width="10" height="10" fill="black"/>
-                <rect x="90" y="70" width="10" height="10" fill="black"/>
-                <rect x="130" y="70" width="10" height="10" fill="black"/>
-                <rect x="170" y="70" width="10" height="10" fill="black"/>
-                <rect x="50" y="90" width="10" height="10" fill="black"/>
-                <rect x="80" y="90" width="10" height="10" fill="black"/>
-                <rect x="130" y="90" width="10" height="10" fill="black"/>
-                <rect x="160" y="90" width="10" height="10" fill="black"/>
-                <rect x="40" y="110" width="10" height="10" fill="black"/>
-                <rect x="70" y="110" width="10" height="10" fill="black"/>
-                <rect x="120" y="110" width="10" height="10" fill="black"/>
-                <rect x="150" y="110" width="10" height="10" fill="black"/>
-                <rect x="70" y="130" width="10" height="10" fill="black"/>
-                <rect x="100" y="130" width="10" height="10" fill="black"/>
-                <rect x="150" y="130" width="10" height="10" fill="black"/>
-                <rect x="90" y="150" width="10" height="10" fill="black"/>
-                <rect x="120" y="150" width="10" height="10" fill="black"/>
-                <rect x="160" y="150" width="10" height="10" fill="black"/>
-                <rect x="70" y="170" width="10" height="10" fill="black"/>
-                <rect x="140" y="170" width="10" height="10" fill="black"/>
-                <rect x="170" y="170" width="10" height="10" fill="black"/>
+                <rect width="200" height="200" fill="white" />
+                <rect x="10" y="10" width="50" height="50" fill="black" />
+                <rect x="15" y="15" width="40" height="40" fill="white" />
+                <rect x="22" y="22" width="26" height="26" fill="black" />
+                <rect x="140" y="10" width="50" height="50" fill="black" />
+                <rect x="145" y="15" width="40" height="40" fill="white" />
+                <rect x="152" y="22" width="26" height="26" fill="black" />
+                <rect x="10" y="140" width="50" height="50" fill="black" />
+                <rect x="15" y="145" width="40" height="40" fill="white" />
+                <rect x="22" y="152" width="26" height="26" fill="black" />
+                <rect x="70" y="10" width="10" height="10" fill="black" />
+                <rect x="90" y="10" width="10" height="10" fill="black" />
+                <rect x="110" y="10" width="10" height="10" fill="black" />
+                <rect x="70" y="30" width="10" height="10" fill="black" />
+                <rect x="100" y="30" width="10" height="10" fill="black" />
+                <rect x="80" y="50" width="10" height="10" fill="black" />
+                <rect x="110" y="50" width="10" height="10" fill="black" />
+                <rect x="10" y="70" width="10" height="10" fill="black" />
+                <rect x="30" y="70" width="10" height="10" fill="black" />
+                <rect x="70" y="70" width="10" height="10" fill="black" />
+                <rect x="90" y="70" width="10" height="10" fill="black" />
+                <rect x="130" y="70" width="10" height="10" fill="black" />
+                <rect x="170" y="70" width="10" height="10" fill="black" />
+                <rect x="50" y="90" width="10" height="10" fill="black" />
+                <rect x="80" y="90" width="10" height="10" fill="black" />
+                <rect x="130" y="90" width="10" height="10" fill="black" />
+                <rect x="160" y="90" width="10" height="10" fill="black" />
+                <rect x="40" y="110" width="10" height="10" fill="black" />
+                <rect x="70" y="110" width="10" height="10" fill="black" />
+                <rect x="120" y="110" width="10" height="10" fill="black" />
+                <rect x="150" y="110" width="10" height="10" fill="black" />
+                <rect x="70" y="130" width="10" height="10" fill="black" />
+                <rect x="100" y="130" width="10" height="10" fill="black" />
+                <rect x="150" y="130" width="10" height="10" fill="black" />
+                <rect x="90" y="150" width="10" height="10" fill="black" />
+                <rect x="120" y="150" width="10" height="10" fill="black" />
+                <rect x="160" y="150" width="10" height="10" fill="black" />
+                <rect x="70" y="170" width="10" height="10" fill="black" />
+                <rect x="140" y="170" width="10" height="10" fill="black" />
+                <rect x="170" y="170" width="10" height="10" fill="black" />
               </svg>
             </div>
 
             <div class="recover__address">
-              <span id="recover-address-text" class="recover__address-text" data-full="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4">bc1qw508d6q...kv8f3t4</span>
-              <button id="recover-copy-btn" class="recover__copy-btn" onclick="copyRecoverAddress()">Copy</button>
+              <span
+                id="recover-address-text"
+                class="recover__address-text"
+                data-full="bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+                >bc1qw508d6q...kv8f3t4</span
+              >
+              <button
+                id="recover-copy-btn"
+                class="recover__copy-btn"
+                onclick="copyRecoverAddress()"
+              >
+                Copy
+              </button>
             </div>
           </div>
 
           <div class="recover__timelock">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
             </svg>
             <span>After recovery, funds will be available in approximately 14 days</span>
           </div>

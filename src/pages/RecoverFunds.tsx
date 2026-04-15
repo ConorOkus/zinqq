@@ -53,8 +53,8 @@ export function RecoverFunds() {
       <div className="flex flex-1 flex-col items-center gap-6 overflow-y-auto px-6 pb-8">
         {/* Explanation */}
         <p className="max-w-xs text-center leading-relaxed text-[var(--color-on-dark-muted)]">
-          Your payment channel closed unexpectedly. Your funds are safe — a small deposit
-          is needed to move them back to your wallet.
+          Your payment channel closed unexpectedly. Your funds are safe — a small deposit is needed
+          to move them back to your wallet.
         </p>
 
         {/* Amounts card */}
@@ -95,7 +95,9 @@ export function RecoverFunds() {
             className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white transition-transform active:scale-95"
             onClick={() => void copyAddress()}
           >
-            {copied ? 'Copied!' : (
+            {copied ? (
+              'Copied!'
+            ) : (
               <>
                 <CopyIcon className="h-3.5 w-3.5" />
                 Copy

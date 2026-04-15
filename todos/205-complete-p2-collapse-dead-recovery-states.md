@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p2
-issue_id: "205"
+issue_id: '205'
 tags: [code-review, simplicity, recovery]
 dependencies: []
 ---
@@ -31,6 +31,7 @@ Re-fetches fees and writes to IDB+VSS on every page open. Auto-recovery timer al
 ## Proposed Solutions
 
 ### Option A: Collapse to 2 states (Recommended)
+
 - Remove `deposit_shown` and `deposit_detected` from `RecoveryStatus`
 - Keep `needs_recovery` and `sweep_confirmed` only
 - Remove `SweepFailureReason` type and `failureReason` field from `SweepResult`
@@ -47,8 +48,8 @@ Re-fetches fees and writes to IDB+VSS on every page open. Auto-recovery timer al
 
 ## Work Log
 
-| Date | Action | Learnings |
-|------|--------|-----------|
+| Date       | Action                           | Learnings                                                            |
+| ---------- | -------------------------------- | -------------------------------------------------------------------- |
 | 2026-04-14 | Created from PR #128 code review | State machine designed for future, but should match current behavior |
 
 ## Resources

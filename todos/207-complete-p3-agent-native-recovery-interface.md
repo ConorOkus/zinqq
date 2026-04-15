@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p3
-issue_id: "207"
+issue_id: '207'
 tags: [code-review, agent-native, recovery]
 dependencies: []
 ---
@@ -19,6 +19,7 @@ All recovery capabilities are UI-only. An AI agent cannot check recovery status,
 ## Proposed Solutions
 
 ### Option A: Expose via agent tools / system prompt context
+
 - Surface recovery status in the agent's system prompt
 - Add MCP tools for `readRecoveryState` and `clearRecoveryState`
 - **Effort:** Medium | **Risk:** Low
@@ -31,8 +32,8 @@ All recovery capabilities are UI-only. An AI agent cannot check recovery status,
 
 ## Work Log
 
-| Date | Action | Learnings |
-|------|--------|-----------|
+| Date       | Action                           | Learnings                                 |
+| ---------- | -------------------------------- | ----------------------------------------- |
 | 2026-04-14 | Created from PR #128 code review | Primitives exist, just need non-UI wiring |
 
 ## Resources

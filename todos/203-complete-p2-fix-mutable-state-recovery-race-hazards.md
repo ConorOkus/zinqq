@@ -1,7 +1,7 @@
 ---
 status: pending
 priority: p2
-issue_id: "203"
+issue_id: '203'
 tags: [code-review, quality, recovery]
 dependencies: []
 ---
@@ -25,6 +25,7 @@ Set in `ChannelClosed`, consumed in `BumpTransaction`. If two channels force-clo
 ## Proposed Solutions
 
 ### Option A: Spread + Map (Recommended)
+
 - Spread `existing` to a new object in `enterRecovery` instead of mutating
 - Replace `lastForceCloseInfo` with a `Map<string, { channelId: string; localBalanceSat: number }>` keyed by channel ID
 - **Effort:** Small | **Risk:** Low
@@ -37,8 +38,8 @@ Set in `ChannelClosed`, consumed in `BumpTransaction`. If two channels force-clo
 
 ## Work Log
 
-| Date | Action | Learnings |
-|------|--------|-----------|
+| Date       | Action                           | Learnings                            |
+| ---------- | -------------------------------- | ------------------------------------ |
 | 2026-04-14 | Created from PR #128 code review | Multiple agents flagged same pattern |
 
 ## Resources

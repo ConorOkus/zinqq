@@ -82,7 +82,12 @@ export async function writeRecoveryState(
           const encoded = new TextEncoder().encode(JSON.stringify(state))
           vssVersion = await vssClient.putObject(VSS_KEY, encoded, vssVersion)
         } catch (retryErr: unknown) {
-          captureError('error', 'RecoveryState', 'VSS write failed after conflict retry', String(retryErr))
+          captureError(
+            'error',
+            'RecoveryState',
+            'VSS write failed after conflict retry',
+            String(retryErr)
+          )
         }
       } else {
         captureError('warning', 'RecoveryState', 'VSS write failed (IDB saved)', String(err))
