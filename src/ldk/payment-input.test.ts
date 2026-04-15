@@ -26,8 +26,49 @@ vi.mock('lightningdevkit', () => {
 
   class Result_Err {}
 
+  // Classes used for instanceof checks — define once, reuse in mock and export
+  class Option_u64Z_Some {
+    some: bigint
+    constructor(val: bigint) {
+      this.some = val
+    }
+  }
+
+  class Bolt11InvoiceResult_OK {
+    res: unknown
+    constructor(res: unknown) {
+      this.res = res
+    }
+  }
+
+  // Minimal mock invoice for BIP 321 + lightning= tests
+  const TEST_BOLT11 = 'lntbs50u1ptest'
+  class MockBolt11Invoice {
+    currency() {
+      return 'signet'
+    }
+    would_expire() {
+      return false
+    }
+    amount_milli_satoshis() {
+      return new Option_u64Z_Some(50_000_000n)
+    }
+    into_signed_raw() {
+      return {
+        raw_invoice: () => ({
+          description: () => ({ to_str: () => 'Test invoice' }),
+        }),
+      }
+    }
+  }
+
   return {
-    Bolt11Invoice: { constructor_from_str: () => new Result_Err() },
+    Bolt11Invoice: {
+      constructor_from_str: (raw: string) =>
+        raw === TEST_BOLT11
+          ? new Bolt11InvoiceResult_OK(new MockBolt11Invoice())
+          : new Result_Err(),
+    },
     Offer: { constructor_from_str: () => new Result_Err() },
     HumanReadableName: {
       constructor_from_encoded: (encoded: string) => {
@@ -42,10 +83,10 @@ vi.mock('lightningdevkit', () => {
     },
     Currency: { LDKCurrency_Signet: 'signet', LDKCurrency_Bitcoin: 'bitcoin' },
     Network: { LDKNetwork_Signet: 4, LDKNetwork_Bitcoin: 0 },
-    Option_u64Z_Some: class {},
+    Option_u64Z_Some,
     Option_AmountZ_Some: class {},
     Amount_Bitcoin: class {},
-    Result_Bolt11InvoiceParseOrSemanticErrorZ_OK: class {},
+    Result_Bolt11InvoiceParseOrSemanticErrorZ_OK: Bolt11InvoiceResult_OK,
     Result_OfferBolt12ParseErrorZ_OK: class {},
     Result_HumanReadableNameNoneZ_OK: Result_OK,
   }
@@ -102,6 +143,27 @@ describe('classifyPaymentInput — BIP 321 URI validation', () => {
       expect(result.address).toBe('tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
       expect(result.amountSats).toBe(100_000n)
     }
+  })
+
+  it('extracts bolt11 from BIP 321 URI with lightning= parameter', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput(
+      'bitcoin:tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx?lightning=lntbs50u1ptest'
+    )
+    expect(result.type).toBe('bolt11')
+    if (result.type === 'bolt11') {
+      expect(result.raw).toBe('lntbs50u1ptest')
+      expect(result.amountMsat).toBe(50_000_000n)
+    }
+  })
+
+  it('prefers lightning= over onchain address in BIP 321 URI', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput(
+      'bitcoin:tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx?amount=0.001&lightning=lntbs50u1ptest'
+    )
+    // Should return bolt11, not onchain — lightning takes precedence
+    expect(result.type).toBe('bolt11')
   })
 })
 

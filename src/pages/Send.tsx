@@ -403,13 +403,27 @@ export function Send() {
         }
 
         // Lightning types (bolt11, bolt12)
+        // When input originated from a BIP 321 URI, show first 10 chars of the
+        // invoice in the "To" field instead of the description/label.
+        const isBip321 = trimmed.toLowerCase().startsWith('bitcoin:')
+        const bip321Label =
+          isBip321 && (parsed.type === 'bolt11' || parsed.type === 'bolt12')
+            ? `${parsed.raw.slice(0, 10)}…`
+            : undefined
+
         // Fixed-amount: use embedded amount, skip numpad
         if (parsed.type !== 'lnurl' && parsed.amountMsat !== null) {
           if (parsed.amountMsat > lnCapacityMsat) {
-            setInputError('Amount exceeds Lightning channel capacity')
+            setInputError('Not enough funds')
             return
           }
-          setSendStep({ step: 'ln-review', parsed, amountMsat: parsed.amountMsat, fromStep })
+          setSendStep({
+            step: 'ln-review',
+            parsed,
+            amountMsat: parsed.amountMsat,
+            fromStep,
+            label: bip321Label,
+          })
           return
         }
 
@@ -429,10 +443,16 @@ export function Send() {
 
         const effectiveMsat = amountSats * 1000n
         if (effectiveMsat > lnCapacityMsat) {
-          setInputError('Amount exceeds Lightning channel capacity')
+          setInputError('Not enough funds')
           return
         }
-        setSendStep({ step: 'ln-review', parsed, amountMsat: effectiveMsat, fromStep })
+        setSendStep({
+          step: 'ln-review',
+          parsed,
+          amountMsat: effectiveMsat,
+          fromStep,
+          label: bip321Label,
+        })
       } finally {
         processingRef.current = false
       }
@@ -500,7 +520,7 @@ export function Send() {
     if (sendStep.parsedInput.type === 'bolt11' || sendStep.parsedInput.type === 'bolt12') {
       const effectiveMsat = amountSats * 1000n
       if (effectiveMsat > lnCapacityMsat) {
-        setInputError('Amount exceeds Lightning channel capacity')
+        setInputError('Not enough funds')
         return
       }
       amountStepDataRef.current = {
@@ -509,12 +529,16 @@ export function Send() {
         minSat: sendStep.minSat,
         maxSat: sendStep.maxSat,
       }
+      // For BIP 321 URIs, show truncated invoice instead of the full URI
+      const label = sendStep.rawInput.toLowerCase().startsWith('bitcoin:')
+        ? `${sendStep.parsedInput.raw.slice(0, 10)}…`
+        : sendStep.rawInput
       setSendStep({
         step: 'ln-review',
         parsed: sendStep.parsedInput,
         amountMsat: effectiveMsat,
         fromStep: 'amount',
-        label: sendStep.rawInput,
+        label,
       })
       return
     }
