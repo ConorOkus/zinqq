@@ -28,13 +28,22 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
       try {
         const unspent = bdkWallet.list_unspent()
         const utxos: Utxo[] = []
+        let skippedUnconfirmed = 0
+        let skippedNoTx = 0
 
         for (const output of unspent) {
           // Only include confirmed UTXOs — LDK requires confirmed inputs for
           // anchor CPFP. An unconfirmed parent could be dropped from the mempool,
           // invalidating the CPFP child and leaving the force-close stuck.
           const wtx = bdkWallet.get_tx(output.outpoint.txid)
-          if (!wtx || !wtx.chain_position.is_confirmed) continue
+          if (!wtx) {
+            skippedNoTx++
+            continue
+          }
+          if (!wtx.chain_position.is_confirmed) {
+            skippedUnconfirmed++
+            continue
+          }
 
           const bdkOutpoint = output.outpoint
           const bdkTxout = output.txout
@@ -50,6 +59,18 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
 
           utxos.push(Utxo.constructor_new(ldkOutpoint, ldkTxout, P2WPKH_SATISFACTION_WEIGHT))
         }
+
+        console.log(
+          '[BDK WalletSource] list_confirmed_utxos:',
+          utxos.length,
+          'confirmed,',
+          skippedUnconfirmed,
+          'unconfirmed,',
+          skippedNoTx,
+          'no-tx,',
+          'total unspent:',
+          unspent.length
+        )
 
         return Result_CVec_UtxoZNoneZ.constructor_ok(utxos)
       } catch (err: unknown) {
@@ -70,6 +91,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
 
     sign_psbt(psbtBytes: Uint8Array): Result_TransactionNoneZ {
       try {
+        console.log('[BDK WalletSource] sign_psbt called, PSBT size:', psbtBytes.length)
         // Convert raw PSBT bytes to base64 for BDK's Psbt.from_string()
         const base64 = uint8ArrayToBase64(psbtBytes)
         const psbt = Psbt.from_string(base64)
@@ -78,6 +100,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
 
         const signedTx = psbt.extract_tx()
         const txBytes = signedTx.to_bytes()
+        console.log('[BDK WalletSource] sign_psbt succeeded, tx size:', txBytes.length)
         return Result_TransactionNoneZ.constructor_ok(txBytes)
       } catch (err: unknown) {
         captureError('critical', 'BDK WalletSource', 'sign_psbt failed', String(err))

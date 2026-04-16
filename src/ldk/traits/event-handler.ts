@@ -528,6 +528,31 @@ function handleEvent(
     const forceCloseInfo = bumpChannelIdHex ? forceCloseInfoMap.get(bumpChannelIdHex) : null
 
     if (bumpTxHandler) {
+      // Pre-check: does the wallet have confirmed UTXOs for CPFP?
+      // BumpTransactionEventHandler.handle_event() fails silently in WASM
+      // (logs internally but does not throw), so the try/catch below never
+      // fires. Detect the no-UTXO case before calling into WASM so we can
+      // surface recovery guidance to the user.
+      let hasConfirmedUtxo = false
+      try {
+        const unspent = bdkWallet.list_unspent()
+        hasConfirmedUtxo = unspent.some((output) => {
+          const wtx = bdkWallet.get_tx(output.outpoint.txid)
+          return wtx != null && wtx.chain_position.is_confirmed
+        })
+      } catch {
+        // Best-effort check — proceed to handler regardless
+      }
+
+      if (!hasConfirmedUtxo && onRecoveryNeeded && forceCloseInfo) {
+        onRecoveryNeeded({
+          channelId: forceCloseInfo.channelId,
+          localBalanceSat: forceCloseInfo.localBalanceSat,
+          reason:
+            'No confirmed on-chain UTXOs available for CPFP fee bump — deposit funds to complete force-close recovery',
+        })
+      }
+
       console.log('[LDK Event] BumpTransaction: handling CPFP fee bump')
       try {
         bumpTxHandler.handle_event(bumpEvent)
