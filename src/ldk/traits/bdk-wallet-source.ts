@@ -30,6 +30,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
         const utxos: Utxo[] = []
         let skippedUnconfirmed = 0
         let skippedNoTx = 0
+        let totalValueSats = 0n
 
         for (const output of unspent) {
           // Only include confirmed UTXOs — LDK requires confirmed inputs for
@@ -57,13 +58,14 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
           const valueSats = bdkTxout.value.to_sat()
           const ldkTxout = LdkTxOut.constructor_new(valueSats, scriptBytes)
 
+          totalValueSats += valueSats
           utxos.push(Utxo.constructor_new(ldkOutpoint, ldkTxout, P2WPKH_SATISFACTION_WEIGHT))
         }
 
         console.log(
           '[BDK WalletSource] list_confirmed_utxos:',
           utxos.length,
-          'confirmed,',
+          'confirmed (' + totalValueSats.toString() + ' sats),',
           skippedUnconfirmed,
           'unconfirmed,',
           skippedNoTx,

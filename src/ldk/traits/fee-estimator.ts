@@ -2,9 +2,17 @@ import { FeeEstimator, ConfirmationTarget } from 'lightningdevkit'
 import { getCachedFeeRate } from '../../shared/fee-cache'
 
 // Default fee rates in sat/KW (1 sat/vB = 250 sat/KW)
+//
+// UrgentOnChainSweep floor: 2,500 sat/kW (10 sat/vB). This is the minimum
+// feerate for CPFP fee bumps during force-close recovery. A higher floor
+// (like 25,000 / 100 sat/vB) makes CPFP fail when the on-chain wallet has
+// limited funds — LDK's coin selection aborts if the UTXO value can't cover
+// the target package fee. 10 sat/vB is comfortably above dust relay rate
+// and will confirm within a few blocks under normal mempool conditions.
+// The actual esplora rate still drives the estimate when it's higher.
 const DEFAULT_FEE_RATES: Record<ConfirmationTarget, number> = {
   [ConfirmationTarget.LDKConfirmationTarget_MaximumFeeEstimate]: 50_000,
-  [ConfirmationTarget.LDKConfirmationTarget_UrgentOnChainSweep]: 25_000,
+  [ConfirmationTarget.LDKConfirmationTarget_UrgentOnChainSweep]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 253,
   [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_AnchorChannelFee]: 2_500,
