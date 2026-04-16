@@ -32,6 +32,26 @@ vi.mock('../ldk/payment-input', () => ({
         description: 'Amountless invoice',
       }
     }
+    // BIP 321 with amountless lightning= invoice
+    if (raw.startsWith('bitcoin:') && raw.includes('lightning=lntbs_noamt')) {
+      return {
+        type: 'bolt11',
+        invoice: {} as never,
+        raw: 'lntbs_noamt_raw_invoice',
+        amountMsat: null,
+        description: null,
+      }
+    }
+    // BIP 321 with lightning= invoice
+    if (raw.startsWith('bitcoin:') && raw.includes('lightning=')) {
+      return {
+        type: 'bolt11',
+        invoice: {} as never,
+        raw: 'lntbs50u1ptest',
+        amountMsat: 50_000_000n,
+        description: 'BIP 321 embedded invoice',
+      }
+    }
     // BIP 321 with amount
     if (raw.startsWith('bitcoin:') && raw.includes('amount=')) {
       return { type: 'onchain', address: 'tb1qtest', amountSats: 5000n }
@@ -454,7 +474,53 @@ describe('Send', () => {
       await submitRecipient(user, 'lntbs_with_amount')
 
       await waitFor(() => {
-        expect(screen.getByText(/exceeds Lightning channel capacity/i)).toBeInTheDocument()
+        expect(screen.getByText(/not enough funds/i)).toBeInTheDocument()
+      })
+    })
+
+    it('shows first 10 chars of bolt11 in To field for BIP 321 URI', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext(), readyLdkContext())
+
+      await submitRecipient(user, 'bitcoin:tb1qtest?lightning=lntbs50u1ptest')
+
+      await waitFor(() => {
+        expect(screen.getByText('lntbs50u1p…')).toBeInTheDocument()
+      })
+    })
+
+    it('shows truncated invoice in To field for amountless BIP 321 via numpad', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext(), readyLdkContext())
+
+      await submitRecipient(user, 'bitcoin:tb1qtest?lightning=lntbs_noamt')
+      await waitFor(() => {
+        expect(screen.getByText(/available/i)).toBeInTheDocument()
+      })
+
+      await typeOnNumpad(user, '5000')
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+
+      await waitFor(() => {
+        expect(screen.getByText('lntbs_noam…')).toBeInTheDocument()
+      })
+    })
+
+    it('shows not enough funds for BIP 321 bolt11 exceeding capacity', async () => {
+      const user = userEvent.setup()
+      renderSend(
+        readyContext(),
+        readyLdkContext({
+          outboundCapacityMsat: vi.fn(() => 1000n),
+          lightningBalanceSats: 1n,
+        })
+      )
+
+      await submitRecipient(user, 'bitcoin:tb1qtest?lightning=lntbs50u1ptest')
+
+      await waitFor(() => {
+        expect(screen.getByText(/not enough funds/i)).toBeInTheDocument()
       })
     })
   })
