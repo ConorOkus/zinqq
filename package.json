@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "copy:wasm": "cp node_modules/lightningdevkit/liblightningjs.wasm public/liblightningjs.wasm",
+    "payjoin:build": "cd vendor/rust-payjoin/payjoin-ffi/javascript && bash ./scripts/generate_bindings.sh",
     "predev": "pnpm copy:wasm",
     "dev": "vite",
     "prebuild": "pnpm copy:wasm",
@@ -29,6 +30,7 @@
     "@scure/bip32": "^2.0.1",
     "@scure/bip39": "^2.0.1",
     "lightningdevkit": "0.1.8-0",
+    "payjoin": "link:./vendor/rust-payjoin/payjoin-ffi/javascript",
     "qr-scanner": "^1.4.2",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",

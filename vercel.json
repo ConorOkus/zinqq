@@ -1,5 +1,6 @@
 {
   "framework": null,
+  "installCommand": "bash scripts/vercel-install.sh",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
   "rewrites": [

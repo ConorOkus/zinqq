@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: pnpm/action-setup@v4
         with:
@@ -25,6 +27,43 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-0.2.108
+
+      - name: Install wasm-bindgen-cli
+        run: |
+          if ! command -v wasm-bindgen >/dev/null; then
+            cargo install -f wasm-bindgen-cli --version 0.2.108 --locked
+          fi
+
+      - name: Resolve Payjoin submodule SHA
+        id: payjoin-sha
+        run: echo "sha=$(git -C vendor/rust-payjoin rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Payjoin build
+        id: payjoin-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/rust-payjoin/target
+            vendor/rust-payjoin/payjoin-ffi/javascript/dist
+            vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
+            vendor/rust-payjoin/payjoin-ffi/javascript/node_modules
+          key: payjoin-build-${{ steps.payjoin-sha.outputs.sha }}
+
+      - name: Build Payjoin bindings
+        if: steps.payjoin-cache.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/rust-payjoin/payjoin-ffi/javascript
+          npm install
+          bash ./scripts/generate_bindings.sh
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
