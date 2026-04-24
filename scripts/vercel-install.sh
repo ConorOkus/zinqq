@@ -12,6 +12,11 @@ set -euo pipefail
 
 WASM_BINDGEN_VERSION="0.2.108"
 
+echo "→ Installing clang (secp256k1-sys needs a WASM-capable C compiler)"
+if ! command -v clang >/dev/null; then
+  dnf install -y clang
+fi
+
 echo "→ Installing Rust (if missing)"
 if ! command -v cargo >/dev/null; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
