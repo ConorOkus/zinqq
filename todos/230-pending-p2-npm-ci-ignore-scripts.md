@@ -36,6 +36,7 @@ run: |
 
 ```md
 <!-- docs/payjoin-build.md -->
+
 (cd vendor/rust-payjoin/payjoin-ffi/javascript && npm ci --ignore-scripts)
 ```
 
