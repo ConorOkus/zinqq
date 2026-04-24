@@ -18,8 +18,9 @@ The `wasm-bindgen-cli` version is pinned to whatever rust-payjoin's `Cargo.lock`
 ```sh
 git submodule update --init --recursive
 pnpm install
-# Install bindings' own npm deps (separate lockfile — not our pnpm)
-(cd vendor/rust-payjoin/payjoin-ffi/javascript && npm install)
+# Install bindings' own npm deps (separate lockfile — not our pnpm).
+# `--ignore-scripts` blocks unreviewed upstream lifecycle hooks.
+(cd vendor/rust-payjoin/payjoin-ffi/javascript && npm ci --ignore-scripts)
 pnpm payjoin:build
 ```
 

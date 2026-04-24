@@ -34,7 +34,7 @@ if ! command -v wasm-bindgen >/dev/null \
 fi
 
 echo "→ Installing Payjoin bindings npm deps"
-(cd vendor/rust-payjoin/payjoin-ffi/javascript && npm ci)
+(cd vendor/rust-payjoin/payjoin-ffi/javascript && npm ci --ignore-scripts)
 
 echo "→ Installing Zinqq deps (pnpm)"
 pnpm install --frozen-lockfile

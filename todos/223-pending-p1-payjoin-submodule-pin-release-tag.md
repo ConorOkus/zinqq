@@ -77,7 +77,16 @@ Option 1 as default. If the build breaks on `payjoin-1.0.0-rc.2`, fall back to O
 
 ## Work Log
 
+**2026-04-24** — Deferred from the #224/#225 CI hardening PR. Investigation notes:
+
+- Upstream has three released `Cargo-*.lock` files (`Cargo.lock`, `Cargo-minimal.lock`, `Cargo-recent.lock`) with divergent `wasm-bindgen` versions (0.2.100 / 0.2.117 / 0.2.118 depending on which). The one actually used at build time is chosen by `ubrn build web` inside `scripts/generate_bindings.sh`, which does not pass `--locked` — so the resolved version depends on the cargo state at build time, not any committed lockfile.
+- Our working pin is `wasm-bindgen-cli@0.2.108`. That works against master HEAD `e22e3724` by observation, but there is no lockfile-level guarantee it will work against any specific tag.
+- Verifying that `payjoin-1.0.0-rc.2` builds cleanly needs a full ~10 min cold compile — expensive to do speculatively.
+
+Recommend pairing this work with a CI "verify-tag" job that does a cold rebuild of the candidate tag on a schedule, so we can confidently swap the pin once we have a known-good tag. For now the risk delta between "pinned master SHA" and "pinned tag" is smaller than the undocumented wasm-bindgen-cli resolution behaviour would suggest.
+
 ## Resources
 
 - PR #140
+- Follow-up PR (#224/#225 CI hardening)
 - Upstream releases: https://github.com/payjoin/rust-payjoin/releases

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '225'
 tags: [code-review, payjoin, ci, architecture]
