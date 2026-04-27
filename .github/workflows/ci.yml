@@ -92,9 +92,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: payjoin-bindings
-          # Artifact preserves the vendor/.../{dist,src/generated} layout from
-          # the repo root, so extracting to "." restores both locations.
-          path: .
+          # upload-artifact@v4 uses the lowest common ancestor of the upload
+          # paths as the archive root. For our two paths the LCA is the
+          # vendored javascript dir; the archive contains dist/... and
+          # src/generated/... relative to that. Extract here to restore both
+          # subdirs to their original locations.
+          path: vendor/rust-payjoin/payjoin-ffi/javascript
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
