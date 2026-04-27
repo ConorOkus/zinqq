@@ -3,7 +3,12 @@ import { useNavigate, useLocation } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
 import { useUnifiedBalance } from '../hooks/use-unified-balance'
-import { classifyPaymentInput, type ParsedPaymentInput } from '../ldk/payment-input'
+import {
+  classifyPaymentInput,
+  type ParsedPaymentInput,
+  type PayjoinContext,
+} from '../ldk/payment-input'
+import { tryPayjoinSend } from '../onchain/payjoin/payjoin'
 import { resolveBip353 } from '../ldk/resolve-bip353'
 import { resolveLnurlPay, fetchLnurlInvoice } from '../lnurl/resolve-lnurl'
 import { ONCHAIN_CONFIG } from '../onchain/config'
@@ -45,6 +50,9 @@ type SendStep =
       isSendMax: boolean
       fromStep: 'recipient' | 'amount'
       label?: string
+      /** BIP 321 `pj=` context. Present iff the URI advertised Payjoin and
+       * the send is not sendMax (Payjoin needs a change output). */
+      payjoin?: PayjoinContext
     }
   | { step: 'oc-broadcasting' }
   | { step: 'oc-success'; txid: string; amount: bigint }
@@ -370,6 +378,7 @@ export function Send() {
                 feeRate: estimate.feeRate,
                 isSendMax: true,
                 fromStep,
+                // Payjoin requires a change output; sendMax has none — omit.
               })
             } catch (err) {
               const message = classifyEstimateError(err)
@@ -394,6 +403,7 @@ export function Send() {
               feeRate: estimate.feeRate,
               isSendMax: false,
               fromStep,
+              payjoin: parsed.payjoin,
             })
           } catch (err) {
             const message = classifyEstimateError(err)
@@ -588,18 +598,54 @@ export function Send() {
     sendingRef.current = true
     const sentAmount = sendStep.amount
     const reviewStep = sendStep
+    const payjoinCtx = sendStep.payjoin
     setSendStep({ step: 'oc-broadcasting' })
 
+    // Abort the Payjoin exchange if the user backgrounds the tab, navigates,
+    // or unmounts mid-flight. The exchange falls back to broadcasting the
+    // original PSBT (no Payjoin), so the send still completes.
+    const payjoinAbort = new AbortController()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') payjoinAbort.abort()
+    }
+    const onBeforeUnload = () => payjoinAbort.abort()
+    if (payjoinCtx) {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      window.addEventListener('beforeunload', onBeforeUnload)
+    }
+
     try {
-      const txid = sendStep.isSendMax
-        ? await onchain.sendMax(sendStep.address, sendStep.feeRate)
-        : await onchain.sendToAddress(sendStep.address, sendStep.amount, sendStep.feeRate)
+      let txid: string
+      if (sendStep.isSendMax) {
+        txid = await onchain.sendMax(sendStep.address, sendStep.feeRate)
+      } else if (payjoinCtx) {
+        const transformPsbt = async (
+          unsigned: Parameters<typeof tryPayjoinSend>[0],
+          ctx: Parameters<typeof tryPayjoinSend>[2]
+        ) =>
+          tryPayjoinSend(unsigned, payjoinCtx, {
+            ...ctx,
+            signal: AbortSignal.any([ctx.signal, payjoinAbort.signal]),
+          })
+        txid = await onchain.sendToAddress(
+          sendStep.address,
+          sendStep.amount,
+          sendStep.feeRate,
+          transformPsbt
+        )
+      } else {
+        txid = await onchain.sendToAddress(sendStep.address, sendStep.amount, sendStep.feeRate)
+      }
       setSendStep({ step: 'oc-success', txid, amount: sentAmount })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSendStep({ step: 'error', message, retryStep: reviewStep })
     } finally {
       sendingRef.current = false
+      if (payjoinCtx) {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+        window.removeEventListener('beforeunload', onBeforeUnload)
+      }
     }
   }, [onchain, sendStep])
 

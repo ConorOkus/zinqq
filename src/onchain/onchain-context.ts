@@ -1,5 +1,19 @@
 import { createContext } from 'react'
+import type { Wallet, Psbt } from '@bitcoindevkit/bdk-wallet-web'
 import type { OnchainBalance } from './sync'
+
+/**
+ * Optional hook invoked between PSBT build and signing. Receives the
+ * unsigned PSBT plus context; returns either the same PSBT (declined,
+ * sign as-is) or a transformed PSBT (e.g. a Payjoin proposal).
+ *
+ * Throwing aborts the send. The MAX_FEE_SATS sanity check re-runs on
+ * whatever PSBT this returns.
+ */
+export type TransformPsbtHook = (
+  unsigned: Psbt,
+  ctx: { wallet: Wallet; feeRate: bigint; signal: AbortSignal }
+) => Promise<Psbt>
 
 export interface FeeEstimate {
   fee: bigint
@@ -30,7 +44,12 @@ export type OnchainContextValue =
       generateAddress: () => string
       estimateFee: (address: string, amountSats: bigint) => Promise<FeeEstimate>
       estimateMaxSendable: (address: string) => Promise<MaxSendEstimate>
-      sendToAddress: (address: string, amountSats: bigint, feeRateSatVb?: bigint) => Promise<string>
+      sendToAddress: (
+        address: string,
+        amountSats: bigint,
+        feeRateSatVb?: bigint,
+        transformPsbt?: TransformPsbtHook
+      ) => Promise<string>
       sendMax: (address: string, feeRateSatVb?: bigint) => Promise<string>
       /** Trigger an immediate BDK wallet sync with retries. Used after channel close. */
       syncNow: () => void

@@ -1,12 +1,14 @@
 ---
-title: Payjoin Send Support (BIP 78 v1 + BIP 77 v2)
+title: Payjoin Send Support (BIP 77 v2 only)
 type: feat
 status: active
 date: 2026-04-23
 origin: docs/brainstorms/2026-04-23-payjoin-send-brainstorm.md
 ---
 
-# Payjoin Send Support (BIP 78 v1 + BIP 77 v2)
+# Payjoin Send Support (BIP 77 v2 only)
+
+> **Scope revision (2026-04-26):** v1 (BIP 78) was dropped from this plan after PDK 1.0-rc.2 was found not to expose a v1 sender path in its JS bindings (`SenderBuilder` only routes through `WithReplyKey.createV2PostRequest`; `V1Context` is defined but never produced). Decision: ship v2 first, treat v1 as a future revisit only if upstream re-exposes it. v1-specific sections below (`/api/payjoin-proxy` v1 routing, `additionalfeeoutputindex`, `maxadditionalfeecontribution` build params, the v1+v2 dual-path branch) are out-of-scope. The transformPsbt/abort/telemetry/validator infra remains intact.
 
 ## Enhancement Summary
 

@@ -25,12 +25,14 @@ jobs:
         id: payjoin-sha
         run: echo "sha=$(git -C vendor/rust-payjoin rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Payjoin dist
+      - name: Cache Payjoin bindings
         id: dist-cache
         uses: actions/cache@v4
         with:
-          path: vendor/rust-payjoin/payjoin-ffi/javascript/dist
-          key: payjoin-dist-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('scripts/build-payjoin-bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
+          path: |
+            vendor/rust-payjoin/payjoin-ffi/javascript/dist
+            vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
+          key: payjoin-bindings-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('scripts/build-payjoin-bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
 
       - name: Cache cargo bin
         uses: actions/cache@v4
@@ -52,11 +54,17 @@ jobs:
         if: steps.dist-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-payjoin-bindings.sh
 
-      - name: Upload Payjoin dist artifact
+      - name: Upload Payjoin bindings artifact
         uses: actions/upload-artifact@v4
         with:
-          name: payjoin-dist
-          path: vendor/rust-payjoin/payjoin-ffi/javascript/dist
+          name: payjoin-bindings
+          # Upstream's dist/index.web.js does `import './../src/generated/payjoin'`
+          # — relative paths that escape dist/. We must ship both directories so
+          # the consumer build can resolve them. Common ancestor is the repo root,
+          # so the artifact preserves the full vendor/.../{dist,src/generated} layout.
+          path: |
+            vendor/rust-payjoin/payjoin-ffi/javascript/dist
+            vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
           retention-days: 1
 
   check:
@@ -80,11 +88,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Download Payjoin dist artifact
+      - name: Download Payjoin bindings artifact
         uses: actions/download-artifact@v4
         with:
-          name: payjoin-dist
-          path: vendor/rust-payjoin/payjoin-ffi/javascript/dist
+          name: payjoin-bindings
+          # upload-artifact@v4 uses the lowest common ancestor of the upload
+          # paths as the archive root. For our two paths the LCA is the
+          # vendored javascript dir; the archive contains dist/... and
+          # src/generated/... relative to that. Extract here to restore both
+          # subdirs to their original locations.
+          path: vendor/rust-payjoin/payjoin-ffi/javascript
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

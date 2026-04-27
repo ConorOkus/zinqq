@@ -9,6 +9,7 @@ import {
   FeeRate,
   SignOptions,
   InsufficientFunds,
+  UnconfirmedTx,
 } from '@bitcoindevkit/bdk-wallet-web'
 import {
   OnchainContext,
@@ -16,6 +17,7 @@ import {
   type OnchainContextValue,
   type FeeEstimate,
   type MaxSendEstimate,
+  type TransformPsbtHook,
 } from './onchain-context'
 import { fullScanBdkWallet } from './init'
 import { ONCHAIN_CONFIG, MIN_FEE_RATE_SAT_VB, MAX_FEE_SATS } from './config'
@@ -168,12 +170,25 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   )
 
   /**
-   * Shared helper: pause sync, build a PSBT via callback, apply fee sanity
-   * check, sign, extract tx, broadcast, persist changeset, resume sync.
+   * Shared helper: pause sync, build a PSBT via callback, optionally
+   * transform it (Payjoin proposal exchange), apply fee sanity check,
+   * sign, extract tx, broadcast, persist changeset, resume sync.
+   *
+   * `transformPsbt`, when provided, runs between build and sign. It may
+   * return the original PSBT unchanged (declined pre-flight) or a new
+   * proposal PSBT. Throws from the hook are mapped via mapSendError;
+   * callers that want fallback semantics must catch and handle within
+   * the hook.
+   *
    * Used by sendToAddress and sendMax.
    */
   const buildSignBroadcast = useCallback(
-    async (buildPsbt: (feeRate: FeeRate) => Psbt, feeRateSatVb?: bigint): Promise<string> => {
+    async (
+      buildPsbt: (feeRate: FeeRate) => Psbt,
+      feeRateSatVb?: bigint,
+      transformPsbt?: TransformPsbtHook,
+      signal?: AbortSignal
+    ): Promise<string> => {
       const wallet = walletRef.current
       const esplora = esploraRef.current
       if (!wallet || !esplora) throw new Error('Wallet not ready')
@@ -186,20 +201,72 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
             `Fee rate ${resolvedFeeRate.toString()} sat/vB is below minimum (${MIN_FEE_RATE_SAT_VB.toString()})`
           )
         }
-        const psbt = buildPsbt(new FeeRate(resolvedFeeRate))
+        const original = buildPsbt(new FeeRate(resolvedFeeRate))
 
-        // Fee sanity check
-        const fee = psbt.fee().to_sat()
+        let psbtToSign = original
+        let wasTransformed = false
+        if (transformPsbt) {
+          try {
+            const result = await transformPsbt(original, {
+              wallet,
+              feeRate: resolvedFeeRate,
+              signal: signal ?? new AbortController().signal,
+            })
+            wasTransformed = result !== original
+            psbtToSign = result
+          } catch (err) {
+            // Transform failed — discard any keychain advancement caused by the
+            // proposal-validation lookahead extension or staged scans, then
+            // sign the original PSBT. Caller treats this as a successful send
+            // with telemetry signalling fallback.
+            discardStagedChanges(wallet)
+            captureError(
+              'warning',
+              'Onchain',
+              'transformPsbt failed; falling back to original',
+              err instanceof Error ? err.message : String(err)
+            )
+            psbtToSign = original
+          }
+        }
+
+        // Fee sanity check on the final PSBT (transformed or original)
+        const fee = psbtToSign.fee().to_sat()
         if (fee > MAX_FEE_SATS) {
           discardStagedChanges(wallet)
           throw new Error(`Fee too high: ${formatBtc(fee)} exceeds safety limit`)
         }
 
-        wallet.sign(psbt, new SignOptions())
+        wallet.sign(psbtToSign, new SignOptions())
 
-        const tx = psbt.extract_tx()
+        const tx = psbtToSign.extract_tx()
         const txid = tx.compute_txid().toString()
         await esplora.broadcast(tx)
+
+        // For Payjoin-modified txs, BDK didn't build the proposal so its
+        // balance won't reflect the spend until the next sync. Apply the
+        // unconfirmed tx so wallet.balance is correct immediately.
+        //
+        // Failure here is non-fatal — the broadcast already happened on the
+        // network, the tx is in flight, and the next BDK sync will reconcile
+        // the wallet's view. Surfacing this as "Send Failed" would mislead
+        // the user into retrying and risk a real double-spend on a wallet
+        // with multiple available UTXOs (BDK might pick different inputs
+        // before its next sync sees the in-flight tx).
+        if (wasTransformed) {
+          try {
+            wallet.apply_unconfirmed_txs([
+              new UnconfirmedTx(tx, BigInt(Math.floor(Date.now() / 1000))),
+            ])
+          } catch (err) {
+            captureError(
+              'error',
+              'Onchain',
+              'Payjoin apply_unconfirmed_txs failed post-broadcast',
+              err instanceof Error ? err.message : String(err)
+            )
+          }
+        }
 
         // Read balance BEFORE take_staged() to ensure the wallet still
         // knows about the just-built transaction.
@@ -279,7 +346,12 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   )
 
   const sendToAddress = useCallback(
-    async (address: string, amountSats: bigint, feeRateSatVb?: bigint): Promise<string> => {
+    async (
+      address: string,
+      amountSats: bigint,
+      feeRateSatVb?: bigint,
+      transformPsbt?: TransformPsbtHook
+    ): Promise<string> => {
       const wallet = walletRef.current
       if (!wallet) throw new Error('Wallet not ready')
 
@@ -305,7 +377,8 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
             .add_recipient(Recipient.from_address(addr, Amount.from_sat(amountSats)))
             .fee_rate(feeRate)
             .finish(),
-        feeRateSatVb
+        feeRateSatVb,
+        transformPsbt
       )
     },
     [buildSignBroadcast, getAnchorReserve, estimateFee]
