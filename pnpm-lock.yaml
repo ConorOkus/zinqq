@@ -35,9 +35,6 @@ importers:
       lightningdevkit:
         specifier: 0.1.8-0
         version: 0.1.8-0
-      payjoin:
-        specifier: link:./vendor/rust-payjoin/payjoin-ffi/javascript
-        version: link:vendor/rust-payjoin/payjoin-ffi/javascript
       qr-scanner:
         specifier: ^1.4.2
         version: 1.4.2

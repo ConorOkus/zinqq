@@ -49,25 +49,8 @@ export type ParsedPaymentInput =
       type: 'onchain'
       address: string
       amountSats: bigint | null
-      /**
-       * Payjoin context from BIP 321 `pj=` / `pjos=` params (BIP 78 v1 or BIP 77 v2).
-       * Raw value is captured here without scheme validation — PDK parses and
-       * validates the URL shape when the send actually runs. Absent when no `pj=`.
-       */
-      payjoin?: PayjoinContext
     }
   | { type: 'error'; message: string }
-
-export interface PayjoinContext {
-  /** Raw `pj=` URL value. May be https:// (v1) or bitcoin:/payjoin: (v2). */
-  url: string
-  /**
-   * true iff `pjos=0` was present. Receiver is signalling Payjoin is required
-   * for privacy — note: Zinqq currently does NOT honor strict mode (known
-   * divergence from BIP 78 intent; see plan).
-   */
-  strict: boolean
-}
 
 /**
  * Classify and parse a payment input string into a structured type.
@@ -222,16 +205,9 @@ function parseBip321(input: string): ParsedPaymentInput {
     return { type: 'error', message: 'Empty Bitcoin URI' }
   }
 
-  // Extract lightning + payjoin parameters (case-insensitive key lookup).
-  // BIP 21 uses RFC 3986 query syntax, NOT application/x-www-form-urlencoded,
-  // so `+` must be preserved as a literal character. URLSearchParams would
-  // decode `+` to space, corrupting BIP 77 v2 receiver-session URLs whose
-  // fragment uses `+` as a separator (e.g. payjo.in directory URLs).
   let lnoValue: string | null = null
   let lightningValue: string | null = null
   let amountBtc: string | null = null
-  let pjValue: string | null = null
-  let pjosValue: string | null = null
 
   if (queryPart) {
     for (const pair of queryPart.split('&')) {
@@ -245,17 +221,12 @@ function parseBip321(input: string): ParsedPaymentInput {
         key = decodeURIComponent(rawKey)
         value = decodeURIComponent(rawValue)
       } catch {
-        // Malformed %-sequence in the pair. Surface in dev so a corrupt pj=
-        // doesn't silently degrade to a non-Payjoin send (privacy footgun).
-        console.warn('parseBip321: skipped malformed query pair', rawKey)
         continue
       }
       const lowerKey = key.toLowerCase()
       if (lowerKey === 'lno') lnoValue = value
       else if (lowerKey === 'lightning') lightningValue = value
       else if (lowerKey === 'amount') amountBtc = value
-      else if (lowerKey === 'pj') pjValue = value
-      else if (lowerKey === 'pjos') pjosValue = value
     }
   }
 
@@ -287,16 +258,7 @@ function parseBip321(input: string): ParsedPaymentInput {
     }
   }
 
-  // Capture payjoin raw value. No scheme validation here — BIP 77 v2 uses
-  // bitcoin:/payjoin: schemes inside pj=, so filtering on https here would
-  // silently disable v2. PDK's parseUri rejects invalid shapes downstream.
-  // Length-bound matches the proxy's parseTarget limit (api/payjoin-proxy.ts).
-  let payjoin: PayjoinContext | undefined
-  if (pjValue && pjValue.length > 0 && pjValue.length <= 2048) {
-    payjoin = { url: pjValue, strict: pjosValue === '0' }
-  }
-
-  return { type: 'onchain', address, amountSats, payjoin }
+  return { type: 'onchain', address, amountSats }
 }
 
 /** Convert a BTC-denominated string to satoshis using fixed-point parsing. */

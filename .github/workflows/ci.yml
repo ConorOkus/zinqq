@@ -11,76 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  payjoin-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions: {}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Resolve Payjoin submodule SHA
-        id: payjoin-sha
-        run: echo "sha=$(git -C vendor/rust-payjoin rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Payjoin bindings
-        id: dist-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            vendor/rust-payjoin/payjoin-ffi/javascript/dist
-            vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
-            vendor/rust-payjoin/payjoin-ffi/javascript/node_modules/uniffi-bindgen-react-native/package.json
-            vendor/rust-payjoin/payjoin-ffi/javascript/node_modules/uniffi-bindgen-react-native/typescript/dist
-          key: payjoin-bindings-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('scripts/build-payjoin-bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
-
-      - name: Cache cargo bin
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/wasm-bindgen
-          key: wasm-bindgen-cli-0.2.108
-
-      - name: Cache rust build
-        if: steps.dist-cache.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
-        with:
-          path: |
-            vendor/rust-payjoin/target
-            vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
-            vendor/rust-payjoin/payjoin-ffi/javascript/node_modules
-          key: payjoin-rust-${{ steps.payjoin-sha.outputs.sha }}-${{ hashFiles('scripts/build-payjoin-bindings.sh', 'vendor/rust-payjoin/payjoin-ffi/javascript/package-lock.json') }}
-
-      - name: Build Payjoin bindings
-        if: steps.dist-cache.outputs.cache-hit != 'true'
-        run: bash scripts/build-payjoin-bindings.sh
-
-      - name: Upload Payjoin bindings artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: payjoin-bindings
-          # Upstream's dist/index.web.js does `import './../src/generated/payjoin'`
-          # — relative paths that escape dist/. We must ship both directories so
-          # the consumer build can resolve them. Common ancestor is the repo
-          # root, so the artifact preserves the full vendor/.../{dist,src/generated}
-          # layout.
-          #
-          # PDK's generated payjoin.{ts,js} also imports from
-          # `uniffi-bindgen-react-native` (a runtime helper installed during the
-          # PDK build). That package's full tree is ~900 MB (Rust source + build
-          # cache) but the JS portion that our consumer build actually needs is
-          # ~330 KB under typescript/dist/. Ship the package.json + that subdir
-          # so node-style module resolution succeeds in downstream jobs.
-          path: |
-            vendor/rust-payjoin/payjoin-ffi/javascript/dist
-            vendor/rust-payjoin/payjoin-ffi/javascript/src/generated
-            vendor/rust-payjoin/payjoin-ffi/javascript/node_modules/uniffi-bindgen-react-native/package.json
-            vendor/rust-payjoin/payjoin-ffi/javascript/node_modules/uniffi-bindgen-react-native/typescript/dist
-          retention-days: 1
-
   check:
-    needs: payjoin-build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -88,7 +19,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
 
       - uses: pnpm/action-setup@v4
@@ -99,17 +29,6 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Download Payjoin bindings artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: payjoin-bindings
-          # upload-artifact@v4 uses the lowest common ancestor of the upload
-          # paths as the archive root. For our two paths the LCA is the
-          # vendored javascript dir; the archive contains dist/... and
-          # src/generated/... relative to that. Extract here to restore both
-          # subdirs to their original locations.
-          path: vendor/rust-payjoin/payjoin-ffi/javascript
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

@@ -1,12 +1,10 @@
 {
   "framework": null,
-  "installCommand": "bash scripts/vercel-install.sh",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/esplora/:path(.*)", "destination": "/api/esplora-proxy?_path=:path" },
     { "source": "/api/lnurl-proxy/:path(.*)", "destination": "/api/lnurl-proxy?_path=:path" },
-    { "source": "/api/payjoin-proxy/:path(.*)", "destination": "/api/payjoin-proxy?_path=:path" },
     { "source": "/api/vss-proxy/:path(.*)", "destination": "/api/vss-proxy?_path=:path" },
     {
       "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|workbox-).*)",
@@ -30,7 +28,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https://cloudflare-dns.com https://mempool.space https://rapidsync.lightningdevkit.org wss://proxy.zinqq.app https://payjo.in https://pj.benalleng.com https://pj.bobspacebkk.com https://ohttp.achow101.com; object-src 'none'; frame-src 'none'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https://cloudflare-dns.com https://mempool.space https://rapidsync.lightningdevkit.org wss://proxy.zinqq.app; object-src 'none'; frame-src 'none'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         }
       ]
     }
