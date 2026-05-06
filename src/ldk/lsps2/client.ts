@@ -7,7 +7,6 @@
 
 import { hexToBytes } from '../utils'
 import { captureError } from '../../storage/error-log'
-import { LDK_CONFIG } from '../config'
 import type { JsonRpcResponse } from './types'
 import {
   type OpeningFeeParams,
@@ -28,8 +27,8 @@ export class LSPS2Client {
     this.sendRequest = sendRequest
   }
 
-  async getOpeningFeeParams(lspNodeId: string): Promise<OpeningFeeParams[]> {
-    const params: Record<string, unknown> = { token: LDK_CONFIG.lspToken ?? null }
+  async getOpeningFeeParams(lspNodeId: string, token: string | null): Promise<OpeningFeeParams[]> {
+    const params: Record<string, unknown> = { token }
 
     const response = await this.sendLsps2Request(lspNodeId, 'lsps2.get_info', params)
 

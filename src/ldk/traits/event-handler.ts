@@ -92,11 +92,19 @@ export interface RecoveryNeededInfo {
 
 export type RecoveryNeededCallback = (info: RecoveryNeededInfo) => void
 
+/**
+ * Predicate consulted on `Event_OpenChannelRequest` to decide whether to
+ * accept a 0-conf inbound channel. Backed by a mutable trust set
+ * (see `LdkNode.trustedLspIds` in init.ts) so additional LSPs (e.g.
+ * runtime-discovered LQwD) can be added after handler creation.
+ */
+export type IsTrustedLsp = (pubkeyHex: string) => boolean
+
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
   bdkWallet: Wallet,
-  lspNodeId: string,
+  isTrustedLsp: IsTrustedLsp,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
   onSyncNeeded?: SyncNeededCallback,
@@ -117,7 +125,7 @@ export function createEventHandler(
           channelManager,
           keysManager,
           bdkWallet,
-          lspNodeId,
+          isTrustedLsp,
           (id) => {
             if (forwardTimerId !== null) clearTimeout(forwardTimerId)
             forwardTimerId = id
@@ -170,7 +178,7 @@ function handleEvent(
   channelManager: ChannelManager,
   keysManager: KeysManager,
   bdkWallet: Wallet,
-  lspNodeId: string,
+  isTrustedLsp: IsTrustedLsp,
   setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
@@ -618,7 +626,7 @@ function handleEvent(
     // Use bytesToHex() directly, never .write() (see learnings: ldk-wasm-write-vs-direct-uint8array)
     const counterpartyHex = bytesToHex(event.counterparty_node_id)
 
-    if (counterpartyHex === lspNodeId && lspNodeId !== '') {
+    if (isTrustedLsp(counterpartyHex)) {
       // Generate user_channel_id with 8 random bytes (not 16) to avoid u128 encoding bug
       // See learnings: ldk-wasm-encode-uint128-asymmetry
       const randomBytes = new Uint8Array(8)

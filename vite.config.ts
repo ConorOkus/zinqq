@@ -128,6 +128,11 @@ export default defineConfig(({ mode }) => {
           target: env.ESPLORA_PROXY_TARGET ?? 'https://zinqq.app',
           changeOrigin: true,
         },
+        '/api/lqwd/get_info': {
+          target: 'https://germany.lqwd.tech',
+          changeOrigin: true,
+          rewrite: () => '/api/v1/get_info',
+        },
       },
     },
   }

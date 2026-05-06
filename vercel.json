@@ -6,6 +6,7 @@
     { "source": "/api/esplora/:path(.*)", "destination": "/api/esplora-proxy?_path=:path" },
     { "source": "/api/lnurl-proxy/:path(.*)", "destination": "/api/lnurl-proxy?_path=:path" },
     { "source": "/api/vss-proxy/:path(.*)", "destination": "/api/vss-proxy?_path=:path" },
+    { "source": "/api/lqwd/get_info", "destination": "/api/lqwd-proxy" },
     {
       "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|workbox-).*)",
       "destination": "/index.html"

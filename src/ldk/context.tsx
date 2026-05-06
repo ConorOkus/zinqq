@@ -25,6 +25,8 @@ import {
   type PaymentResult,
 } from './ldk-context'
 import { LDK_CONFIG } from './config'
+import { resolveLspContacts, type LspContact } from './lsp/contacts'
+import { fetchLqwdContact } from './lsp/lqwd-discovery'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
@@ -54,6 +56,227 @@ function getOutboundCapacitySats(cm: import('lightningdevkit').ChannelManager): 
     .list_usable_channels()
     .reduce((sum, ch) => sum + ch.get_outbound_capacity_msat(), 0n)
   return msatToSatFloor(msat)
+}
+
+/** Connect failed and the peer is still not present in PeerManager.list_peers. */
+export class JitPeerConnectError extends Error {
+  readonly trigger = 'peer_connect' as const
+}
+
+/** No fee_params menu entry accepts the requested amount (size or fee bound). */
+export class JitPaymentSizeOutOfRangeError extends Error {
+  readonly trigger = 'payment_size_filter' as const
+}
+
+type JitTrigger = 'http_preflight' | 'peer_connect' | 'payment_size_filter' | 'lsps2_rpc'
+
+function classifyJitTrigger(err: unknown): JitTrigger {
+  if (err instanceof JitPeerConnectError) return 'peer_connect'
+  if (err instanceof JitPaymentSizeOutOfRangeError) return 'payment_size_filter'
+  return 'lsps2_rpc'
+}
+
+type ConnectFn = (
+  peerManager: import('lightningdevkit').PeerManager,
+  pubkey: string,
+  host: string,
+  port: number
+) => Promise<void>
+
+type AttemptJitInvoiceFn = (
+  node: LdkNode,
+  contact: LspContact,
+  amountMsat: bigint,
+  description: string,
+  connect: ConnectFn,
+  opts: { retryConnectOnce: boolean }
+) => Promise<JitInvoiceResult>
+
+/**
+ * Orchestrate a JIT-invoice request with primary/fallback semantics.
+ * Pure (no React/refs) — `requestJitInvoice` is a thin wrapper that
+ * supplies `node`, `connect`, and pre-resolved contacts.
+ *
+ * Failover triggers (any of these on the primary):
+ *   - http_preflight: discovery failed (primary contact = null)
+ *   - peer_connect: WebSocket / BOLT 8 connect failed
+ *   - lsps2_rpc: LSPS2 JSON-RPC failed or timed out
+ *   - payment_size_filter: no fee_params menu entry covers the amount
+ *
+ * On both-fail, throws (caller — `Receive.tsx` — degrades to on-chain).
+ */
+export async function runJitInvoiceFlow(args: {
+  node: LdkNode
+  amountMsat: bigint
+  description: string
+  connect: ConnectFn
+  contacts: { primary: LspContact | null; fallback: LspContact | null }
+  /** Test seam: defaults to the real LSPS2 dance. */
+  attempt?: AttemptJitInvoiceFn
+}): Promise<JitInvoiceResult> {
+  const attempt = args.attempt ?? attemptJitInvoiceWithLsp
+  const { node, amountMsat, description, connect, contacts } = args
+  const t0 = performance.now()
+
+  if (!contacts.primary && !contacts.fallback) {
+    throw new Error('LSP not configured')
+  }
+
+  if (contacts.primary) {
+    try {
+      return await attempt(node, contacts.primary, amountMsat, description, connect, {
+        retryConnectOnce: false,
+      })
+    } catch (err) {
+      if (!contacts.fallback) {
+        captureError(
+          'error',
+          'LSP',
+          `primary lsp failed and no fallback configured`,
+          JSON.stringify({
+            primary: contacts.primary.label,
+            trigger: classifyJitTrigger(err),
+            error: String(err),
+          })
+        )
+        throw err
+      }
+      captureError(
+        'warning',
+        'LSP',
+        `falling back from ${contacts.primary.label} to ${contacts.fallback.label}`,
+        JSON.stringify({
+          trigger: classifyJitTrigger(err),
+          primary: contacts.primary.label,
+          fallback: contacts.fallback.label,
+          duration_ms: Math.round(performance.now() - t0),
+        })
+      )
+    }
+  } else {
+    // Primary discovery failed (HTTP /get_info preflight error). Skip
+    // straight to fallback; resolveLspContacts already swallowed the error.
+    captureError(
+      'warning',
+      'LSP',
+      `primary discovery failed, falling back to ${contacts.fallback!.label}`,
+      JSON.stringify({
+        trigger: 'http_preflight',
+        fallback: contacts.fallback!.label,
+      })
+    )
+  }
+
+  // Fallback attempt. Preserve the historical soft retry on connect —
+  // mobile WebSockets die when backgrounded.
+  try {
+    return await attempt(node, contacts.fallback!, amountMsat, description, connect, {
+      retryConnectOnce: true,
+    })
+  } catch (err) {
+    captureError(
+      'error',
+      'LSP',
+      `both lsps failed, degrading to on-chain`,
+      JSON.stringify({
+        fallback_trigger: classifyJitTrigger(err),
+        duration_ms: Math.round(performance.now() - t0),
+        error: String(err),
+      })
+    )
+    throw err
+  }
+}
+
+/**
+ * Run the LSPS2 JIT-invoice dance against a single LSP. Throws typed
+ * errors so `runJitInvoiceFlow` can classify the failure for failover
+ * and telemetry.
+ */
+async function attemptJitInvoiceWithLsp(
+  node: LdkNode,
+  contact: LspContact,
+  amountMsat: bigint,
+  description: string,
+  connect: ConnectFn,
+  opts: { retryConnectOnce: boolean }
+): Promise<JitInvoiceResult> {
+  // Step 0: Ensure peer connection.
+  try {
+    await connect(node.peerManager, contact.nodeId, contact.host, contact.port)
+  } catch (firstErr) {
+    if (!opts.retryConnectOnce) {
+      throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
+    }
+    // Soft retry — mobile WebSockets die when backgrounded; the peer
+    // may have raced into a connected state via a parallel attempt.
+    const isConnected = node.peerManager
+      .list_peers()
+      .some((p) => bytesToHex(p.get_counterparty_node_id()) === contact.nodeId)
+    if (!isConnected) {
+      try {
+        await connect(node.peerManager, contact.nodeId, contact.host, contact.port)
+      } catch (secondErr) {
+        throw new JitPeerConnectError(
+          `peer_connect (${contact.label}, retry): ${String(secondErr)}`
+        )
+      }
+    }
+  }
+
+  // Step 1: Get opening fee params from LSP.
+  const feeMenu = await node.lsps2Client.getOpeningFeeParams(contact.nodeId, contact.token)
+
+  // Step 2: Select cheapest valid params for this amount. Null means the
+  // LSP's fee menu has no entry whose payment-size range covers
+  // `amountMsat` (or whose fee is less than the payment) — failover-eligible.
+  const selectedParams = selectCheapestParams(feeMenu, amountMsat)
+  if (!selectedParams) {
+    throw new JitPaymentSizeOutOfRangeError(
+      `no fee params accept ${amountMsat.toString()} msat from ${contact.label}`
+    )
+  }
+
+  // Validate valid_until with 120s buffer for clock skew + network latency.
+  if (new Date(selectedParams.validUntil).getTime() < Date.now() + 120_000) {
+    throw new Error('Fee parameters expiring too soon, please try again')
+  }
+
+  // Step 3: Buy JIT channel.
+  const buyResponse = await node.lsps2Client.buyChannel(contact.nodeId, selectedParams, amountMsat)
+
+  // Step 4: Register payment with LDK. The LSP deducts the opening fee
+  // before forwarding, so the received amount will be less than the
+  // invoice amount. Pass the expected post-fee amount so LDK rejects
+  // grossly underpaid HTLCs while allowing the fee deduction.
+  const openingFeeMsat = calculateOpeningFee(amountMsat, selectedParams)
+  const expectedReceiveMsat = amountMsat - openingFeeMsat
+  const paymentResult = node.channelManager.create_inbound_payment(
+    Option_u64Z.constructor_some(expectedReceiveMsat),
+    3600, // 1 hour expiry
+    Option_u16Z_None.constructor_none()
+  )
+  if (!(paymentResult instanceof Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK)) {
+    throw new Error('Failed to create inbound payment')
+  }
+  const paymentHash = paymentResult.res.get_a()
+  const paymentSecret = paymentResult.res.get_b()
+
+  // Step 5: Build and sign the BOLT11 invoice with JIT route hint.
+  const nodeIdBytes = hexToBytes(node.nodeId)
+  const bolt11 = await node.lsps2Client.createJitInvoice({
+    buyResponse,
+    lspNodeId: contact.nodeId,
+    amountMsat,
+    description,
+    nodeId: nodeIdBytes,
+    nodeSecretKey: node.nodeSecretKey,
+    paymentHash,
+    paymentSecret,
+    minFinalCltvExpiry: 144,
+  })
+
+  return { bolt11, openingFeeMsat, paymentHash: bytesToHex(paymentHash) }
 }
 
 export function LdkProvider({
@@ -261,79 +484,14 @@ export function LdkProvider({
     async (amountMsat: bigint, description: string): Promise<JitInvoiceResult> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
-
-      const lspNodeId = LDK_CONFIG.lspNodeId
-      if (!lspNodeId) throw new Error('LSP not configured')
-
-      // Ensure LSP is connected
-      const lspHost = LDK_CONFIG.lspHost
-      const lspPort = LDK_CONFIG.lspPort
-      if (lspHost) {
-        try {
-          await connectAndTrack(node.peerManager, lspNodeId, lspHost, lspPort)
-        } catch {
-          // Connection attempt failed — verify LSP is actually reachable.
-          // On mobile browsers, WebSockets die when backgrounded; the peer
-          // may appear stale. If not connected, retry once before giving up.
-          const isConnected = node.peerManager
-            .list_peers()
-            .some((p) => bytesToHex(p.get_counterparty_node_id()) === lspNodeId)
-
-          if (!isConnected) {
-            await connectAndTrack(node.peerManager, lspNodeId, lspHost, lspPort)
-          }
-        }
-      }
-
-      // Step 1: Get opening fee params from LSP
-      const feeMenu = await node.lsps2Client.getOpeningFeeParams(lspNodeId)
-
-      // Step 2: Select cheapest valid params
-      const selectedParams = selectCheapestParams(feeMenu, amountMsat)
-      if (!selectedParams) {
-        throw new Error('No suitable fee parameters available for this amount')
-      }
-
-      // Validate valid_until with 120s buffer for clock skew + network latency
-      if (new Date(selectedParams.validUntil).getTime() < Date.now() + 120_000) {
-        throw new Error('Fee parameters expiring too soon, please try again')
-      }
-
-      // Step 3: Buy JIT channel
-      const buyResponse = await node.lsps2Client.buyChannel(lspNodeId, selectedParams, amountMsat)
-
-      // Step 4: Register payment with LDK
-      // The LSP deducts the opening fee before forwarding, so the received amount
-      // will be less than the invoice amount. Pass the expected post-fee amount
-      // so LDK rejects grossly underpaid HTLCs while allowing the fee deduction.
-      const openingFeeMsat = calculateOpeningFee(amountMsat, selectedParams)
-      const expectedReceiveMsat = amountMsat - openingFeeMsat
-      const paymentResult = node.channelManager.create_inbound_payment(
-        Option_u64Z.constructor_some(expectedReceiveMsat),
-        3600, // 1 hour expiry
-        Option_u16Z_None.constructor_none()
-      )
-      if (!(paymentResult instanceof Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK)) {
-        throw new Error('Failed to create inbound payment')
-      }
-      const paymentHash = paymentResult.res.get_a()
-      const paymentSecret = paymentResult.res.get_b()
-
-      // Step 5: Build and sign the BOLT11 invoice with JIT route hint
-      const nodeIdBytes = hexToBytes(node.nodeId)
-      const bolt11 = await node.lsps2Client.createJitInvoice({
-        buyResponse,
-        lspNodeId,
+      const contacts = await resolveLspContacts()
+      return runJitInvoiceFlow({
+        node,
         amountMsat,
         description,
-        nodeId: nodeIdBytes,
-        nodeSecretKey: node.nodeSecretKey,
-        paymentHash,
-        paymentSecret,
-        minFinalCltvExpiry: 144,
+        connect: connectAndTrack,
+        contacts,
       })
-
-      return { bolt11, openingFeeMsat, paymentHash: bytesToHex(paymentHash) }
     },
     []
   )
@@ -525,6 +683,20 @@ export function LdkProvider({
           if (cancelled) return
 
           nodeRef.current = node
+
+          // Eagerly discover LQwD's pubkey and add it to the trust set so
+          // the event handler accepts 0-conf opens from the primary LSP.
+          // Fire-and-forget: if discovery fails, we silently continue with
+          // only Megalith trusted (the receive flow will then fall back).
+          // See todos/291 (P1 from PR #148 review).
+          void fetchLqwdContact()
+            .then((contact) => {
+              if (cancelled) return
+              node.trustedLspIds.add(contact.nodeId)
+            })
+            .catch(() => {
+              // Discovery failure is logged elsewhere; don't double-log.
+            })
 
           // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {

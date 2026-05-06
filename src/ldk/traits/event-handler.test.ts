@@ -359,7 +359,7 @@ describe('createEventHandler', () => {
       cm,
       km,
       mockBdkWallet as never,
-      '', // lspNodeId - empty for tests
+      () => false, // isTrustedLsp — never trust in this default test setup
       undefined,
       mockOnChannelClosed
     )
@@ -526,7 +526,7 @@ describe('createEventHandler', () => {
       cm,
       createMockKeysManager(),
       mockBdkWallet as never,
-      '',
+      () => false,
       undefined,
       undefined,
       mockSyncNeeded
@@ -546,7 +546,7 @@ describe('createEventHandler', () => {
       cm,
       createMockKeysManager(),
       mockBdkWallet as never,
-      '',
+      () => false,
       undefined,
       undefined,
       undefined,
@@ -577,7 +577,7 @@ describe('createEventHandler', () => {
       cm,
       createMockKeysManager(),
       mockBdkWallet as never,
-      '',
+      () => false,
       undefined,
       undefined,
       undefined,
@@ -736,5 +736,79 @@ describe('createEventHandler', () => {
       'Unhandled error in event handler',
       expect.anything()
     )
+  })
+})
+
+// Trust-set behavior for Event_OpenChannelRequest. The default suite above
+// uses `() => false` (never trust). These tests exercise the predicate
+// directly so we can assert primary/fallback/dynamic-update semantics —
+// the failure mode that PR #148 (LSP failover) introduced before todo 291
+// was fixed.
+describe('createEventHandler — Event_OpenChannelRequest trust set', () => {
+  let cleanup: () => void
+  let handleEvent: HandleEventFn
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+
+  // Pubkey emitted by the mock Event_OpenChannelRequest above:
+  // `new Uint8Array(33).fill(0x02)` → 66 hex chars of '02'.
+  const COUNTERPARTY_HEX = '02'.repeat(33)
+
+  function setup(isTrustedLsp: (pubkey: string) => boolean): void {
+    const cm = createMockChannelManager()
+    const km = createMockKeysManager()
+    const result = createEventHandler(cm, km, mockBdkWallet as never, isTrustedLsp)
+    cleanup = result.cleanup
+    handleEvent = (result.handler as unknown as { _impl: { handle_event: HandleEventFn } })._impl
+      .handle_event
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('accepts 0-conf when predicate returns true for the counterparty', () => {
+    setup((pubkey) => pubkey === COUNTERPARTY_HEX)
+    handleEvent(new Event_OpenChannelRequest())
+    expect(mockAcceptInbound0conf).toHaveBeenCalledTimes(1)
+    expect(mockAcceptInboundChannel).not.toHaveBeenCalled()
+  })
+
+  it('rejects 0-conf when predicate returns false', () => {
+    setup(() => false)
+    handleEvent(new Event_OpenChannelRequest())
+    expect(mockAcceptInbound0conf).not.toHaveBeenCalled()
+    expect(mockAcceptInboundChannel).not.toHaveBeenCalled()
+  })
+
+  it('reflects mutable trust-set updates between calls (LQwD discovery race)', () => {
+    // Initial state: only Megalith trusted (pre-LQwD-discovery).
+    const trusted = new Set<string>(['megalith-pubkey'])
+    setup((pubkey) => trusted.has(pubkey))
+
+    // First open from LQwD's pubkey before discovery resolves: rejected.
+    handleEvent(new Event_OpenChannelRequest())
+    expect(mockAcceptInbound0conf).not.toHaveBeenCalled()
+
+    // Discovery resolves; LdkProvider adds LQwD's pubkey to the set.
+    trusted.add(COUNTERPARTY_HEX)
+
+    // Second open from the same counterparty: accepted via the live
+    // closure read.
+    handleEvent(new Event_OpenChannelRequest())
+    expect(mockAcceptInbound0conf).toHaveBeenCalledTimes(1)
+  })
+
+  it('trusts multiple LSPs simultaneously (primary + fallback)', () => {
+    const trusted = new Set<string>([COUNTERPARTY_HEX, 'megalith-pubkey'])
+    setup((pubkey) => trusted.has(pubkey))
+
+    handleEvent(new Event_OpenChannelRequest())
+    expect(mockAcceptInbound0conf).toHaveBeenCalledTimes(1)
   })
 })
