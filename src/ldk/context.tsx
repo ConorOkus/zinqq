@@ -39,7 +39,12 @@ import { persistPayment, loadAllPayments } from './storage/payment-history'
 import { bytesToHex, hexToBytes } from './utils'
 import { msatToSatFloor } from '../utils/msat'
 import { captureError } from '../storage/error-log'
-import { selectCheapestParams, calculateOpeningFee, type JitInvoiceResult } from './lsps2/types'
+import {
+  selectCheapestParams,
+  calculateOpeningFee,
+  type JitInvoiceResult,
+  type OpeningFeeParams,
+} from './lsps2/types'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -63,16 +68,40 @@ export class JitPeerConnectError extends Error {
   readonly trigger = 'peer_connect' as const
 }
 
-/** No fee_params menu entry accepts the requested amount (size or fee bound). */
+/**
+ * No fee_params menu entry accepts the requested amount (size or fee bound).
+ * Carries the menu and contact so the Receive page can render a
+ * "Minimum receive: ₿X" affordance instead of silently degrading.
+ */
 export class JitPaymentSizeOutOfRangeError extends Error {
   readonly trigger = 'payment_size_filter' as const
+  readonly menu: OpeningFeeParams[]
+  readonly contact: LspContact
+  constructor(message: string, menu: OpeningFeeParams[], contact: LspContact) {
+    super(message)
+    this.menu = menu
+    this.contact = contact
+  }
 }
 
-type JitTrigger = 'http_preflight' | 'peer_connect' | 'payment_size_filter' | 'lsps2_rpc'
+/** LSP returned a quote whose `valid_until` leaves too little headroom to commit. */
+export class JitQuoteFreshnessError extends Error {
+  readonly trigger = 'quote_freshness' as const
+}
+
+type JitTrigger =
+  | 'http_preflight'
+  | 'peer_connect'
+  | 'payment_size_filter'
+  | 'quote_freshness'
+  | 'aborted'
+  | 'lsps2_rpc'
 
 function classifyJitTrigger(err: unknown): JitTrigger {
   if (err instanceof JitPeerConnectError) return 'peer_connect'
   if (err instanceof JitPaymentSizeOutOfRangeError) return 'payment_size_filter'
+  if (err instanceof JitQuoteFreshnessError) return 'quote_freshness'
+  if (err instanceof DOMException && err.name === 'AbortError') return 'aborted'
   return 'lsps2_rpc'
 }
 
@@ -83,17 +112,261 @@ type ConnectFn = (
   port: number
 ) => Promise<void>
 
-type AttemptJitInvoiceFn = (
+/**
+ * A read-only LSPS2 quote: enough to display fee disclosure and later commit
+ * via `executeJitBuy` against the same LSP. The quote is pinned to a specific
+ * `amountMsat`; any change in the displayed amount requires a new quote.
+ */
+export interface JitQuote {
+  contact: LspContact
+  /** The exact `OpeningFeeParams` displayed to the user (signed by the LSP via `promise`). */
+  params: OpeningFeeParams
+  /** The full menu — `selectCheapestParams` already picked `params`, but the menu drives `computeMinReceiveSats` for the below-minimum UI. */
+  menu: OpeningFeeParams[]
+  /** Pre-computed opening fee for `amountMsat` against `params`. */
+  openingFeeMsat: bigint
+  /** The amount the quote covers, in msat. */
+  amountMsat: bigint
+}
+
+type GetJitQuoteFn = (
   node: LdkNode,
   contact: LspContact,
   amountMsat: bigint,
-  description: string,
   connect: ConnectFn,
-  opts: { retryConnectOnce: boolean }
-) => Promise<JitInvoiceResult>
+  opts: { retryConnectOnce: boolean },
+  signal: AbortSignal
+) => Promise<JitQuote>
+
+/** Phase A overall budget across all LSP attempts. */
+const PHASE_A_TOTAL_BUDGET_MS = 14_000
+/** Per-LSP budget within Phase A (connect + RPC). */
+const PHASE_A_PER_LSP_BUDGET_MS = 7_000
 
 /**
- * Orchestrate a JIT-invoice request with primary/fallback semantics.
+ * Build a DOM-style abort/timeout error as an `Error` subtype so it satisfies
+ * `@typescript-eslint/prefer-promise-reject-errors`. Names match the
+ * convention used by `AbortController.abort()` and `fetch` so callers can
+ * still discriminate via `err.name === 'AbortError' | 'TimeoutError'`.
+ */
+function abortError(message = 'Aborted'): Error {
+  const err = new Error(message)
+  err.name = 'AbortError'
+  return err
+}
+
+function timeoutError(): Error {
+  const err = new Error('Timeout')
+  err.name = 'AbortError' // treated like abort by callers; cheaper than a separate class
+  return err
+}
+
+/**
+ * Race a promise against an `AbortSignal`. If the signal aborts, the returned
+ * promise rejects with `AbortError`. The underlying promise is not actually
+ * cancelled (we don't have signal plumbed into RPC primitives yet); this
+ * only short-circuits the await for the caller.
+ */
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(abortError())
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError())
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(v)
+      },
+      (e: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(e instanceof Error ? e : new Error(String(e)))
+      }
+    )
+  })
+}
+
+/**
+ * Derive a child `AbortSignal` that fires after `ms` or when `parent` aborts,
+ * whichever happens first.
+ */
+function timeoutSignal(parent: AbortSignal, ms: number): AbortSignal {
+  const ctrl = new AbortController()
+  if (parent.aborted) {
+    ctrl.abort(parent.reason as Error | undefined)
+    return ctrl.signal
+  }
+  const timer = setTimeout(() => ctrl.abort(timeoutError()), ms)
+  parent.addEventListener(
+    'abort',
+    () => {
+      clearTimeout(timer)
+      ctrl.abort(parent.reason as Error | undefined)
+    },
+    { once: true }
+  )
+  return ctrl.signal
+}
+
+/**
+ * Phase A — fetch a JIT quote against ONE LSP. Throws typed errors so
+ * `runJitQuoteFlow` can classify the failure for failover and telemetry.
+ *
+ * No LSP-side commitment is made; this is a pure read and is safe to call
+ * speculatively (e.g. as a numpad pre-warm).
+ */
+export async function getJitQuote(
+  node: LdkNode,
+  contact: LspContact,
+  amountMsat: bigint,
+  connect: ConnectFn,
+  opts: { retryConnectOnce: boolean },
+  signal: AbortSignal
+): Promise<JitQuote> {
+  // Step 0: Ensure peer connection.
+  try {
+    await withAbort(connect(node.peerManager, contact.nodeId, contact.host, contact.port), signal)
+  } catch (firstErr) {
+    if (signal.aborted) throw firstErr
+    if (!opts.retryConnectOnce) {
+      throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
+    }
+    // Soft retry — mobile WebSockets die when backgrounded; the peer
+    // may have raced into a connected state via a parallel attempt.
+    const isConnected = node.peerManager
+      .list_peers()
+      .some((p) => bytesToHex(p.get_counterparty_node_id()) === contact.nodeId)
+    if (!isConnected) {
+      try {
+        await withAbort(
+          connect(node.peerManager, contact.nodeId, contact.host, contact.port),
+          signal
+        )
+      } catch (secondErr) {
+        if (signal.aborted) throw secondErr
+        throw new JitPeerConnectError(
+          `peer_connect (${contact.label}, retry): ${String(secondErr)}`
+        )
+      }
+    }
+  }
+
+  // Step 1: Get opening fee params from LSP.
+  const feeMenu = await withAbort(
+    node.lsps2Client.getOpeningFeeParams(contact.nodeId, contact.token),
+    signal
+  )
+
+  // Step 2: Select cheapest valid params for this amount. Null means the
+  // LSP's fee menu has no entry whose payment-size range covers
+  // `amountMsat` (or whose fee is less than the payment) — failover-eligible.
+  const params = selectCheapestParams(feeMenu, amountMsat)
+  if (!params) {
+    throw new JitPaymentSizeOutOfRangeError(
+      `no fee params accept ${amountMsat.toString()} msat from ${contact.label}`,
+      feeMenu,
+      contact
+    )
+  }
+
+  // Internal sanity gate: reject quotes with <30s remaining. The Receive
+  // page applies a separate, looser 60s on-tap freshness check before
+  // committing (Phase 4) so that a fresh-enough-to-display quote isn't
+  // re-fetched on every Generate tap.
+  if (new Date(params.validUntil).getTime() < Date.now() + 30_000) {
+    throw new JitQuoteFreshnessError('Fee parameters expiring too soon, please try again')
+  }
+
+  const openingFeeMsat = calculateOpeningFee(amountMsat, params)
+  return { contact, params, menu: feeMenu, openingFeeMsat, amountMsat }
+}
+
+/**
+ * Phase B — commit a previously-displayed quote and produce a BOLT11 invoice.
+ * Single-LSP, NOT failover-eligible: `buyChannel` reserves LSP-side liquidity,
+ * and rolling to a different LSP after that would orphan the commitment.
+ *
+ * The `signal` is only checked at entry; once `buyChannel` has been issued,
+ * we run to completion regardless of abort to avoid leaving the LSP holding
+ * a reservation we won't redeem.
+ */
+export async function executeJitBuy(
+  node: LdkNode,
+  quote: JitQuote,
+  description: string,
+  signal: AbortSignal
+): Promise<JitInvoiceResult> {
+  if (signal.aborted) {
+    throw abortError()
+  }
+
+  // Surface the open `accept_underpaying_htlcs` gap in the incident log so
+  // any "I asked for X, got Y" report can be correlated to the buy event.
+  // The wallet sets `accept_underpaying_htlcs=true` (`init.ts:151`); LDK
+  // therefore won't reject HTLCs that pay LESS than the displayed fee.
+  // Claim-time enforcement (rejecting `actual < invoiceAmountMsat -
+  // openingFeeMsat`) is tracked in todo 306 and slated for PR 2.
+  captureError(
+    'warning',
+    'LSP',
+    'JIT buy committed; HTLC underpayment beyond disclosed fee is not bound-checked at claim time (todo 306)',
+    JSON.stringify({
+      amount_msat: quote.amountMsat.toString(),
+      opening_fee_msat: quote.openingFeeMsat.toString(),
+      lsp: quote.contact.label,
+    })
+  )
+
+  // Step 3: Buy JIT channel. Past this line, abort is ignored — orphaning
+  // an LSP commitment is worse than running to completion.
+  const buyResponse = await node.lsps2Client.buyChannel(
+    quote.contact.nodeId,
+    quote.params,
+    quote.amountMsat
+  )
+
+  // Step 4: Register the inbound payment with LDK. We pass `amountMsat -
+  // openingFeeMsat` as the expected amount so the LSP's fee deduction at
+  // forward time produces a valid HTLC. NOTE: `accept_underpaying_htlcs=true`
+  // (set wallet-wide in `init.ts:151`) means LDK does NOT enforce a lower
+  // bound on `claimable_amount_msat` against `expectedReceiveMsat` — the
+  // claim-time bound check is deferred to PR 2 (see todo 306).
+  const expectedReceiveMsat = quote.amountMsat - quote.openingFeeMsat
+  const paymentResult = node.channelManager.create_inbound_payment(
+    Option_u64Z.constructor_some(expectedReceiveMsat),
+    3600, // 1 hour expiry
+    Option_u16Z_None.constructor_none()
+  )
+  if (!(paymentResult instanceof Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK)) {
+    throw new Error('Failed to create inbound payment')
+  }
+  const paymentHash = paymentResult.res.get_a()
+  const paymentSecret = paymentResult.res.get_b()
+
+  // Step 5: Build and sign the BOLT11 invoice with JIT route hint.
+  const nodeIdBytes = hexToBytes(node.nodeId)
+  const bolt11 = await node.lsps2Client.createJitInvoice({
+    buyResponse,
+    lspNodeId: quote.contact.nodeId,
+    amountMsat: quote.amountMsat,
+    description,
+    nodeId: nodeIdBytes,
+    nodeSecretKey: node.nodeSecretKey,
+    paymentHash,
+    paymentSecret,
+    minFinalCltvExpiry: 144,
+  })
+
+  return {
+    bolt11,
+    openingFeeMsat: quote.openingFeeMsat,
+    paymentHash: bytesToHex(paymentHash),
+  }
+}
+
+/**
+ * Orchestrate a JIT-quote request with primary/fallback semantics.
  * Pure (no React/refs) — `requestJitInvoice` is a thin wrapper that
  * supplies `node`, `connect`, and pre-resolved contacts.
  *
@@ -102,32 +375,64 @@ type AttemptJitInvoiceFn = (
  *   - peer_connect: WebSocket / BOLT 8 connect failed
  *   - lsps2_rpc: LSPS2 JSON-RPC failed or timed out
  *   - payment_size_filter: no fee_params menu entry covers the amount
+ *   - quote_freshness: LSP returned a quote with too little headroom
+ *   - aborted (per-LSP timeout only): the per-LSP budget elapsed
  *
- * On both-fail, throws (caller — `Receive.tsx` — degrades to on-chain).
+ * Phase A budget: 14s overall, 7s per LSP. The overall budget short-circuits
+ * fallback if the primary attempt itself exhausted the wall clock.
+ *
+ * On both-fail (or overall-budget-exceeded), throws (caller —
+ * `Receive.tsx` — degrades to on-chain).
  */
-export async function runJitInvoiceFlow(args: {
+export async function runJitQuoteFlow(args: {
   node: LdkNode
   amountMsat: bigint
-  description: string
   connect: ConnectFn
   contacts: { primary: LspContact | null; fallback: LspContact | null }
-  /** Test seam: defaults to the real LSPS2 dance. */
-  attempt?: AttemptJitInvoiceFn
-}): Promise<JitInvoiceResult> {
-  const attempt = args.attempt ?? attemptJitInvoiceWithLsp
-  const { node, amountMsat, description, connect, contacts } = args
+  /** External cancellation (e.g. user tapped Back). */
+  signal?: AbortSignal
+  /** Test seam: defaults to the real LSPS2 quote dance. */
+  attempt?: GetJitQuoteFn
+}): Promise<JitQuote> {
+  const attempt = args.attempt ?? getJitQuote
+  const { node, amountMsat, connect, contacts } = args
   const t0 = performance.now()
 
   if (!contacts.primary && !contacts.fallback) {
     throw new Error('LSP not configured')
   }
 
+  const externalSignal = args.signal ?? new AbortController().signal
+  const overallSignal = timeoutSignal(externalSignal, PHASE_A_TOTAL_BUDGET_MS)
+
   if (contacts.primary) {
     try {
-      return await attempt(node, contacts.primary, amountMsat, description, connect, {
-        retryConnectOnce: false,
-      })
+      const perLspSignal = timeoutSignal(overallSignal, PHASE_A_PER_LSP_BUDGET_MS)
+      return await attempt(
+        node,
+        contacts.primary,
+        amountMsat,
+        connect,
+        { retryConnectOnce: false },
+        perLspSignal
+      )
     } catch (err) {
+      // Don't try fallback if the user externally cancelled.
+      if (externalSignal.aborted) throw err
+      // Don't try fallback if the OVERALL budget is gone (vs. only the per-LSP).
+      if (overallSignal.aborted) {
+        captureError(
+          'error',
+          'LSP',
+          `phase A budget exhausted on primary, skipping fallback`,
+          JSON.stringify({
+            primary: contacts.primary.label,
+            trigger: classifyJitTrigger(err),
+            duration_ms: Math.round(performance.now() - t0),
+          })
+        )
+        throw err
+      }
       if (!contacts.fallback) {
         captureError(
           'error',
@@ -169,10 +474,16 @@ export async function runJitInvoiceFlow(args: {
 
   // Fallback attempt. Preserve the historical soft retry on connect —
   // mobile WebSockets die when backgrounded.
+  const perLspSignal = timeoutSignal(overallSignal, PHASE_A_PER_LSP_BUDGET_MS)
   try {
-    return await attempt(node, contacts.fallback!, amountMsat, description, connect, {
-      retryConnectOnce: true,
-    })
+    return await attempt(
+      node,
+      contacts.fallback!,
+      amountMsat,
+      connect,
+      { retryConnectOnce: true },
+      perLspSignal
+    )
   } catch (err) {
     captureError(
       'error',
@@ -186,97 +497,6 @@ export async function runJitInvoiceFlow(args: {
     )
     throw err
   }
-}
-
-/**
- * Run the LSPS2 JIT-invoice dance against a single LSP. Throws typed
- * errors so `runJitInvoiceFlow` can classify the failure for failover
- * and telemetry.
- */
-async function attemptJitInvoiceWithLsp(
-  node: LdkNode,
-  contact: LspContact,
-  amountMsat: bigint,
-  description: string,
-  connect: ConnectFn,
-  opts: { retryConnectOnce: boolean }
-): Promise<JitInvoiceResult> {
-  // Step 0: Ensure peer connection.
-  try {
-    await connect(node.peerManager, contact.nodeId, contact.host, contact.port)
-  } catch (firstErr) {
-    if (!opts.retryConnectOnce) {
-      throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
-    }
-    // Soft retry — mobile WebSockets die when backgrounded; the peer
-    // may have raced into a connected state via a parallel attempt.
-    const isConnected = node.peerManager
-      .list_peers()
-      .some((p) => bytesToHex(p.get_counterparty_node_id()) === contact.nodeId)
-    if (!isConnected) {
-      try {
-        await connect(node.peerManager, contact.nodeId, contact.host, contact.port)
-      } catch (secondErr) {
-        throw new JitPeerConnectError(
-          `peer_connect (${contact.label}, retry): ${String(secondErr)}`
-        )
-      }
-    }
-  }
-
-  // Step 1: Get opening fee params from LSP.
-  const feeMenu = await node.lsps2Client.getOpeningFeeParams(contact.nodeId, contact.token)
-
-  // Step 2: Select cheapest valid params for this amount. Null means the
-  // LSP's fee menu has no entry whose payment-size range covers
-  // `amountMsat` (or whose fee is less than the payment) — failover-eligible.
-  const selectedParams = selectCheapestParams(feeMenu, amountMsat)
-  if (!selectedParams) {
-    throw new JitPaymentSizeOutOfRangeError(
-      `no fee params accept ${amountMsat.toString()} msat from ${contact.label}`
-    )
-  }
-
-  // Validate valid_until with 120s buffer for clock skew + network latency.
-  if (new Date(selectedParams.validUntil).getTime() < Date.now() + 120_000) {
-    throw new Error('Fee parameters expiring too soon, please try again')
-  }
-
-  // Step 3: Buy JIT channel.
-  const buyResponse = await node.lsps2Client.buyChannel(contact.nodeId, selectedParams, amountMsat)
-
-  // Step 4: Register payment with LDK. The LSP deducts the opening fee
-  // before forwarding, so the received amount will be less than the
-  // invoice amount. Pass the expected post-fee amount so LDK rejects
-  // grossly underpaid HTLCs while allowing the fee deduction.
-  const openingFeeMsat = calculateOpeningFee(amountMsat, selectedParams)
-  const expectedReceiveMsat = amountMsat - openingFeeMsat
-  const paymentResult = node.channelManager.create_inbound_payment(
-    Option_u64Z.constructor_some(expectedReceiveMsat),
-    3600, // 1 hour expiry
-    Option_u16Z_None.constructor_none()
-  )
-  if (!(paymentResult instanceof Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK)) {
-    throw new Error('Failed to create inbound payment')
-  }
-  const paymentHash = paymentResult.res.get_a()
-  const paymentSecret = paymentResult.res.get_b()
-
-  // Step 5: Build and sign the BOLT11 invoice with JIT route hint.
-  const nodeIdBytes = hexToBytes(node.nodeId)
-  const bolt11 = await node.lsps2Client.createJitInvoice({
-    buyResponse,
-    lspNodeId: contact.nodeId,
-    amountMsat,
-    description,
-    nodeId: nodeIdBytes,
-    nodeSecretKey: node.nodeSecretKey,
-    paymentHash,
-    paymentSecret,
-    minFinalCltvExpiry: 144,
-  })
-
-  return { bolt11, openingFeeMsat, paymentHash: bytesToHex(paymentHash) }
 }
 
 export function LdkProvider({
@@ -480,18 +700,31 @@ export function LdkProvider({
     []
   )
 
-  const requestJitInvoice = useCallback(
-    async (amountMsat: bigint, description: string): Promise<JitInvoiceResult> => {
+  const requestJitQuote = useCallback(
+    async (amountMsat: bigint, signal: AbortSignal): Promise<JitQuote> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
       const contacts = await resolveLspContacts()
-      return runJitInvoiceFlow({
+      return runJitQuoteFlow({
         node,
         amountMsat,
-        description,
         connect: connectAndTrack,
         contacts,
+        signal,
       })
+    },
+    []
+  )
+
+  const executeJitBuyCallback = useCallback(
+    async (
+      quote: JitQuote,
+      description: string,
+      signal: AbortSignal
+    ): Promise<JitInvoiceResult> => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+      return executeJitBuy(node, quote, description, signal)
     },
     []
   )
@@ -711,6 +944,19 @@ export function LdkProvider({
           ;(window as unknown as Record<string, unknown>).__recovery = {
             getState: readRecoveryState,
             dismiss: () => clearRecoveryState(vssClient),
+          }
+
+          // Expose the receive flow for agent/programmatic access. Mirrors
+          // the human flow: `quote(sats)` is failover-safe and idempotent
+          // (Phase A); `commit(quote)` reserves LSP-side liquidity and
+          // MUST NOT be retried blindly (Phase B). `createInvoice` is the
+          // standard non-JIT path. Available in all environments.
+          ;(window as unknown as Record<string, unknown>).__receive = {
+            quote: (amountSats: bigint, signal?: AbortSignal) =>
+              requestJitQuote(amountSats * 1000n, signal ?? new AbortController().signal),
+            commit: (quote: JitQuote, description = 'zinqq wallet', signal?: AbortSignal) =>
+              executeJitBuyCallback(quote, description, signal ?? new AbortController().signal),
+            createInvoice,
           }
 
           // Zero secret keys on page unload to limit memory exposure
@@ -972,7 +1218,8 @@ export function LdkProvider({
             bdkEsploraClient,
             setSyncNeeded: setSyncNeededCallback,
             createInvoice,
-            requestJitInvoice,
+            requestJitQuote,
+            executeJitBuy: executeJitBuyCallback,
             sendBolt11Payment,
             sendBolt12Payment,
             abandonPayment,
@@ -1210,6 +1457,8 @@ export function LdkProvider({
     forceCloseChannel,
     listChannels,
     createInvoice,
+    requestJitQuote,
+    executeJitBuyCallback,
     sendBolt11Payment,
     sendBolt12Payment,
     abandonPayment,

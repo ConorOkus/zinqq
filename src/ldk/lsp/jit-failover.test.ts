@@ -3,18 +3,24 @@
 // or a sentinel `await Promise.resolve()`, both of which obscure intent.
 /* eslint-disable @typescript-eslint/require-await */
 import { describe, it, expect, vi } from 'vitest'
-import { runJitInvoiceFlow, JitPeerConnectError, JitPaymentSizeOutOfRangeError } from '../context'
+import {
+  runJitQuoteFlow,
+  JitPeerConnectError,
+  JitPaymentSizeOutOfRangeError,
+  JitQuoteFreshnessError,
+  type JitQuote,
+} from '../context'
 import type { PeerManager } from 'lightningdevkit'
 import type { LdkNode } from '../init'
 import type { LspContact } from './contacts'
-import type { JitInvoiceResult } from '../lsps2/types'
+import type { OpeningFeeParams } from '../lsps2/types'
 
-// runJitInvoiceFlow's orchestrator only forwards `node` to the injected
+// runJitQuoteFlow's orchestrator only forwards `node` to the injected
 // `attempt`. A bare object suffices.
 const FAKE_NODE = {} as unknown as LdkNode
 
 // Match the real connect signature so vi.fn<AttemptFn> can substitute
-// for AttemptJitInvoiceFn without contravariance complaints.
+// for GetJitQuoteFn without contravariance complaints.
 type ConnectStub = (
   peerManager: PeerManager,
   pubkey: string,
@@ -26,18 +32,16 @@ const FAKE_CONNECT: ConnectStub = vi.fn(async () => undefined)
 
 /**
  * Type the `attempt` mock with the full 6-arg signature so
- * `attempt.mock.calls[i]` carries every positional argument — without
- * this, vitest infers the tuple from the impl and shorter impls
- * (e.g. `(_node, contact) => ...`) drop later positions.
+ * `attempt.mock.calls[i]` carries every positional argument.
  */
 type AttemptFn = (
   node: LdkNode,
   contact: LspContact,
   amountMsat: bigint,
-  description: string,
   connect: ConnectStub,
-  opts: { retryConnectOnce: boolean }
-) => Promise<JitInvoiceResult>
+  opts: { retryConnectOnce: boolean },
+  signal: AbortSignal
+) => Promise<JitQuote>
 
 const LQWD: LspContact = {
   nodeId: '02'.padEnd(66, '0'),
@@ -55,42 +59,61 @@ const MEGALITH: LspContact = {
   label: 'megalith',
 }
 
-const RESULT_LQWD: JitInvoiceResult = {
-  bolt11: 'lnbc1pjlqwd...',
-  openingFeeMsat: 1000n,
-  paymentHash: 'aa'.padEnd(64, '0'),
+function makeParams(overrides: Partial<OpeningFeeParams> = {}): OpeningFeeParams {
+  return {
+    minFeeMsat: 1_000_000n,
+    proportional: 5000,
+    validUntil: new Date(Date.now() + 5 * 60_000).toISOString(),
+    minLifetime: 144,
+    maxClientToSelfDelay: 2016,
+    minPaymentSizeMsat: 1_000n,
+    maxPaymentSizeMsat: 1_000_000_000n,
+    promise: 'sig-' + Math.random().toString(36).slice(2),
+    ...overrides,
+  }
 }
 
-const RESULT_MEGALITH: JitInvoiceResult = {
-  bolt11: 'lnbc1pjmega...',
-  openingFeeMsat: 2000n,
-  paymentHash: 'bb'.padEnd(64, '0'),
+const QUOTE_LQWD: JitQuote = {
+  contact: LQWD,
+  params: makeParams({ promise: 'lqwd-promise' }),
+  menu: [makeParams({ promise: 'lqwd-promise' })],
+  openingFeeMsat: 1_000_000n,
+  amountMsat: 50_000_000n,
 }
 
-describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
+const QUOTE_MEGALITH: JitQuote = {
+  contact: MEGALITH,
+  params: makeParams({ promise: 'megalith-promise' }),
+  menu: [makeParams({ promise: 'megalith-promise' })],
+  openingFeeMsat: 2_000_000n,
+  amountMsat: 50_000_000n,
+}
+
+describe('runJitQuoteFlow — primary/fallback orchestration', () => {
   it('uses primary on the happy path and never touches fallback', async () => {
     const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
       async (_node, contact) => {
-        if (contact.label === 'lqwd') return RESULT_LQWD
+        if (contact.label === 'lqwd') return QUOTE_LQWD
         throw new Error('should not call megalith')
       }
     )
 
-    const result = await runJitInvoiceFlow({
+    const result = await runJitQuoteFlow({
       node: FAKE_NODE,
       amountMsat: 50_000_000n,
-      description: 'test',
       connect: FAKE_CONNECT,
       contacts: { primary: LQWD, fallback: MEGALITH },
       attempt,
     })
 
-    expect(result).toBe(RESULT_LQWD)
+    expect(result).toBe(QUOTE_LQWD)
     expect(attempt).toHaveBeenCalledTimes(1)
     const firstCall = attempt.mock.calls[0]
     expect(firstCall).toBeDefined()
     expect(firstCall![1].label).toBe('lqwd')
-    expect(firstCall![5]).toEqual({ retryConnectOnce: false })
+    expect(firstCall![4]).toEqual({ retryConnectOnce: false })
+    // The signal arg must be a real AbortSignal so per-LSP timeouts can compose.
+    expect(firstCall![5]).toBeInstanceOf(AbortSignal)
   })
 
   // Scenario 1: LQwD /get_info 5xx → resolveLspContacts returned primary=null
@@ -98,31 +121,26 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
   it('falls back to Megalith when primary discovery (HTTP preflight) failed', async () => {
     const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
       async (_node, contact) => {
-        if (contact.label === 'megalith') return RESULT_MEGALITH
+        if (contact.label === 'megalith') return QUOTE_MEGALITH
         throw new Error('lqwd should never be attempted')
       }
     )
 
-    const result = await runJitInvoiceFlow({
+    const result = await runJitQuoteFlow({
       node: FAKE_NODE,
       amountMsat: 50_000_000n,
-      description: 'test',
       connect: FAKE_CONNECT,
       contacts: { primary: null, fallback: MEGALITH },
       attempt,
     })
 
-    expect(result).toBe(RESULT_MEGALITH)
+    expect(result).toBe(QUOTE_MEGALITH)
     expect(attempt).toHaveBeenCalledTimes(1)
     const firstCall = attempt.mock.calls[0]
     expect(firstCall).toBeDefined()
     expect(firstCall![1].label).toBe('megalith')
-    expect(firstCall![5]).toEqual({ retryConnectOnce: true })
+    expect(firstCall![4]).toEqual({ retryConnectOnce: true })
   })
-
-  // Scenario 2 (rolled in via the discovery test suite): malformed JSON / empty
-  // uris cause `fetchLqwdContact` to reject → `resolveLspContacts` returns
-  // primary=null → same path as Scenario 1, asserted there.
 
   // Scenario 3: peer-connect to LQwD fails → fallback to Megalith.
   it('falls back when LQwD peer connect throws', async () => {
@@ -131,27 +149,26 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
         if (contact.label === 'lqwd') {
           throw new JitPeerConnectError('peer_connect (lqwd): timeout')
         }
-        return RESULT_MEGALITH
+        return QUOTE_MEGALITH
       }
     )
 
-    const result = await runJitInvoiceFlow({
+    const result = await runJitQuoteFlow({
       node: FAKE_NODE,
       amountMsat: 50_000_000n,
-      description: 'test',
       connect: FAKE_CONNECT,
       contacts: { primary: LQWD, fallback: MEGALITH },
       attempt,
     })
 
-    expect(result).toBe(RESULT_MEGALITH)
+    expect(result).toBe(QUOTE_MEGALITH)
     expect(attempt).toHaveBeenCalledTimes(2)
     const [first, second] = attempt.mock.calls
     expect(first).toBeDefined()
     expect(second).toBeDefined()
     expect(first![1].label).toBe('lqwd')
     expect(second![1].label).toBe('megalith')
-    expect(second![5]).toEqual({ retryConnectOnce: true })
+    expect(second![4]).toEqual({ retryConnectOnce: true })
   })
 
   // Scenario 4: payment size outside LQwD's range → fallback to Megalith.
@@ -159,22 +176,49 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
     const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
       async (_node, contact) => {
         if (contact.label === 'lqwd') {
-          throw new JitPaymentSizeOutOfRangeError('no fee params accept 200000000 msat from lqwd')
+          throw new JitPaymentSizeOutOfRangeError(
+            'no fee params accept 200000000 msat from lqwd',
+            [makeParams()],
+            LQWD
+          )
         }
-        return RESULT_MEGALITH
+        return QUOTE_MEGALITH
       }
     )
 
-    const result = await runJitInvoiceFlow({
+    const result = await runJitQuoteFlow({
       node: FAKE_NODE,
       amountMsat: 200_000_000n,
-      description: 'test',
       connect: FAKE_CONNECT,
       contacts: { primary: LQWD, fallback: MEGALITH },
       attempt,
     })
 
-    expect(result).toBe(RESULT_MEGALITH)
+    expect(result).toBe(QUOTE_MEGALITH)
+    expect(attempt).toHaveBeenCalledTimes(2)
+  })
+
+  // Scenario: LQwD returned a quote whose validUntil leaves <30s headroom →
+  // fallback to Megalith (the LSP rotated keys but not the menu).
+  it('falls back when primary returns a quote with insufficient freshness', async () => {
+    const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
+      async (_node, contact) => {
+        if (contact.label === 'lqwd') {
+          throw new JitQuoteFreshnessError('Fee parameters expiring too soon, please try again')
+        }
+        return QUOTE_MEGALITH
+      }
+    )
+
+    const result = await runJitQuoteFlow({
+      node: FAKE_NODE,
+      amountMsat: 50_000_000n,
+      connect: FAKE_CONNECT,
+      contacts: { primary: LQWD, fallback: MEGALITH },
+      attempt,
+    })
+
+    expect(result).toBe(QUOTE_MEGALITH)
     expect(attempt).toHaveBeenCalledTimes(2)
   })
 
@@ -187,10 +231,9 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
     )
 
     await expect(
-      runJitInvoiceFlow({
+      runJitQuoteFlow({
         node: FAKE_NODE,
         amountMsat: 50_000_000n,
-        description: 'test',
         connect: FAKE_CONNECT,
         contacts: { primary: LQWD, fallback: MEGALITH },
         attempt,
@@ -203,10 +246,9 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
   it('throws when no LSP is configured at all', async () => {
     const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>()
     await expect(
-      runJitInvoiceFlow({
+      runJitQuoteFlow({
         node: FAKE_NODE,
         amountMsat: 50_000_000n,
-        description: 'test',
         connect: FAKE_CONNECT,
         contacts: { primary: null, fallback: null },
         attempt,
@@ -221,10 +263,9 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
     })
 
     await expect(
-      runJitInvoiceFlow({
+      runJitQuoteFlow({
         node: FAKE_NODE,
         amountMsat: 50_000_000n,
-        description: 'test',
         connect: FAKE_CONNECT,
         contacts: { primary: LQWD, fallback: null },
         attempt,
@@ -234,12 +275,11 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
     expect(attempt).toHaveBeenCalledTimes(1)
   })
 
-  it('passes the user-provided amount and description through to attempt', async () => {
-    const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(async () => RESULT_LQWD)
-    await runJitInvoiceFlow({
+  it('passes the user-provided amount through to attempt', async () => {
+    const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(async () => QUOTE_LQWD)
+    await runJitQuoteFlow({
       node: FAKE_NODE,
       amountMsat: 12_345_678n,
-      description: 'my-description',
       connect: FAKE_CONNECT,
       contacts: { primary: LQWD, fallback: MEGALITH },
       attempt,
@@ -247,6 +287,83 @@ describe('runJitInvoiceFlow — primary/fallback orchestration', () => {
     const firstCall = attempt.mock.calls[0]
     expect(firstCall).toBeDefined()
     expect(firstCall![2]).toBe(12_345_678n)
-    expect(firstCall![3]).toBe('my-description')
+  })
+})
+
+describe('runJitQuoteFlow — cancellation and timeouts', () => {
+  it('aborts immediately when the external signal is already aborted', async () => {
+    const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
+      async (_node, _contact, _amount, _connect, _opts, signal) => {
+        // Honor the per-LSP signal so the abort surfaces synchronously.
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        return QUOTE_LQWD
+      }
+    )
+
+    const ctrl = new AbortController()
+    ctrl.abort()
+
+    await expect(
+      runJitQuoteFlow({
+        node: FAKE_NODE,
+        amountMsat: 50_000_000n,
+        connect: FAKE_CONNECT,
+        contacts: { primary: LQWD, fallback: MEGALITH },
+        signal: ctrl.signal,
+        attempt,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' })
+
+    // External cancel skips fallback even though the primary "failed" (was aborted).
+    expect(attempt).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back when the per-LSP budget is exceeded on primary', async () => {
+    vi.useFakeTimers()
+    try {
+      // Block until the per-LSP signal aborts, then throw AbortError.
+      // `{ once: true }` ensures the listener cleans up — important when
+      // the parent (overall) signal later cascades abort to derived signals.
+      const waitForAbort = (signal: AbortSignal): Promise<never> =>
+        new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'))
+            return
+          }
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          )
+        })
+
+      const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
+        async (_node, contact, _amount, _connect, _opts, signal) => {
+          if (contact.label === 'lqwd') {
+            await waitForAbort(signal)
+          }
+          return QUOTE_MEGALITH
+        }
+      )
+
+      const promise = runJitQuoteFlow({
+        node: FAKE_NODE,
+        amountMsat: 50_000_000n,
+        connect: FAKE_CONNECT,
+        contacts: { primary: LQWD, fallback: MEGALITH },
+        attempt,
+      })
+
+      // Advance past the 7s per-LSP budget but well under the 14s overall —
+      // primary aborts, fallback runs synchronously and resolves.
+      await vi.advanceTimersByTimeAsync(7_500)
+
+      const result = await promise
+      expect(result).toBe(QUOTE_MEGALITH)
+      expect(attempt).toHaveBeenCalledTimes(2)
+      expect(attempt.mock.calls[1]![1].label).toBe('megalith')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

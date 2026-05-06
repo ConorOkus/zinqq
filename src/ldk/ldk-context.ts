@@ -11,6 +11,7 @@ import type {
 import type { LdkNode } from './init'
 import type { PersistedPayment } from './storage/payment-history'
 import type { JitInvoiceResult } from './lsps2/types'
+import type { JitQuote } from './context'
 
 export type SyncStatus = 'syncing' | 'synced' | 'stale'
 
@@ -43,7 +44,23 @@ export type LdkContextValue =
         amountMsat?: bigint,
         description?: string
       ) => { bolt11: string; paymentHash: string }
-      requestJitInvoice: (amountMsat: bigint, description: string) => Promise<JitInvoiceResult>
+      /**
+       * Phase A — fetch an LSPS2 quote with failover. Returns the displayable
+       * fee disclosure (fee, menu, picked LSP). No LSP-side commitment is made;
+       * safe to call speculatively (e.g. as a numpad pre-warm).
+       */
+      requestJitQuote: (amountMsat: bigint, signal: AbortSignal) => Promise<JitQuote>
+      /**
+       * Phase B — commit a previously-displayed quote and produce a BOLT11
+       * invoice. Single-LSP, NOT failover-eligible: `buyChannel` reserves
+       * LSP-side liquidity. The signal is ignored once `buyChannel` is in
+       * flight to avoid orphaning LSP commitments.
+       */
+      executeJitBuy: (
+        quote: JitQuote,
+        description: string,
+        signal: AbortSignal
+      ) => Promise<JitInvoiceResult>
       sendBolt11Payment: (invoice: Bolt11Invoice, amountMsat?: bigint) => Uint8Array
       sendBolt12Payment: (
         offer: Offer,

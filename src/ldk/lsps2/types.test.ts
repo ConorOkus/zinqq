@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   calculateOpeningFee,
   selectCheapestParams,
+  computeMinReceiveSats,
   deserializeOpeningFeeParams,
   serializeOpeningFeeParams,
   serializeJsonRpcRequest,
@@ -101,6 +102,41 @@ describe('selectCheapestParams', () => {
   it('returns null when no params are valid', () => {
     const menu = [makeParams({ minPaymentSizeMsat: 1_000_000_000n })]
     expect(selectCheapestParams(menu, 100n)).toBeNull()
+  })
+})
+
+describe('computeMinReceiveSats', () => {
+  it('returns 0 for an empty menu', () => {
+    expect(computeMinReceiveSats([])).toBe(0n)
+  })
+
+  it('rounds the minFee floor up to the next whole sat (+1 msat margin)', () => {
+    // minFee 2_500_000 msat → smallestNetPositive = 2_500_001 msat → 2501 sats.
+    const menu = [makeParams({ minFeeMsat: 2_500_000n, minPaymentSizeMsat: 1n })]
+    expect(computeMinReceiveSats(menu)).toBe(2501n)
+  })
+
+  it('honors LSP minPaymentSize when it dominates the fee floor', () => {
+    // minFee 100 msat (tiny), minPaymentSize 5_000_000 msat (5_000 sats).
+    const menu = [makeParams({ minFeeMsat: 100n, minPaymentSizeMsat: 5_000_000n })]
+    expect(computeMinReceiveSats(menu)).toBe(5_000n)
+  })
+
+  it('picks the easiest entry (smallest floor) across a multi-entry menu', () => {
+    // Entry A: minFee 5_000_000 msat → floor 5_001 sats.
+    // Entry B: minFee 1_500_000 msat → floor 1_501 sats.
+    // Effective minimum is the smaller of the two.
+    const menu = [
+      makeParams({ minFeeMsat: 5_000_000n, minPaymentSizeMsat: 1n, promise: 'a' }),
+      makeParams({ minFeeMsat: 1_500_000n, minPaymentSizeMsat: 1n, promise: 'b' }),
+    ]
+    expect(computeMinReceiveSats(menu)).toBe(1_501n)
+  })
+
+  it('handles a zero-fee entry by reporting 1 sat as the minimum', () => {
+    // Edge case: minFee = 0 → smallestNetPositive = 1 msat → 1 sat after ceil.
+    const menu = [makeParams({ minFeeMsat: 0n, minPaymentSizeMsat: 1n })]
+    expect(computeMinReceiveSats(menu)).toBe(1n)
   })
 })
 
