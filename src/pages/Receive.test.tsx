@@ -329,12 +329,12 @@ describe('Receive', () => {
       expect(reviewRegion).toHaveTextContent("You'll receive")
       expect(reviewRegion).toHaveTextContent('₿7,500')
 
-      // Generate invoice CTA is enabled.
-      const cta = screen.getByRole('button', { name: /generate invoice/i })
+      // Pay CTA is enabled.
+      const cta = screen.getByRole('button', { name: /^pay$/i })
       expect(cta).toBeEnabled()
     })
 
-    it('Generate invoice tap calls executeJitBuy and renders QR on success', async () => {
+    it('Pay tap calls executeJitBuy and renders QR on success', async () => {
       const user = userEvent.setup()
       const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(10_000_000n, 2_500_000n))
       const executeJitBuy = vi.fn().mockResolvedValue({
@@ -359,7 +359,7 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
-      const cta = await screen.findByRole('button', { name: /generate invoice/i })
+      const cta = await screen.findByRole('button', { name: /^pay$/i })
       await user.click(cta)
 
       await waitFor(() => {
@@ -417,7 +417,7 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
-      const cta = await screen.findByRole('button', { name: /generate invoice/i })
+      const cta = await screen.findByRole('button', { name: /^pay$/i })
       expect(cta).toBeDisabled()
       // Minimum copy is rendered, and the disabled CTA is wired to it.
       expect(screen.getByText(/minimum receive/i)).toBeInTheDocument()
