@@ -680,7 +680,7 @@ export function Receive() {
                 receiveState.kind === 'below-minimum' ? 'receive-min-hint' : undefined
               }
             >
-              Pay
+              Generate Payment Request
             </button>
             <button
               className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
