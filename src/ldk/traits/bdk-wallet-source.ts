@@ -98,7 +98,19 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
         const base64 = uint8ArrayToBase64(psbtBytes)
         const psbt = Psbt.from_string(base64)
 
-        bdkWallet.sign(psbt, new SignOptions())
+        // LDK's BumpTransactionEventHandler builds anchor-channel CPFP PSBTs
+        // with only `witness_utxo` populated for our wallet input — it doesn't
+        // have the full previous transaction handy, and for native-SegWit
+        // inputs `witness_utxo` is sufficient. BDK's default SignOptions
+        // require `non_witness_utxo` (CVE-2020-14199 — the "fee siphon" attack
+        // on hardware-wallet PSBT signers). That mitigation is for UNTRUSTED
+        // PSBT producers; here LDK itself produces the PSBT on our behalf
+        // using state we already trust, so flipping `trust_witness_utxo: true`
+        // is safe and is the only way CPFP can sign.
+        const signOpts = new SignOptions()
+        signOpts.trust_witness_utxo = true
+
+        bdkWallet.sign(psbt, signOpts)
 
         const signedTx = psbt.extract_tx()
         const txBytes = signedTx.to_bytes()

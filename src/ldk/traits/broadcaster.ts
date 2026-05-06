@@ -23,10 +23,22 @@ async function postTxToEsplora(
   const body = await res.text()
   const lower = body.toLowerCase()
   if (
+    // Already-confirmed / already-known cases: nothing more to do.
     lower.includes('transaction already in block chain') ||
     lower.includes('txn-already-known') ||
     lower.includes('txn-already-confirmed') ||
-    lower.includes('insufficient fee, rejecting replacement')
+    lower.includes('insufficient fee, rejecting replacement') ||
+    // RPC -27: outputs already in UTXO set → tx (or one with the same outputs)
+    // is on chain. After a successful CPFP-bumped force close, LDK will keep
+    // re-issuing the now-confirmed commitment + anchor child for a while; we
+    // don't want each retry to log as a critical broadcast failure.
+    lower.includes('outputs already in utxo set') ||
+    lower.includes('-27') ||
+    // RPC -25: inputs missing or spent. For a persisted pending broadcast
+    // this nearly always means the tx (or a conflicting one with the same
+    // inputs) already confirmed; retrying won't produce a better outcome.
+    lower.includes('bad-txns-inputs-missingorspent') ||
+    lower.includes('-25')
   ) {
     return { status: 'known' }
   }

@@ -78,6 +78,14 @@ describe('broadcastWithRetry', () => {
       ['Txn-Already-Known'],
       ['txn-already-confirmed'],
       ['TXN-ALREADY-CONFIRMED'],
+      // RPC -27: outputs already in UTXO set (tx confirmed already).
+      // Real-world strings from Bitcoin Core / Esplora / mempool.space:
+      ['sendrawtransaction RPC error -27: Transaction outputs already in utxo set'],
+      [
+        'sendrawtransaction RPC error: {"code":-27,"message":"Transaction outputs already in utxo set"}',
+      ],
+      // RPC -25: inputs missing/spent (tx or conflicting one confirmed).
+      ['sendrawtransaction RPC error: {"code":-25,"message":"bad-txns-inputs-missingorspent"}'],
     ])('returns already-broadcast for "%s"', async (body) => {
       vi.stubGlobal('fetch', mockFetchError(400, body))
 
