@@ -26,6 +26,7 @@ import {
 } from './ldk-context'
 import { LDK_CONFIG } from './config'
 import { resolveLspContacts, type LspContact } from './lsp/contacts'
+import { fetchLqwdContact } from './lsp/lqwd-discovery'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
@@ -682,6 +683,20 @@ export function LdkProvider({
           if (cancelled) return
 
           nodeRef.current = node
+
+          // Eagerly discover LQwD's pubkey and add it to the trust set so
+          // the event handler accepts 0-conf opens from the primary LSP.
+          // Fire-and-forget: if discovery fails, we silently continue with
+          // only Megalith trusted (the receive flow will then fall back).
+          // See todos/291 (P1 from PR #148 review).
+          void fetchLqwdContact()
+            .then((contact) => {
+              if (cancelled) return
+              node.trustedLspIds.add(contact.nodeId)
+            })
+            .catch(() => {
+              // Discovery failure is logged elsewhere; don't double-log.
+            })
 
           // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {

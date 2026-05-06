@@ -97,6 +97,14 @@ export interface LdkNode {
   onionMessenger: OnionMessenger
   eventHandler: EventHandler
   lsps2Client: LSPS2Client
+  /**
+   * Pubkeys (66-char lowercase hex) of LSPs we trust to open 0-conf
+   * inbound channels for JIT receive. Seeded with the env-var Megalith
+   * fallback at init; LdkProvider adds the runtime-discovered LQwD
+   * primary once `fetchLqwdContact()` resolves. Read by the event
+   * handler's `Event_OpenChannelRequest` gate.
+   */
+  trustedLspIds: Set<string>
 }
 
 export interface InitResult {
@@ -713,11 +721,17 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   let syncNeededCallback: SyncNeededCallback | undefined
   let connectionNeededCallback: ConnectionNeededCallback | undefined
   let recoveryNeededCallback: RecoveryNeededCallback | undefined
+  // Mutable trust set for 0-conf channel acceptance. Seeded with the
+  // env-var fallback (Megalith) here; LdkProvider adds the
+  // runtime-discovered primary (LQwD) when discovery resolves. The
+  // event handler reads via closure so updates are picked up live.
+  const trustedLspIds = new Set<string>()
+  if (LDK_CONFIG.lspNodeId !== '') trustedLspIds.add(LDK_CONFIG.lspNodeId)
   const { handler: eventHandler, cleanup: cleanupEventHandler } = createEventHandler(
     channelManager,
     keysManager,
     bdkWallet,
-    LDK_CONFIG.lspNodeId,
+    (pubkey) => trustedLspIds.has(pubkey),
     (...args) => paymentCallback?.(...args),
     (...args) => channelClosedCallback?.(...args),
     () => syncNeededCallback?.(),
@@ -811,6 +825,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     onionMessenger,
     eventHandler,
     lsps2Client,
+    trustedLspIds,
   }
 
   return {
