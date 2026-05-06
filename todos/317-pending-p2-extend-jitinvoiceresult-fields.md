@@ -28,8 +28,8 @@ export interface JitInvoiceResult {
   bolt11: string
   openingFeeMsat: bigint
   paymentHash: string
-  expectedReceiveMsat: bigint  // NEW: amount - opening fee
-  lspNodeId: string            // NEW: which LSP committed (for telemetry / display)
+  expectedReceiveMsat: bigint // NEW: amount - opening fee
+  lspNodeId: string // NEW: which LSP committed (for telemetry / display)
 }
 ```
 

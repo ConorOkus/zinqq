@@ -27,7 +27,7 @@ dependencies: []
 - Delete lines 303–305 and 339–341 plus the explanatory comment
 - The plan's intent (post-display fee inflation protection) is genuinely impossible at this layer — the LSP signs the params via `promise`, so it can't change them at `buyChannel` time without invalidating the signature
 - **Pros**: Removes misleading code; ~10 LOC saved
-- **Cons**: Loses the *appearance* of a check
+- **Cons**: Loses the _appearance_ of a check
 - **Effort**: Small
 - **Risk**: Low
 

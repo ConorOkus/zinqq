@@ -11,6 +11,7 @@ dependencies: []
 ## Problem Statement
 
 `getJitQuote` rejects quotes with `<30s` remaining at quote time, but `executeJitBuy` does NOT re-check `validUntil` at entry. After Phase A returns, the user may dwell on the Review screen indefinitely. If `validUntil` lapses before they tap Generate Payment Request, `buyChannel` may either:
+
 - Be rejected by the LSP (safe — no commitment), or
 - Be accepted on best-effort terms (unsafe — wallet bound to potentially worse pricing it never re-displayed).
 

@@ -10,7 +10,7 @@ dependencies: []
 
 ## Problem Statement
 
-`Receive.tsx` uses BOTH a monotonic counter (`requestCounterRef`) and an `AbortController` to scope concurrent quote requests. The plan explicitly said the AbortController should *replace* the counter — but the implementation kept both. With `ctrl.abort()` firing in the cleanup and `getJitQuote` rejecting with `AbortError` on the aborted signal, the `requestCounterRef.current !== thisRequest` guards in `.then`/`.catch` are largely defensive duplication.
+`Receive.tsx` uses BOTH a monotonic counter (`requestCounterRef`) and an `AbortController` to scope concurrent quote requests. The plan explicitly said the AbortController should _replace_ the counter — but the implementation kept both. With `ctrl.abort()` firing in the cleanup and `getJitQuote` rejecting with `AbortError` on the aborted signal, the `requestCounterRef.current !== thisRequest` guards in `.then`/`.catch` are largely defensive duplication.
 
 ## Findings
 
