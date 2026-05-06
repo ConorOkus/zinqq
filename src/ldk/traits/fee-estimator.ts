@@ -26,8 +26,19 @@ const MAX_FEE_SAT_KW = 500_000 // ~2,000 sat/vB — beyond this, something is wr
 function targetToBlocks(confirmationTarget: ConfirmationTarget): number {
   switch (confirmationTarget) {
     case ConfirmationTarget.LDKConfirmationTarget_MaximumFeeEstimate:
-    case ConfirmationTarget.LDKConfirmationTarget_UrgentOnChainSweep:
       return 1
+    case ConfirmationTarget.LDKConfirmationTarget_UrgentOnChainSweep:
+      // Anchor-channel CPFP, justice transactions, and HTLC-claim txs.
+      // Esplora's 1-block estimate is a sat-per-vB rate that recent
+      // high-priority transactions paid — it's wildly inflated in low-fee
+      // mempools (the network mined a block at 1 sat/vB but the 1-target
+      // estimate can read 75+ sat/vB). The 3-block estimate is much more
+      // stable and is still well within our safety windows: anchor channels
+      // give us the full `to_self_delay` (typically 144+ blocks) before
+      // the counterparty can race us on-chain. 3 blocks vs 1 block trades
+      // ~30 minutes of confirmation latency for not paying 30× the going
+      // rate during quiet mempool conditions.
+      return 3
     case ConfirmationTarget.LDKConfirmationTarget_AnchorChannelFee:
     case ConfirmationTarget.LDKConfirmationTarget_NonAnchorChannelFee:
       return 6
@@ -42,14 +53,21 @@ function targetToBlocks(confirmationTarget: ConfirmationTarget): number {
   }
 }
 
+/**
+ * Pure fee-rate computation: queries `getCachedFeeRate` for the right
+ * block target, applies the per-target floor, and caps at MAX_FEE_SAT_KW.
+ * Exported for testing — production code goes through `createFeeEstimator`.
+ */
+export function computeFeeRateSatKw(confirmationTarget: ConfirmationTarget): number {
+  const targetBlocks = targetToBlocks(confirmationTarget)
+  const satPerVb = getCachedFeeRate(targetBlocks)
+  // Convert sat/vB → sat/KW (×250), cap, and enforce LDK minimum of 253
+  const satKw = Math.min(Math.round(satPerVb * 250), MAX_FEE_SAT_KW)
+  return Math.max(satKw, DEFAULT_FEE_RATES[confirmationTarget] ?? 253, 253)
+}
+
 export function createFeeEstimator(): FeeEstimator {
   return FeeEstimator.new_impl({
-    get_est_sat_per_1000_weight(confirmation_target: ConfirmationTarget): number {
-      const targetBlocks = targetToBlocks(confirmation_target)
-      const satPerVb = getCachedFeeRate(targetBlocks)
-      // Convert sat/vB → sat/KW (×250), cap, and enforce LDK minimum of 253
-      const satKw = Math.min(Math.round(satPerVb * 250), MAX_FEE_SAT_KW)
-      return Math.max(satKw, DEFAULT_FEE_RATES[confirmation_target] ?? 253, 253)
-    },
+    get_est_sat_per_1000_weight: computeFeeRateSatKw,
   })
 }
