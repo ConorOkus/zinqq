@@ -11,7 +11,11 @@
 
 import type { LspContact } from './contacts'
 
-const LQWD_GET_INFO_URL = 'https://germany.lqwd.tech/api/v1/get_info'
+// Proxied through our backend (Vercel serverless `api/lqwd-proxy.ts`,
+// or Vite dev proxy). LQwD's upstream endpoint omits CORS headers, so
+// browsers can't fetch it directly; same-origin proxying sidesteps that
+// without requiring upstream cooperation.
+const LQWD_GET_INFO_URL = '/api/lqwd/get_info'
 
 const FETCH_TIMEOUT_MS = 3_000
 
