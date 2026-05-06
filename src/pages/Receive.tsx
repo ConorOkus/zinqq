@@ -11,10 +11,7 @@ import { formatBtc } from '../utils/format-btc'
 import { buildBip321Uri } from '../onchain/bip321'
 import { CopyIcon } from '../components/icons'
 import { captureError } from '../storage/error-log'
-import {
-  JitPaymentSizeOutOfRangeError,
-  type JitQuote,
-} from '../ldk/context'
+import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
 import { computeMinReceiveSats, type OpeningFeeParams } from '../ldk/lsps2/types'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { LDK_CONFIG } from '../ldk/config'
@@ -633,8 +630,7 @@ export function Receive() {
                     </span>
                     {(() => {
                       const netSats =
-                        receiveState.amountSats -
-                        (receiveState.quote.openingFeeMsat + 999n) / 1000n
+                        receiveState.amountSats - (receiveState.quote.openingFeeMsat + 999n) / 1000n
                       return (
                         <span
                           className="font-display text-lg font-bold text-on-dark"
@@ -716,9 +712,7 @@ export function Receive() {
               </svg>
             </div>
             <p className="text-base font-semibold text-on-dark">Could not finish setup</p>
-            <p className="max-w-[280px] text-center text-sm text-red-400">
-              {receiveState.message}
-            </p>
+            <p className="max-w-[280px] text-center text-sm text-red-400">{receiveState.message}</p>
           </div>
           <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
             <button

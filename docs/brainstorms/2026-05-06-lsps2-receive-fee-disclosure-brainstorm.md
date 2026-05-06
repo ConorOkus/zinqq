@@ -8,7 +8,7 @@ status: brainstorm
 
 ## What We're Building
 
-A **Review screen** inserted between the receive numpad and the BOLT11 invoice/QR, shown only when a just-in-time channel open is required. The screen discloses the LSPS2 setup fee and the net amount the user will actually receive *before* the invoice is generated, so the displayed receive amount on the QR matches what lands in the wallet.
+A **Review screen** inserted between the receive numpad and the BOLT11 invoice/QR, shown only when a just-in-time channel open is required. The screen discloses the LSPS2 setup fee and the net amount the user will actually receive _before_ the invoice is generated, so the displayed receive amount on the QR matches what lands in the wallet.
 
 Today: numpad → Done → invoice fires immediately; the LSP fee is shown only as a single line under the QR (`Setup fee: X`), and the user has no chance to back out or adjust before the invoice exists. There is no warning when the requested amount is below the LSP minimum or below the fee itself.
 
@@ -26,6 +26,7 @@ After: numpad → **Review** → Generate invoice → QR. The Review screen show
 - **Insert a Review screen, conditional on JIT.** Numpad → Review → Generate → QR when `requiresJitChannel === true`. Otherwise numpad → QR (current behavior).
 - **Display only the LSP opening fee as "Setup fee".** Channel reserve is **not** added to the figure and **not** shown as a separate line. The reserve is the user's own sats locked in their own channel — locked, not lost — and conflating it with the LSP fee would overstate the cost.
 - **Layout: three rows + a divider, B-integer denomination.**
+
   ```
     Review receive
 
@@ -37,6 +38,7 @@ After: numpad → **Review** → Generate invoice → QR. The Review screen show
         [ Generate invoice ]
         [    Back         ]
   ```
+
 - **Below-minimum: block + suggest.** When `setupFee ≥ amount`, disable `Generate invoice` and show `Minimum receive: ₿X` (where X is `max(LSP minPaymentSizeMsat, smallest amount that yields net > 0)`). No "warn but allow" — paying ₿2,600 in fees to receive ₿0 is never the right action.
 - **No "first receive opens a Lightning channel" copy.** The user wants this educational framing removed; the breakdown speaks for itself. The label "Setup fee" is doing all the explaining.
 - **Setup fee uses the LSP's quoted opening fee for the requested amount**, computed via `getOpeningFeeParams` + `selectCheapestParams` + `calculateOpeningFee` against `amountMsat`, before any `buyChannel` call. No commitment to the LSP is made until the user taps `Generate invoice`.
@@ -51,14 +53,14 @@ After: numpad → **Review** → Generate invoice → QR. The Review screen show
 
 ## Resolved Questions
 
-- *Should reserve be bundled into the Setup fee number?* — **No.** Initially the user inclined toward bundling; on reflection, reserve is locked-not-lost, so showing only the true LSP cost is more accurate. Reserve disclosure, if it happens at all, lives in a separate balance-UX surface.
-- *Block, warn, or auto-bump when amount < fee?* — **Block + suggest minimum.** Auto-bumping silently changes what the user typed; warn-and-allow lets them light money on fire.
-- *Always show the review, or only on JIT?* — **Only on JIT.** No fee, no review.
-- *B-integer denomination scope?* — **App-wide.** Add a B-integer formatter (`₿10,000`) and use it everywhere BTC is currently displayed. The review screen drives consistency, but the change is global. This expands plan scope: every balance/amount surface gets touched.
-- *Stale quote on Generate invoice tap?* — **Silent re-quote.** Re-fetch the fee on tap; if it matches, proceed; if it changed, briefly show "Fee updated" and the new numbers before letting the user proceed. Optimizes for short review-screen dwell time.
-- *Failure mode if `get_info` fails before the review renders?* — **Skip review, fall back to on-chain.** Match current behavior in `src/ldk/context.tsx:144`. The review screen only renders when we have a valid quote; fee-fetch failure is treated as "JIT unavailable" and the existing on-chain fallback kicks in.
-- *Fee row label?* — **"Setup fee"** (unchanged from today's under-QR copy).
-- *Minimum-receive computation?* — **`max(LSP.minPaymentSizeMsat, smallest amount yielding net > 0 after fee)`.** In practice the LSP minimum should already cover the second term, but compute both and take the max so the displayed minimum is always actionable.
+- _Should reserve be bundled into the Setup fee number?_ — **No.** Initially the user inclined toward bundling; on reflection, reserve is locked-not-lost, so showing only the true LSP cost is more accurate. Reserve disclosure, if it happens at all, lives in a separate balance-UX surface.
+- _Block, warn, or auto-bump when amount < fee?_ — **Block + suggest minimum.** Auto-bumping silently changes what the user typed; warn-and-allow lets them light money on fire.
+- _Always show the review, or only on JIT?_ — **Only on JIT.** No fee, no review.
+- _B-integer denomination scope?_ — **App-wide.** Add a B-integer formatter (`₿10,000`) and use it everywhere BTC is currently displayed. The review screen drives consistency, but the change is global. This expands plan scope: every balance/amount surface gets touched.
+- _Stale quote on Generate invoice tap?_ — **Silent re-quote.** Re-fetch the fee on tap; if it matches, proceed; if it changed, briefly show "Fee updated" and the new numbers before letting the user proceed. Optimizes for short review-screen dwell time.
+- _Failure mode if `get_info` fails before the review renders?_ — **Skip review, fall back to on-chain.** Match current behavior in `src/ldk/context.tsx:144`. The review screen only renders when we have a valid quote; fee-fetch failure is treated as "JIT unavailable" and the existing on-chain fallback kicks in.
+- _Fee row label?_ — **"Setup fee"** (unchanged from today's under-QR copy).
+- _Minimum-receive computation?_ — **`max(LSP.minPaymentSizeMsat, smallest amount yielding net > 0 after fee)`.** In practice the LSP minimum should already cover the second term, but compute both and take the max so the displayed minimum is always actionable.
 
 ## Open Questions
 

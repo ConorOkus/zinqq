@@ -15,20 +15,20 @@ origin: docs/brainstorms/2026-05-06-lsps2-receive-fee-disclosure-brainstorm.md
 
 ### Material changes from the original plan
 
-| Change | Why | Driver |
-|---|---|---|
-| **State names switched to Send-style prefix discriminators** (`jit-quoting`, `jit-review`, `jit-buying`, `jit-error`) | Original `'review-jit'` inverted Send.tsx's `'oc-review'` / `'ln-review'` convention | pattern-recognition |
-| **Cancellation primitive: `AbortController` instead of `requestCounterRef`** | Three async sites (initial quote, re-quote, buy) is too many for a shared monotonic counter; AbortSignal composes and is testable | architecture-strategist, julik |
-| **Eager pre-warm of Phase A on numpad input (300ms debounce)** | Biggest UX win identified — converts perceived Phase A latency to ~0ms in the common case | performance-oracle |
-| **Tightened freshness buffer 120s → 60s, per-LSP timeout 15s → 7s, total 30s → 14s** | 120s buffer triggered re-quote on routine reading dwell; 15s wait crosses "app froze" threshold | performance-oracle, julik |
-| **Added `'jit-error'` step variant mirroring Send's error pattern** (`{ step; message; retryStep }`) | Plan was distributing error UI inline; Send uses a shared error shell | pattern-recognition |
-| **Phase B fee-bound enforcement** in the LDK event handler: assert HTLC delta ≤ `openingFeeMsat`, reject otherwise | `accept_underpaying_htlcs=true` is unbounded otherwise — disclosure could be lied to at claim time | security-sentinel |
-| **`executeJitBuy` asserts the params hash matches the displayed quote** | Prevents post-display fee inflation from making the disclosure stale on commit | security-sentinel |
-| **Pinned `Date.now()` per render via `useMemo` for `valid_until` checks** | Render-time and tap-time were uncoordinated — a 50ms gap could disagree | julik |
-| **Disabled `Generate invoice` CTA during `reQuoting` AND `jit-buying`** | Double-tap on slow re-quote could let an older response paint over a newer one | julik |
-| **Banner persists until next user action; no 8000ms timer** | Self-imposed timer was racy and contradicted a11y criteria | julik, simplicity |
-| **`visibilitychange` / `pageshow` listener** to clear stale banners and revalidate quotes after PWA backgrounding | iOS Safari freezes timers; resume can show stale state | julik |
-| **`<link rel="preconnect">` to LSP proxy on Receive route** | One-line latency win | performance |
+| Change                                                                                                                | Why                                                                                                                               | Driver                         |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| **State names switched to Send-style prefix discriminators** (`jit-quoting`, `jit-review`, `jit-buying`, `jit-error`) | Original `'review-jit'` inverted Send.tsx's `'oc-review'` / `'ln-review'` convention                                              | pattern-recognition            |
+| **Cancellation primitive: `AbortController` instead of `requestCounterRef`**                                          | Three async sites (initial quote, re-quote, buy) is too many for a shared monotonic counter; AbortSignal composes and is testable | architecture-strategist, julik |
+| **Eager pre-warm of Phase A on numpad input (300ms debounce)**                                                        | Biggest UX win identified — converts perceived Phase A latency to ~0ms in the common case                                         | performance-oracle             |
+| **Tightened freshness buffer 120s → 60s, per-LSP timeout 15s → 7s, total 30s → 14s**                                  | 120s buffer triggered re-quote on routine reading dwell; 15s wait crosses "app froze" threshold                                   | performance-oracle, julik      |
+| **Added `'jit-error'` step variant mirroring Send's error pattern** (`{ step; message; retryStep }`)                  | Plan was distributing error UI inline; Send uses a shared error shell                                                             | pattern-recognition            |
+| **Phase B fee-bound enforcement** in the LDK event handler: assert HTLC delta ≤ `openingFeeMsat`, reject otherwise    | `accept_underpaying_htlcs=true` is unbounded otherwise — disclosure could be lied to at claim time                                | security-sentinel              |
+| **`executeJitBuy` asserts the params hash matches the displayed quote**                                               | Prevents post-display fee inflation from making the disclosure stale on commit                                                    | security-sentinel              |
+| **Pinned `Date.now()` per render via `useMemo` for `valid_until` checks**                                             | Render-time and tap-time were uncoordinated — a 50ms gap could disagree                                                           | julik                          |
+| **Disabled `Generate invoice` CTA during `reQuoting` AND `jit-buying`**                                               | Double-tap on slow re-quote could let an older response paint over a newer one                                                    | julik                          |
+| **Banner persists until next user action; no 8000ms timer**                                                           | Self-imposed timer was racy and contradicted a11y criteria                                                                        | julik, simplicity              |
+| **`visibilitychange` / `pageshow` listener** to clear stale banners and revalidate quotes after PWA backgrounding     | iOS Safari freezes timers; resume can show stale state                                                                            | julik                          |
+| **`<link rel="preconnect">` to LSP proxy on Receive route**                                                           | One-line latency win                                                                                                              | performance                    |
 
 ### Cuts (YAGNI-driven)
 
@@ -51,7 +51,7 @@ Original 6 phases → 5 phases over **2 PRs**:
 
 ## Overview
 
-Insert a Review screen between the Lightning receive numpad and BOLT11 invoice generation, but **only when an LSPS2 just-in-time (JIT) channel open is required**. The Review screen discloses the LSPS2 setup fee and the net amount the user will actually receive *before* the wallet commits the LSP-side channel reservation. When the requested amount is too small to net more than zero after the fee, the screen blocks Confirm and surfaces an actionable minimum.
+Insert a Review screen between the Lightning receive numpad and BOLT11 invoice generation, but **only when an LSPS2 just-in-time (JIT) channel open is required**. The Review screen discloses the LSPS2 setup fee and the net amount the user will actually receive _before_ the wallet commits the LSP-side channel reservation. When the requested amount is too small to net more than zero after the fee, the screen blocks Confirm and surfaces an actionable minimum.
 
 This plan also resolves an open question from the brainstorm: the wallet's `formatBtc` utility **already** outputs the agreed `₿10,000` integer-bitcoin form. Feature B ("app-wide B-integer denomination") collapses from a formatter rewrite to a one-line `grep` audit, folded into Phase 1.
 
@@ -113,17 +113,18 @@ Today's `ReceiveState` (`Receive.tsx:19–24`) has three variants. Extend to (st
 ```ts
 type ReceiveState =
   | { step: 'ready'; invoicePath: InvoicePath }
-  | { step: 'jit-quoting' }                                            // NEW (Phase A in flight)
-  | { step: 'jit-review';                                              // NEW
-      amountSats: bigint;
-      params: OpeningFeeParams;
-      lspContact: LspContact;
-      openingFeeMsat: bigint;
-      quoteStatus: 'fresh' | 'reQuoting' | 'updated';                  // tagged sub-state (no separate timer field)
+  | { step: 'jit-quoting' } // NEW (Phase A in flight)
+  | {
+      step: 'jit-review' // NEW
+      amountSats: bigint
+      params: OpeningFeeParams
+      lspContact: LspContact
+      openingFeeMsat: bigint
+      quoteStatus: 'fresh' | 'reQuoting' | 'updated' // tagged sub-state (no separate timer field)
     }
-  | { step: 'jit-buying' }                                             // NEW (Phase B in flight)
-  | { step: 'jit-error'; message: string; retryStep: 'jit-quoting' }   // NEW (mirrors Send.tsx:70 error variant)
-  | { step: 'success'; amountSats: bigint };
+  | { step: 'jit-buying' } // NEW (Phase B in flight)
+  | { step: 'jit-error'; message: string; retryStep: 'jit-quoting' } // NEW (mirrors Send.tsx:70 error variant)
+  | { step: 'success'; amountSats: bigint }
 ```
 
 The `quoteStatus` sub-state replaces the original plan's correlated `reQuoting: boolean` + `lastQuoteChangedAt: number | null` fields — one source of truth for what the banner should render.
@@ -138,8 +139,8 @@ Split `attemptJitInvoiceWithLsp` (`context.tsx:196–280`) into two LSP-scoped p
 async function getJitQuote(
   lsp: LspContact,
   amountMsat: bigint,
-  signal: AbortSignal,
-): Promise<JitQuote>;
+  signal: AbortSignal
+): Promise<JitQuote>
 
 // Phase B — buy + invoice against the LSP whose quote was displayed.
 // NOT failover-eligible: buyChannel commits LSP-side liquidity.
@@ -147,8 +148,8 @@ async function getJitQuote(
 async function executeJitBuy(
   quote: JitQuote,
   amountMsat: bigint,
-  signal: AbortSignal,
-): Promise<JitInvoiceResult>;
+  signal: AbortSignal
+): Promise<JitInvoiceResult>
 ```
 
 `runJitInvoiceFlow` (`context.tsx:108–189`) keeps its failover loop, calling `getJitQuote` per LSP. The Phase A loop has a 14s overall budget (7s per LSP, two LSPs); each LSP attempt splits into 5s `connect` + 5s RPC sub-budgets so a slow handshake doesn't starve the protocol call (per security-sentinel). Once a quote is in hand and the user confirms, the chosen LSP is locked in for `executeJitBuy`.
@@ -170,24 +171,24 @@ The render-time freshness check is removed — only the tap-time check matters b
 
 Phase A failures fall back to on-chain receive (current behavior, brainstorm decision). The Review screen never renders if no LSP returned a usable quote. Specific cases:
 
-| Cause | Behavior |
-|---|---|
-| Both LSPs unreachable / `get_info` fails | On-chain fallback. Same as today (`context.tsx:144–151`). |
-| Both LSPs return menus where `selectCheapestParams` is null because `amount > maxPaymentSizeMsat` for every entry | On-chain fallback. (Future: surface "Amount too large for Lightning" copy — out of scope.) |
-| Both LSPs return menus where every entry has `fee ≥ amount` for the requested amount | On-chain fallback (current behavior preserved; `selectCheapestParams` already filters at `types.ts:102`). |
-| Phase A total timeout exceeds 14s (7s per LSP attempt: 5s connect + 5s RPC) | On-chain fallback. Add timeout to `runJitInvoiceFlow`. Reuses existing on-chain fallback path (no new typed error class needed). |
+| Cause                                                                                                             | Behavior                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Both LSPs unreachable / `get_info` fails                                                                          | On-chain fallback. Same as today (`context.tsx:144–151`).                                                                        |
+| Both LSPs return menus where `selectCheapestParams` is null because `amount > maxPaymentSizeMsat` for every entry | On-chain fallback. (Future: surface "Amount too large for Lightning" copy — out of scope.)                                       |
+| Both LSPs return menus where every entry has `fee ≥ amount` for the requested amount                              | On-chain fallback (current behavior preserved; `selectCheapestParams` already filters at `types.ts:102`).                        |
+| Phase A total timeout exceeds 14s (7s per LSP attempt: 5s connect + 5s RPC)                                       | On-chain fallback. Add timeout to `runJitInvoiceFlow`. Reuses existing on-chain fallback path (no new typed error class needed). |
 
 **Failure handling — Phase B**
 
 Phase B is post-Confirm and after LSP-side liquidity reservation (`buyChannel`). Recovery rules:
 
-| Failure step | Recovery |
-|---|---|
-| `buyChannel` returns a clear protocol rejection (e.g. `INVALID_PARAMS`, `EXPIRED`) | Transition to `'jit-error'` with `retryStep: 'jit-quoting'`. `Try again` CTA re-runs Phase A (fresh quote). No double-buy: prior `buyChannel` was rejected, so no commitment exists. **No on-chain escape hatch** — Zinqq is Lightning-first; "Try again" is enough. |
-| `buyChannel` ambiguous failure (network timeout, connection drop after send) — LSP may have committed | Treat as orphan. Transition to `'jit-error'` with retry. The next Phase A attempt may produce a fresh quote, but the prior commitment may be wasted on the LSP side. Document this as a known gap; full crash recovery is out of scope (see Future). |
-| `create_inbound_payment` fails after `buyChannel` succeeded | Retry up to 3x with exponential backoff (200ms / 500ms / 1.5s) using the same `buyResponse`, in-memory only. Wrap the retry in the same `AbortSignal` so Back cancels mid-retry. The LDK call is local and idempotent. |
-| `createJitInvoice` (BOLT11 sign) fails | Same retry-with-same-`buyResponse` policy. |
-| All retries exhausted | Surface "Couldn't finish setup. Try again later." in `'jit-error'`. Keep `buyResponse` in memory only — durable resume is out of scope. |
+| Failure step                                                                                          | Recovery                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `buyChannel` returns a clear protocol rejection (e.g. `INVALID_PARAMS`, `EXPIRED`)                    | Transition to `'jit-error'` with `retryStep: 'jit-quoting'`. `Try again` CTA re-runs Phase A (fresh quote). No double-buy: prior `buyChannel` was rejected, so no commitment exists. **No on-chain escape hatch** — Zinqq is Lightning-first; "Try again" is enough. |
+| `buyChannel` ambiguous failure (network timeout, connection drop after send) — LSP may have committed | Treat as orphan. Transition to `'jit-error'` with retry. The next Phase A attempt may produce a fresh quote, but the prior commitment may be wasted on the LSP side. Document this as a known gap; full crash recovery is out of scope (see Future).                 |
+| `create_inbound_payment` fails after `buyChannel` succeeded                                           | Retry up to 3x with exponential backoff (200ms / 500ms / 1.5s) using the same `buyResponse`, in-memory only. Wrap the retry in the same `AbortSignal` so Back cancels mid-retry. The LDK call is local and idempotent.                                               |
+| `createJitInvoice` (BOLT11 sign) fails                                                                | Same retry-with-same-`buyResponse` policy.                                                                                                                                                                                                                           |
+| All retries exhausted                                                                                 | Surface "Couldn't finish setup. Try again later." in `'jit-error'`. Keep `buyResponse` in memory only — durable resume is out of scope.                                                                                                                              |
 
 **LSP failover UX during Phase A**
 
@@ -211,6 +212,7 @@ A single undifferentiated spinner. Don't surface "Trying LQwD…" → "Trying Me
 **Minimum-receive computation**
 
 Per bLIP-52 fee math (`types.ts:85–92`):
+
 ```
 proportionalFee_msat = ceil(amountMsat * proportional / 1_000_000)
 fee_msat = max(proportionalFee_msat, minFeeMsat)
@@ -231,6 +233,7 @@ displayMinMsat = max(LSP.minPaymentSizeMsat, minSatForNet_msat across selectable
 Round up to whole sats for display (B-integer formatter expects `bigint` sats).
 
 When `requestedAmountSats < displayMinSats`:
+
 - Disable the `Generate invoice` button.
 - Render: `Minimum receive: ₿X` directly under the breakdown, in `text-sm text-zinc-400`.
 - The minimum is `aria-describedby` the disabled button (a11y).
@@ -343,19 +346,19 @@ During numpad input, a 300ms-debounced effect calls `runJitInvoiceFlow` (quote-o
 
 ### Error & Failure Propagation
 
-| Source | Propagated as | Handled at |
-|---|---|---|
-| `connect` failure | `JitPeerConnectError` (existing, `context.tsx:62`) | `runJitInvoiceFlow` (failover) |
-| `getOpeningFeeParams` failure (HTTP / malformed) | `LSPS2ProtocolError` | `runJitInvoiceFlow` (failover) |
-| `selectCheapestParams` returns null | `JitPaymentSizeOutOfRangeError` (existing, `context.tsx:67–69`) | `runJitInvoiceFlow` (failover) |
-| `validUntil` < 30s remaining at quote time | `JitQuoteFreshnessError` (new — Phase 1 promotes from plain `Error`) | `runJitInvoiceFlow` (failover); `classifyJitError` extended with `'quote_freshness'` tag |
-| Phase A 14s overall timeout | `AbortError` (from `AbortController`) | `runJitInvoiceFlow` → on-chain fallback (no new typed error class) |
-| `buyChannel` clear protocol rejection | `LSPS2ProtocolError` | `'jit-error'` (no failover) |
-| `buyChannel` ambiguous failure (timeout, dropped connection) | `LSPS2NetworkError` | `'jit-error'` — note that LSP commitment may be orphaned (Future) |
-| `buyChannel` returns fee differing from displayed quote | `LSPS2ProtocolError('Fee mismatch at buy time')` (new in Phase 1) | `'jit-error'` |
-| `create_inbound_payment` LDK error | LDK exception → `LdkError` | `executeJitBuy` retry loop (3x with backoff) → `'jit-error'` |
-| `createJitInvoice` failure | `BOLT11EncodeError` | `executeJitBuy` retry loop → `'jit-error'` |
-| Post-claim HTLC underpayment beyond `openingFeeMsat` | `LSPS2ProtocolError('HTLC underpayment exceeds disclosed fee')` (Phase 5) | LDK event handler — reject the HTLC |
+| Source                                                       | Propagated as                                                             | Handled at                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `connect` failure                                            | `JitPeerConnectError` (existing, `context.tsx:62`)                        | `runJitInvoiceFlow` (failover)                                                           |
+| `getOpeningFeeParams` failure (HTTP / malformed)             | `LSPS2ProtocolError`                                                      | `runJitInvoiceFlow` (failover)                                                           |
+| `selectCheapestParams` returns null                          | `JitPaymentSizeOutOfRangeError` (existing, `context.tsx:67–69`)           | `runJitInvoiceFlow` (failover)                                                           |
+| `validUntil` < 30s remaining at quote time                   | `JitQuoteFreshnessError` (new — Phase 1 promotes from plain `Error`)      | `runJitInvoiceFlow` (failover); `classifyJitError` extended with `'quote_freshness'` tag |
+| Phase A 14s overall timeout                                  | `AbortError` (from `AbortController`)                                     | `runJitInvoiceFlow` → on-chain fallback (no new typed error class)                       |
+| `buyChannel` clear protocol rejection                        | `LSPS2ProtocolError`                                                      | `'jit-error'` (no failover)                                                              |
+| `buyChannel` ambiguous failure (timeout, dropped connection) | `LSPS2NetworkError`                                                       | `'jit-error'` — note that LSP commitment may be orphaned (Future)                        |
+| `buyChannel` returns fee differing from displayed quote      | `LSPS2ProtocolError('Fee mismatch at buy time')` (new in Phase 1)         | `'jit-error'`                                                                            |
+| `create_inbound_payment` LDK error                           | LDK exception → `LdkError`                                                | `executeJitBuy` retry loop (3x with backoff) → `'jit-error'`                             |
+| `createJitInvoice` failure                                   | `BOLT11EncodeError`                                                       | `executeJitBuy` retry loop → `'jit-error'`                                               |
+| Post-claim HTLC underpayment beyond `openingFeeMsat`         | `LSPS2ProtocolError('HTLC underpayment exceeds disclosed fee')` (Phase 5) | LDK event handler — reject the HTLC                                                      |
 
 Retry strategy alignment: Phase A retries are LSP-level failovers (try next LSP). Phase B retries are call-level (re-issue local LDK calls with the same `buyResponse`). They never overlap.
 
@@ -455,15 +458,15 @@ Retry strategy alignment: Phase A retries are LSP-level failovers (try next LSP)
 
 ### Risks
 
-| Risk | Impact | Mitigation |
-|---|---|---|
-| `buyResponse` orphan after app crash mid-Phase-B | LSP-side fee committed; user perceives wasted setup fee | In-memory ref + bounded in-app retry (Phase 5). Durable crash recovery tracked in Future Considerations. |
-| `AbortController` not threaded through all async sites | Stale Phase A response races a new one | Phase 1 explicitly takes `AbortSignal` in both phase functions and propagates into RPC layers. Integration test scenario 6 enforces cancel-on-Back. |
-| Quote drift creates "Fee updated" loops if LSP rapidly republishes | User sees a flash of new numbers repeatedly | Limit to one re-quote per Generate tap; second tap commits. Anti-griefing cap: 3 consecutive upward re-quotes → `'jit-error'`. |
-| Phase A pre-warm fires too aggressively, hammering the LSP | LSP rate limits / DoS detection | 300ms debounce + cancellation on every digit change keeps active requests ≤1 per Receive flow. `getOpeningFeeParams` is a cheap RPC. |
-| HTLC underpayment beyond disclosed fee | Silent value loss; disclosure becomes a lie | Phase 5 event-handler enforces `actual ≥ expected`; reject otherwise. |
-| LSP returns inflated fee at `buyChannel` time vs. displayed quote | User commits at a different price than they saw | `executeJitBuy` snapshots `quote.params` and asserts `buyResponse` fee matches `calculateOpeningFee(amountMsat, snapshot)`; mismatch transitions to `'jit-error'`. |
-| `formatBtc` audit reveals a caller passing msat or BTC-decimal | Wrong displayed amount | Phase 1 grep audit. Expected zero changes. Add a typed wrapper `formatSats(sats: bigint)` in a follow-up if drift becomes a concern. |
+| Risk                                                               | Impact                                                  | Mitigation                                                                                                                                                         |
+| ------------------------------------------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `buyResponse` orphan after app crash mid-Phase-B                   | LSP-side fee committed; user perceives wasted setup fee | In-memory ref + bounded in-app retry (Phase 5). Durable crash recovery tracked in Future Considerations.                                                           |
+| `AbortController` not threaded through all async sites             | Stale Phase A response races a new one                  | Phase 1 explicitly takes `AbortSignal` in both phase functions and propagates into RPC layers. Integration test scenario 6 enforces cancel-on-Back.                |
+| Quote drift creates "Fee updated" loops if LSP rapidly republishes | User sees a flash of new numbers repeatedly             | Limit to one re-quote per Generate tap; second tap commits. Anti-griefing cap: 3 consecutive upward re-quotes → `'jit-error'`.                                     |
+| Phase A pre-warm fires too aggressively, hammering the LSP         | LSP rate limits / DoS detection                         | 300ms debounce + cancellation on every digit change keeps active requests ≤1 per Receive flow. `getOpeningFeeParams` is a cheap RPC.                               |
+| HTLC underpayment beyond disclosed fee                             | Silent value loss; disclosure becomes a lie             | Phase 5 event-handler enforces `actual ≥ expected`; reject otherwise.                                                                                              |
+| LSP returns inflated fee at `buyChannel` time vs. displayed quote  | User commits at a different price than they saw         | `executeJitBuy` snapshots `quote.params` and asserts `buyResponse` fee matches `calculateOpeningFee(amountMsat, snapshot)`; mismatch transitions to `'jit-error'`. |
+| `formatBtc` audit reveals a caller passing msat or BTC-decimal     | Wrong displayed amount                                  | Phase 1 grep audit. Expected zero changes. Add a typed wrapper `formatSats(sats: bigint)` in a follow-up if drift becomes a concern.                               |
 
 ## Resource Requirements
 

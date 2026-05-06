@@ -123,7 +123,9 @@ export function computeMinReceiveSats(menu: OpeningFeeParams[]): bigint {
   for (const entry of menu) {
     const smallestNetPositive = entry.minFeeMsat + 1n
     const floorMsat =
-      entry.minPaymentSizeMsat > smallestNetPositive ? entry.minPaymentSizeMsat : smallestNetPositive
+      entry.minPaymentSizeMsat > smallestNetPositive
+        ? entry.minPaymentSizeMsat
+        : smallestNetPositive
     if (minMsat === null || floorMsat < minMsat) minMsat = floorMsat
   }
   if (minMsat === null) return 0n

@@ -226,10 +226,7 @@ export async function getJitQuote(
 ): Promise<JitQuote> {
   // Step 0: Ensure peer connection.
   try {
-    await withAbort(
-      connect(node.peerManager, contact.nodeId, contact.host, contact.port),
-      signal
-    )
+    await withAbort(connect(node.peerManager, contact.nodeId, contact.host, contact.port), signal)
   } catch (firstErr) {
     if (signal.aborted) throw firstErr
     if (!opts.retryConnectOnce) {
@@ -720,7 +717,11 @@ export function LdkProvider({
   )
 
   const executeJitBuyCallback = useCallback(
-    async (quote: JitQuote, description: string, signal: AbortSignal): Promise<JitInvoiceResult> => {
+    async (
+      quote: JitQuote,
+      description: string,
+      signal: AbortSignal
+    ): Promise<JitInvoiceResult> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
       return executeJitBuy(node, quote, description, signal)
@@ -952,20 +953,9 @@ export function LdkProvider({
           // standard non-JIT path. Available in all environments.
           ;(window as unknown as Record<string, unknown>).__receive = {
             quote: (amountSats: bigint, signal?: AbortSignal) =>
-              requestJitQuote(
-                amountSats * 1000n,
-                signal ?? new AbortController().signal
-              ),
-            commit: (
-              quote: JitQuote,
-              description = 'zinqq wallet',
-              signal?: AbortSignal
-            ) =>
-              executeJitBuyCallback(
-                quote,
-                description,
-                signal ?? new AbortController().signal
-              ),
+              requestJitQuote(amountSats * 1000n, signal ?? new AbortController().signal),
+            commit: (quote: JitQuote, description = 'zinqq wallet', signal?: AbortSignal) =>
+              executeJitBuyCallback(quote, description, signal ?? new AbortController().signal),
             createInvoice,
           }
 
