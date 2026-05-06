@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '306'
 tags: [code-review, security, lsps2, pr-150, financial-safety]
@@ -64,7 +64,7 @@ The plan deferred the explicit `claimable_amount_msat ≥ expected_msat` event-h
 
 ## Work Log
 
-(Empty)
+- **2026-05-06** — Resolved via Option B (document + warn). Added `captureError('warning', 'LSP', ...)` at every `executeJitBuy` invocation that records `amount_msat`, `opening_fee_msat`, and `lsp` label. Rewrote the misleading comment around `create_inbound_payment` to honestly state that LDK does NOT enforce a `claimable_amount_msat` lower bound at HTLC time given `accept_underpaying_htlcs=true`. The full event-handler bound check stays in PR 2's scope. PR #150 commit `6e07bd9`.
 
 ## Resources
 

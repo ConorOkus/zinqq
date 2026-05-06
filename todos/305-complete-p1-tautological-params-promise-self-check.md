@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '305'
 tags: [code-review, security, lsps2, pr-150]
@@ -56,7 +56,7 @@ dependencies: []
 
 ## Work Log
 
-(Empty)
+- **2026-05-06** — Resolved via Option A (remove the assertion + comment). Deleted `snapshotPromise` and the post-buy equality check in `executeJitBuy`. The `snapshotFee` local was redundant with `quote.openingFeeMsat` and now reads directly. ~10 LOC removed; no test changes needed because the assertion was unreachable. PR #150 commit `6e07bd9`.
 
 ## Resources
 

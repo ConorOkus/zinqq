@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '307'
 tags: [code-review, agent-native, pr-150]
@@ -70,7 +70,7 @@ The codebase already exposes `__ldkNode` and `__recovery` on `window` for agent/
 
 ## Work Log
 
-(Empty)
+- **2026-05-06** — Resolved via Option A. Added `window.__receive = { quote, commit, createInvoice }` next to the existing `__recovery` exposure in the LDK provider's ready-state block. `quote(amountSats, signal?)` takes sats (mirrors the UI; converts to msat internally) and returns a `JitQuote`. `commit(quote, description?, signal?)` runs Phase B. Both accept an optional signal and default to a fresh `AbortController`. JSDoc on the block documents the failover-safe vs. liquidity-reserving distinction. PR #150 commit `6e07bd9`.
 
 ## Resources
 
