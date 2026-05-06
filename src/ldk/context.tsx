@@ -304,26 +304,38 @@ export async function executeJitBuy(
     throw abortError()
   }
 
-  // Defense-in-depth: snapshot the params hash before issuing the buy.
-  // The LSP can't substitute params at buy time (they're signed via `promise`
-  // and serialized verbatim into the request) — but the snapshot lets a
-  // future caller assert post-hoc that the displayed quote and the committed
-  // quote are byte-identical, e.g. for telemetry on protocol drift.
-  const snapshotPromise = quote.params.promise
-  const snapshotFee = quote.openingFeeMsat
+  // Surface the open `accept_underpaying_htlcs` gap in the incident log so
+  // any "I asked for X, got Y" report can be correlated to the buy event.
+  // The wallet sets `accept_underpaying_htlcs=true` (`init.ts:151`); LDK
+  // therefore won't reject HTLCs that pay LESS than the displayed fee.
+  // Claim-time enforcement (rejecting `actual < invoiceAmountMsat -
+  // openingFeeMsat`) is tracked in todo 306 and slated for PR 2.
+  captureError(
+    'warning',
+    'LSP',
+    'JIT buy committed; HTLC underpayment beyond disclosed fee is not bound-checked at claim time (todo 306)',
+    JSON.stringify({
+      amount_msat: quote.amountMsat.toString(),
+      opening_fee_msat: quote.openingFeeMsat.toString(),
+      lsp: quote.contact.label,
+    })
+  )
 
-  // Step 3: Buy JIT channel. Past this line, abort is ignored.
+  // Step 3: Buy JIT channel. Past this line, abort is ignored — orphaning
+  // an LSP commitment is worse than running to completion.
   const buyResponse = await node.lsps2Client.buyChannel(
     quote.contact.nodeId,
     quote.params,
     quote.amountMsat
   )
 
-  // Step 4: Register payment with LDK. The LSP deducts the opening fee
-  // before forwarding, so the received amount will be less than the
-  // invoice amount. Pass the expected post-fee amount so LDK rejects
-  // grossly underpaid HTLCs while allowing the fee deduction.
-  const expectedReceiveMsat = quote.amountMsat - snapshotFee
+  // Step 4: Register the inbound payment with LDK. We pass `amountMsat -
+  // openingFeeMsat` as the expected amount so the LSP's fee deduction at
+  // forward time produces a valid HTLC. NOTE: `accept_underpaying_htlcs=true`
+  // (set wallet-wide in `init.ts:151`) means LDK does NOT enforce a lower
+  // bound on `claimable_amount_msat` against `expectedReceiveMsat` — the
+  // claim-time bound check is deferred to PR 2 (see todo 306).
+  const expectedReceiveMsat = quote.amountMsat - quote.openingFeeMsat
   const paymentResult = node.channelManager.create_inbound_payment(
     Option_u64Z.constructor_some(expectedReceiveMsat),
     3600, // 1 hour expiry
@@ -349,14 +361,11 @@ export async function executeJitBuy(
     minFinalCltvExpiry: 144,
   })
 
-  // Sanity: the params we used for the buy must match the snapshotted
-  // promise field. If they don't, our own state diverged between display
-  // and commit — surface as a typed error rather than silently mispricing.
-  if (quote.params.promise !== snapshotPromise) {
-    throw new Error('Quote params changed between display and commit')
+  return {
+    bolt11,
+    openingFeeMsat: quote.openingFeeMsat,
+    paymentHash: bytesToHex(paymentHash),
   }
-
-  return { bolt11, openingFeeMsat: snapshotFee, paymentHash: bytesToHex(paymentHash) }
 }
 
 /**
@@ -934,6 +943,30 @@ export function LdkProvider({
           ;(window as unknown as Record<string, unknown>).__recovery = {
             getState: readRecoveryState,
             dismiss: () => clearRecoveryState(vssClient),
+          }
+
+          // Expose the receive flow for agent/programmatic access. Mirrors
+          // the human flow: `quote(sats)` is failover-safe and idempotent
+          // (Phase A); `commit(quote)` reserves LSP-side liquidity and
+          // MUST NOT be retried blindly (Phase B). `createInvoice` is the
+          // standard non-JIT path. Available in all environments.
+          ;(window as unknown as Record<string, unknown>).__receive = {
+            quote: (amountSats: bigint, signal?: AbortSignal) =>
+              requestJitQuote(
+                amountSats * 1000n,
+                signal ?? new AbortController().signal
+              ),
+            commit: (
+              quote: JitQuote,
+              description = 'zinqq wallet',
+              signal?: AbortSignal
+            ) =>
+              executeJitBuyCallback(
+                quote,
+                description,
+                signal ?? new AbortController().signal
+              ),
+            createInvoice,
           }
 
           // Zero secret keys on page unload to limit memory exposure
