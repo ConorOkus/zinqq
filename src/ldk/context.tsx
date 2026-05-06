@@ -68,9 +68,20 @@ export class JitPeerConnectError extends Error {
   readonly trigger = 'peer_connect' as const
 }
 
-/** No fee_params menu entry accepts the requested amount (size or fee bound). */
+/**
+ * No fee_params menu entry accepts the requested amount (size or fee bound).
+ * Carries the menu and contact so the Receive page can render a
+ * "Minimum receive: ₿X" affordance instead of silently degrading.
+ */
 export class JitPaymentSizeOutOfRangeError extends Error {
   readonly trigger = 'payment_size_filter' as const
+  readonly menu: OpeningFeeParams[]
+  readonly contact: LspContact
+  constructor(message: string, menu: OpeningFeeParams[], contact: LspContact) {
+    super(message)
+    this.menu = menu
+    this.contact = contact
+  }
 }
 
 /** LSP returned a quote whose `valid_until` leaves too little headroom to commit. */
@@ -256,7 +267,9 @@ export async function getJitQuote(
   const params = selectCheapestParams(feeMenu, amountMsat)
   if (!params) {
     throw new JitPaymentSizeOutOfRangeError(
-      `no fee params accept ${amountMsat.toString()} msat from ${contact.label}`
+      `no fee params accept ${amountMsat.toString()} msat from ${contact.label}`,
+      feeMenu,
+      contact
     )
   }
 
@@ -681,25 +694,27 @@ export function LdkProvider({
     []
   )
 
-  const requestJitInvoice = useCallback(
-    async (amountMsat: bigint, description: string): Promise<JitInvoiceResult> => {
+  const requestJitQuote = useCallback(
+    async (amountMsat: bigint, signal: AbortSignal): Promise<JitQuote> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
       const contacts = await resolveLspContacts()
-      // Compose Phase A (quote, failover-aware) + Phase B (buy, single LSP).
-      // This one-shot wrapper is preserved for backward compatibility with
-      // the current single-screen receive flow; once the Review screen lands,
-      // callers can invoke `runJitQuoteFlow` and `executeJitBuy` separately
-      // to render the disclosure between the two phases.
-      const ctrl = new AbortController()
-      const quote = await runJitQuoteFlow({
+      return runJitQuoteFlow({
         node,
         amountMsat,
         connect: connectAndTrack,
         contacts,
-        signal: ctrl.signal,
+        signal,
       })
-      return executeJitBuy(node, quote, description, ctrl.signal)
+    },
+    []
+  )
+
+  const executeJitBuyCallback = useCallback(
+    async (quote: JitQuote, description: string, signal: AbortSignal): Promise<JitInvoiceResult> => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+      return executeJitBuy(node, quote, description, signal)
     },
     []
   )
@@ -1180,7 +1195,8 @@ export function LdkProvider({
             bdkEsploraClient,
             setSyncNeeded: setSyncNeededCallback,
             createInvoice,
-            requestJitInvoice,
+            requestJitQuote,
+            executeJitBuy: executeJitBuyCallback,
             sendBolt11Payment,
             sendBolt12Payment,
             abandonPayment,
@@ -1418,6 +1434,8 @@ export function LdkProvider({
     forceCloseChannel,
     listChannels,
     createInvoice,
+    requestJitQuote,
+    executeJitBuyCallback,
     sendBolt11Payment,
     sendBolt12Payment,
     abandonPayment,

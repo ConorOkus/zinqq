@@ -8,7 +8,43 @@ import {
   defaultOnchainContextValue,
 } from '../onchain/onchain-context'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
+import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
+import type { OpeningFeeParams } from '../ldk/lsps2/types'
+import type { LspContact } from '../ldk/lsp/contacts'
 import { Receive } from './Receive'
+
+const TEST_LSP: LspContact = {
+  nodeId: '02'.padEnd(66, '0'),
+  host: 'lsp.test',
+  port: 9735,
+  token: null,
+  label: 'lqwd',
+}
+
+function makeParams(overrides: Partial<OpeningFeeParams> = {}): OpeningFeeParams {
+  return {
+    minFeeMsat: 2_500_000n,
+    proportional: 5000,
+    validUntil: new Date(Date.now() + 5 * 60_000).toISOString(),
+    minLifetime: 144,
+    maxClientToSelfDelay: 2016,
+    minPaymentSizeMsat: 1_000n,
+    maxPaymentSizeMsat: 1_000_000_000n,
+    promise: 'sig-test',
+    ...overrides,
+  }
+}
+
+function makeQuote(amountMsat: bigint, openingFeeMsat = 2_500_000n): JitQuote {
+  const params = makeParams()
+  return {
+    contact: TEST_LSP,
+    params,
+    menu: [params],
+    openingFeeMsat,
+    amountMsat,
+  }
+}
 
 function readyContext(
   overrides?: Partial<Extract<OnchainContextValue, { status: 'ready' }>>
@@ -59,7 +95,8 @@ function readyLdkContext(
     bdkEsploraClient: {} as never,
     setSyncNeeded: vi.fn(),
     createInvoice: vi.fn(() => ({ bolt11: 'lnbc1fakeinvoice', paymentHash: 'abc123' })),
-    requestJitInvoice: vi.fn(),
+    requestJitQuote: vi.fn(),
+    executeJitBuy: vi.fn(),
     sendBolt11Payment: vi.fn(),
     sendBolt12Payment: vi.fn(),
     closeChannel: vi.fn(),
@@ -234,19 +271,15 @@ describe('Receive', () => {
   })
 
   describe('auto-detect: JIT path (insufficient inbound)', () => {
-    it('uses JIT when amount exceeds inbound capacity', async () => {
+    it('fetches a quote when amount exceeds inbound capacity', async () => {
       const user = userEvent.setup()
-      const requestJitInvoice = vi.fn().mockResolvedValue({
-        bolt11: 'lnbc1jitinvoice',
-        openingFeeMsat: 2500_000n,
-        paymentHash: 'jithash',
-      })
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(50_000_000n))
 
       renderReceive(
         undefined,
         readyLdkContext({
           listChannels: vi.fn(() => [mockChannel(10_000_000n)]), // 10k sats inbound
-          requestJitInvoice,
+          requestJitQuote,
         })
       )
 
@@ -260,23 +293,22 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: /done/i }))
 
       await waitFor(() => {
-        expect(requestJitInvoice).toHaveBeenCalledWith(50_000_000n, 'zinqq wallet')
+        expect(requestJitQuote).toHaveBeenCalled()
       })
+      // First arg is amount in msat; second is the AbortSignal.
+      expect(requestJitQuote.mock.calls[0]![0]).toBe(50_000_000n)
+      expect(requestJitQuote.mock.calls[0]![1]).toBeInstanceOf(AbortSignal)
     })
 
-    it('shows opening fee when JIT invoice is ready', async () => {
+    it('renders Review screen with fee breakdown when quote returns', async () => {
       const user = userEvent.setup()
-      const requestJitInvoice = vi.fn().mockResolvedValue({
-        bolt11: 'lnbc1jitinvoice',
-        openingFeeMsat: 2500_000n,
-        paymentHash: 'jithash',
-      })
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(10_000_000n, 2_500_000n))
 
       renderReceive(
         undefined,
         readyLdkContext({
           listChannels: vi.fn(() => []),
-          requestJitInvoice,
+          requestJitQuote,
         })
       )
 
@@ -288,52 +320,126 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
-      await waitFor(() => {
-        expect(screen.getByText(/setup fee/i)).toBeInTheDocument()
-      })
+      // Review screen renders with the three rows.
+      const reviewRegion = await screen.findByRole('region', { name: /review receive/i })
+      expect(reviewRegion).toHaveTextContent('Amount')
+      expect(reviewRegion).toHaveTextContent('₿10,000')
+      expect(reviewRegion).toHaveTextContent('Setup fee')
+      expect(reviewRegion).toHaveTextContent('₿2,500')
+      expect(reviewRegion).toHaveTextContent("You'll receive")
+      expect(reviewRegion).toHaveTextContent('₿7,500')
+
+      // Generate invoice CTA is enabled.
+      const cta = screen.getByRole('button', { name: /generate invoice/i })
+      expect(cta).toBeEnabled()
     })
 
-    it('shows negotiating state during JIT', async () => {
+    it('Generate invoice tap calls executeJitBuy and renders QR on success', async () => {
       const user = userEvent.setup()
-      // Never resolves
-      const requestJitInvoice = vi.fn().mockReturnValue(new Promise(() => {}))
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(10_000_000n, 2_500_000n))
+      const executeJitBuy = vi.fn().mockResolvedValue({
+        bolt11: 'lnbc1jitinvoice',
+        openingFeeMsat: 2_500_000n,
+        paymentHash: 'jithash',
+      })
 
       renderReceive(
         undefined,
         readyLdkContext({
           listChannels: vi.fn(() => []),
-          requestJitInvoice,
+          requestJitQuote,
+          executeJitBuy,
         })
       )
 
-      // Numpad already open
       await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
+      const cta = await screen.findByRole('button', { name: /generate invoice/i })
+      await user.click(cta)
+
       await waitFor(() => {
-        expect(requestJitInvoice).toHaveBeenCalled()
+        expect(executeJitBuy).toHaveBeenCalled()
       })
-      // QR code should not be visible during negotiation
-      expect(screen.queryByRole('img')).not.toBeInTheDocument()
+      // QR renders after the buy resolves.
+      await waitFor(() => {
+        expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
+      })
     })
 
-    it('falls back to on-chain only when JIT fails', async () => {
+    it('shows quoting skeleton during Phase A', async () => {
       const user = userEvent.setup()
-      const requestJitInvoice = vi.fn().mockRejectedValue(new Error('LSP unreachable'))
+      // Never resolves — the test asserts the skeleton mid-flight.
+      const requestJitQuote = vi.fn().mockReturnValue(new Promise(() => {}))
 
       renderReceive(
         undefined,
         readyLdkContext({
           listChannels: vi.fn(() => []),
-          requestJitInvoice,
+          requestJitQuote,
         })
       )
 
-      // Numpad already open
       await user.click(screen.getByRole('button', { name: '1' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
-      // Should still show QR (on-chain fallback)
+      await waitFor(() => {
+        expect(requestJitQuote).toHaveBeenCalled()
+      })
+      // QR is hidden, Review chrome is visible with skeleton placeholders.
+      expect(screen.queryByLabelText(/qr code for bitcoin address/i)).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/loading setup fee/i)).toBeInTheDocument()
+    })
+
+    it('disables Generate and surfaces minimum on below-minimum amounts', async () => {
+      const user = userEvent.setup()
+      const params = makeParams({ minFeeMsat: 3_000_000n, minPaymentSizeMsat: 1_000n })
+      const requestJitQuote = vi
+        .fn()
+        .mockRejectedValue(new JitPaymentSizeOutOfRangeError('too small', [params], TEST_LSP))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote,
+        })
+      )
+
+      // Type 2,000 sats (below the 3,000-sat minFee floor).
+      await user.click(screen.getByRole('button', { name: '2' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
+
+      const cta = await screen.findByRole('button', { name: /generate invoice/i })
+      expect(cta).toBeDisabled()
+      // Minimum copy is rendered, and the disabled CTA is wired to it.
+      expect(screen.getByText(/minimum receive/i)).toBeInTheDocument()
+      expect(cta).toHaveAttribute('aria-describedby', 'receive-min-hint')
+    })
+
+    it('falls back to on-chain only when Phase A fails for non-size reasons', async () => {
+      const user = userEvent.setup()
+      const requestJitQuote = vi.fn().mockRejectedValue(new Error('LSP unreachable'))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
+
+      // Should fall back to QR (on-chain only).
       await waitFor(() => {
         expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
       })

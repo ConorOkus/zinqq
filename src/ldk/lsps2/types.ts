@@ -106,6 +106,31 @@ export function selectCheapestParams(
   return null
 }
 
+/**
+ * Smallest amount, in sats (rounded up), that the menu would accept *and*
+ * yield net > 0 after the opening fee. Used to render the "Minimum receive"
+ * affordance when the user enters an amount below the menu's effective floor.
+ *
+ * For each menu entry the binding constraint is `max(minPaymentSizeMsat,
+ * minFeeMsat + 1)` — at the floor, the minimum-fee branch dominates and we
+ * need at least 1 msat of net to render a non-zero invoice. The wallet then
+ * picks the entry with the smallest such floor (the "easiest" entry to use)
+ * and reports that as the minimum.
+ */
+export function computeMinReceiveSats(menu: OpeningFeeParams[]): bigint {
+  if (menu.length === 0) return 0n
+  let minMsat: bigint | null = null
+  for (const entry of menu) {
+    const smallestNetPositive = entry.minFeeMsat + 1n
+    const floorMsat =
+      entry.minPaymentSizeMsat > smallestNetPositive ? entry.minPaymentSizeMsat : smallestNetPositive
+    if (minMsat === null || floorMsat < minMsat) minMsat = floorMsat
+  }
+  if (minMsat === null) return 0n
+  // Round up to whole sats.
+  return (minMsat + 999n) / 1000n
+}
+
 // --- Serialization ---
 
 const KNOWN_FEE_PARAM_KEYS = new Set([

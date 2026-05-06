@@ -176,7 +176,11 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
     const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
       async (_node, contact) => {
         if (contact.label === 'lqwd') {
-          throw new JitPaymentSizeOutOfRangeError('no fee params accept 200000000 msat from lqwd')
+          throw new JitPaymentSizeOutOfRangeError(
+            'no fee params accept 200000000 msat from lqwd',
+            [makeParams()],
+            LQWD
+          )
         }
         return QUOTE_MEGALITH
       }
