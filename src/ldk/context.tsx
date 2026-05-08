@@ -213,8 +213,8 @@ function timeoutSignal(parent: AbortSignal, ms: number): AbortSignal {
  * Phase A — fetch a JIT quote against ONE LSP. Throws typed errors so
  * `runJitQuoteFlow` can classify the failure for failover and telemetry.
  *
- * No LSP-side commitment is made; this is a pure read and is safe to call
- * speculatively (e.g. as a numpad pre-warm).
+ * No LSP-side commitment is made; this is a pure read. The reservation
+ * happens later in `executeJitBuy` (Phase B).
  */
 export async function getJitQuote(
   node: LdkNode,
