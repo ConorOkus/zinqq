@@ -17,11 +17,11 @@ if it returns `true`:
 - `src/ldk/context.tsx:1126-1135` (event drain)
 - `src/ldk/sync/chain-sync.ts:230-242` (sync tick)
 
-LDK's contract: when `get_and_clear` returns `true`, the caller has *taken
-ownership* of the obligation to persist. The atomic clear means once cleared,
+LDK's contract: when `get_and_clear` returns `true`, the caller has _taken
+ownership_ of the obligation to persist. The atomic clear means once cleared,
 nothing else will re-flag this state mutation.
 
-Today the dirty bit is cleared *immediately* upon scheduling. If the scheduled
+Today the dirty bit is cleared _immediately_ upon scheduling. If the scheduled
 persist later fails (combined with #335 dropping the trailing run), there is no
 LDK-side mechanism to re-trigger persistence. The next mutation will set the
 bit again, but in the meantime the on-disk CM state is stale relative to
@@ -44,8 +44,8 @@ old commitment → channel slashing.
 ### Option A — Move `get_and_clear` inside the scheduler (recommended)
 
 Callers unconditionally invoke the scheduler. The scheduler checks
-`cm.get_and_clear_needs_persistence()` *immediately before each iteration's
-`cm.write()`*. Then the dirty bit's lifecycle is owned by the single component
+`cm.get_and_clear_needs_persistence()` _immediately before each iteration's
+`cm.write()`_. Then the dirty bit's lifecycle is owned by the single component
 that knows whether the persist actually completed.
 
 ```ts
@@ -54,8 +54,12 @@ inFlight = (async () => {
     pendingDirty = false
     if (!cm.get_and_clear_needs_persistence() && !forceFirst) return
     forceFirst = false
-    try { await persistChannelManager(cm, ctx) }
-    catch (err) { pendingDirty = true; throw err }
+    try {
+      await persistChannelManager(cm, ctx)
+    } catch (err) {
+      pendingDirty = true
+      throw err
+    }
   } while (pendingDirty)
 })()
 ```

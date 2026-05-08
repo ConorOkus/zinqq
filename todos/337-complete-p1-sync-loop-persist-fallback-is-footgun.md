@@ -43,14 +43,18 @@ the field. There are no `chain-sync.test.ts` callers exercising the fallback.
 ```ts
 export interface SyncLoopConfig {
   // remove: cmPersistCtx?: CmPersistContext
-  schedulePersist: () => Promise<void>  // required
+  schedulePersist: () => Promise<void> // required
 }
 
 // in tick():
 if (cmNeedsPersist || config.channelManager.get_and_clear_needs_persistence()) {
   cmNeedsPersist = false
-  try { await config.schedulePersist() }
-  catch (err) { cmNeedsPersist = true; throw err }
+  try {
+    await config.schedulePersist()
+  } catch (err) {
+    cmNeedsPersist = true
+    throw err
+  }
 }
 ```
 

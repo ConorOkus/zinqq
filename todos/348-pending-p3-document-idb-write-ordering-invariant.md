@@ -12,12 +12,12 @@ dependencies: []
 
 `persistChannelManager` writes VSS first, then IDB. `persistChannelManagerIdbOnly`
 (visibility-hidden path) writes IDB only. Their interaction is currently safe
-*because of an undocumented invariant*: the IDB-only path always reads the
+_because of an undocumented invariant_: the IDB-only path always reads the
 **current** `cm.write()` so its bytes are at-least-as-fresh as anything the
 scheduler might still write.
 
 But this is fragile. A future refactor that, e.g., reorders the steps inside
-`persistChannelManager` to write IDB *before* VSS would silently regress —
+`persistChannelManager` to write IDB _before_ VSS would silently regress —
 the visibility-only write could end up older than the in-flight scheduler
 write completes.
 

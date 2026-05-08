@@ -20,7 +20,7 @@ const scheduleChannelManagerPersist = createChannelManagerPersistScheduler(
 ```
 
 The scheduler is created inside `.then(node => …)` of the init promise. While
-`initPromise` deduplicates in-flight inits, the *provider effect itself* can
+`initPromise` deduplicates in-flight inits, the _provider effect itself_ can
 still execute twice in dev (React StrictMode) or after fast-refresh. Each run
 produces a new scheduler closure with its own `inFlight=null` and
 `pendingDirty=false`.

@@ -23,13 +23,13 @@ of the scheduler are not asserted:
    `const data = cm.write()` outside the loop would still pass this test
    while shipping stale bytes on the trailing persist.
 3. **Post-quiesce restart**: after `Promise.all([first, second, third])`
-   resolves, a *new* `schedulePersist()` must start a *new* in-flight (i.e.,
+   resolves, a _new_ `schedulePersist()` must start a _new_ in-flight (i.e.,
    `putObject` is called a 3rd time). Today nothing tests that the singleton
    lock releases correctly.
 4. **Integration test missing**: the unit test confirms "given concurrent
    calls to one scheduler, only one write happens at a time" — it does not
    confirm the **wiring** in `LdkProvider` actually routes both call sites
-   through the *same* scheduler instance. A regression where someone passes
+   through the _same_ scheduler instance. A regression where someone passes
    a different scheduler to `startSyncLoop`, or forgets the field (#337),
    would not be caught.
 

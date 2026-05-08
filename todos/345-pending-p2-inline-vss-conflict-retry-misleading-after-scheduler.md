@@ -25,6 +25,7 @@ if (isVssConflict(err)) {
 With the scheduler in front of every call site (after #337 lands), within a
 single tab there can never be two in-flight `putObject` for this key. The
 inline retry only fires for:
+
 1. Cross-tab dual-writer (BroadcastChannel race window before takeover) — narrow.
 2. Server version drifted while tab was idle — possible after long backgrounding.
 
@@ -66,7 +67,7 @@ state). Otherwise, throw and let the scheduler/sync-loop handle it.
 
 ### Option C — Leave as-is, document
 
-Add a prominent comment explaining that this retry is *only* safe when the
+Add a prominent comment explaining that this retry is _only_ safe when the
 caller can guarantee no concurrent writer for the key. With the scheduler in
 front, that's true intra-tab but not inter-tab.
 

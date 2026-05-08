@@ -12,7 +12,7 @@ dependencies: ['337']
 
 `createChannelManagerPersistScheduler` returns `() => Promise<void>` — a thin
 type that hides important semantics (coalesced, single in-flight, may resolve
-without persisting *your* state). The `SyncLoopConfig` field is also named
+without persisting _your_ state). The `SyncLoopConfig` field is also named
 `persistChannelManager`, which collides visually with the imported module
 function `persistChannelManager` from `persist-cm.ts` two lines below in
 `chain-sync.ts:234`.

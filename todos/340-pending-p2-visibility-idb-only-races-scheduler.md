@@ -28,6 +28,7 @@ fresh `cm.write()` bytes. The scheduler also calls `idbPut` (inside
 `persistChannelManager`) for the same key.
 
 Race scenario:
+
 1. Scheduler iteration: VSS putObject in-flight; bytes B1 captured.
 2. User backgrounds tab → visibilitychange fires.
 3. Visibility handler captures B2 (newer, includes events that fired between
@@ -35,7 +36,7 @@ Race scenario:
 4. Scheduler's VSS write returns. Scheduler now calls `idbPut` with B1.
 5. `idbPut` opens fresh transactions per call → no defined ordering.
    Last writer by wall-clock wins.
-6. If the scheduler's later `idbPut(B1)` resolves *after* the visibility
+6. If the scheduler's later `idbPut(B1)` resolves _after_ the visibility
    handler's `idbPut(B2)`, IDB ends up with **older** B1.
 
 The architecture-strategist judges this safe because VSS is written first and

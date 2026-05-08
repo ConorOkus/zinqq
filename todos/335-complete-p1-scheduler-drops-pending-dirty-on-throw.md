@@ -19,7 +19,9 @@ inFlight = (async () => {
     pendingDirty = false
     await persistChannelManager(cm, ctx)
   } while (pendingDirty)
-})().finally(() => { inFlight = null })
+})().finally(() => {
+  inFlight = null
+})
 ```
 
 If `persistChannelManager` throws (transient VSS error, network blip, IDB
@@ -35,7 +37,7 @@ counterparty justice → channel funds lost.
 - security-sentinel P1-1 and kieran-typescript-reviewer P1 both flagged this
   independently.
 - `.finally(() => { inFlight = null })` clears the lock so subsequent calls
-  can start a new inflight, but the *queued* trailing persist (the one that
+  can start a new inflight, but the _queued_ trailing persist (the one that
   set `pendingDirty=true`) is never run.
 - The chain-sync caller has its own `cmNeedsPersist` retry latch
   (`chain-sync.ts:230`), but the event-drain caller in `context.tsx:1127`
@@ -59,7 +61,9 @@ inFlight = (async () => {
     }
   } while (pendingDirty)
   if (lastErr !== undefined) throw lastErr
-})().finally(() => { inFlight = null })
+})().finally(() => {
+  inFlight = null
+})
 ```
 
 - Pros: trailing run guaranteed; failure still surfaces to awaiters.

@@ -56,16 +56,19 @@ function schedule(): Promise<void> {
     inFlight = (async () => {
       while (pendingDirty) {
         pendingDirty = false
-        const batch = waiters; waiters = []
+        const batch = waiters
+        waiters = []
         try {
           await persistChannelManager(cm, ctx)
-          batch.forEach(w => w.resolve())
+          batch.forEach((w) => w.resolve())
         } catch (err) {
-          batch.forEach(w => w.reject(err))
+          batch.forEach((w) => w.reject(err))
           // Keep pendingDirty signal: next iteration will run if more waiters arrive
         }
       }
-    })().finally(() => { inFlight = null })
+    })().finally(() => {
+      inFlight = null
+    })
   })
 }
 ```
@@ -77,7 +80,7 @@ function schedule(): Promise<void> {
 
 ### Option B — Document current semantics, leave shape
 
-Add JSDoc loudly stating "promise resolves on *some* iteration's completion,
+Add JSDoc loudly stating "promise resolves on _some_ iteration's completion,
 not specifically yours." Cheaper but less correct.
 
 ### Option C — Drop `await` semantics: scheduler returns void

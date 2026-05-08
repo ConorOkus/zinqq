@@ -14,9 +14,13 @@ dependencies: []
 
 ```ts
 inFlight = (async () => {
-  do { pendingDirty = false; await persistChannelManager(cm, ctx) }
-  while (pendingDirty)
-})().finally(() => { inFlight = null })
+  do {
+    pendingDirty = false
+    await persistChannelManager(cm, ctx)
+  } while (pendingDirty)
+})().finally(() => {
+  inFlight = null
+})
 ```
 
 There is a microtask gap between the IIFE promise settling and `.finally`
@@ -26,6 +30,7 @@ sets `pendingDirty = true`, returns the already-settled promise, and the
 dirty flag is then silently cleared by the do/while having already exited.
 
 Neither current call site can trigger this:
+
 - `context.tsx:1127` — sync timer/socket callback.
 - `chain-sync.ts:234` — awaited inline; one schedulePersist per tick.
 

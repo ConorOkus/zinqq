@@ -292,10 +292,7 @@ describe('createChannelManagerPersistScheduler', () => {
   })
 
   it('latches mustRetry on failure so the next schedule() retries even when LDK is clean', async () => {
-    const putObject = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('transient'))
-      .mockResolvedValueOnce(1)
+    const putObject = vi.fn().mockRejectedValueOnce(new Error('transient')).mockResolvedValueOnce(1)
     const vssClient = makeVssClient({ putObject })
     const cmVersionRef = { current: 0 }
     const cm = makeDirtyCm()
