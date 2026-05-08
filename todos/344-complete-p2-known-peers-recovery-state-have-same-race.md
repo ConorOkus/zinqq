@@ -1,5 +1,5 @@
 ---
-status: ready
+status: complete
 priority: p2
 issue_id: '344'
 tags: [code-review, architecture, vss, persistence, pr-157]
@@ -90,6 +90,29 @@ known-peers race is real and ships today.
 **Learnings:**
 
 - This is the third VSS 409 incident in the codebase. Pattern is overdue for extraction. Option B (apply scheduler to `known-peers.ts` only as immediate hardening) is the minimum bar; Option A (extract `createSerialVssPersister`) is the right structural fix and should be picked when work starts unless the diff is too disruptive.
+
+### 2026-05-08 — Resolved (Option A)
+
+**Implementation:**
+
+Extracted into two layered primitives in `src/ldk/storage/`:
+
+- `serial-persister.ts` — generic single-flight + trailing-coalesce + must-retry + cancel. Optional `hasPendingWork` callback gates schedule() on a source-of-truth dirty bit (used by ChannelManager); when omitted, every external schedule() counts as work (used by known-peers, recovery-state).
+- `vss-write.ts` — `vssWriteWithConflictRetry(client, key, data, versionRef, opts)` encapsulates putObject + version tracking + conflict-retry-once + takeover-grace check (PR #158's `VssConflictDuringTakeoverError` lives here).
+
+All three persisters now use these:
+
+- `persist-cm.ts`: `createChannelManagerPersistScheduler` is now a thin wrapper combining both primitives. ~70 lines of in-flight/pendingDirty/mustRetry logic deleted.
+- `known-peers.ts`: module-level `vssVersionRef` + `scheduler`; `setKnownPeersVssClient` (re)creates the scheduler. `putKnownPeer`/`deleteKnownPeer` await `scheduler.schedule()` instead of fire-and-forget. The hand-written conflict-retry block (lines 35-58 originally) is gone — `vssWriteWithConflictRetry` handles it.
+- `recovery-state.ts`: module-level `vssVersionRef` (was a `let`); the inline retry-once is replaced by `vssWriteWithConflictRetry`. No scheduler since callers are naturally serialized; the helper still gives them takeover-grace.
+
+**Tests:**
+
+- `serial-persister.test.ts` — 6 tests covering hasPendingWork branches, coalescing, mustRetry, cancel, and the no-arg default.
+- `vss-write.test.ts` — 6 tests covering success, non-conflict throw, retry past grace, throw inside grace, getObject-null, null walletLockAcquiredAt.
+- `persist-cm.test.ts` — existing 20 tests pass unchanged (re-exports `VssConflictDuringTakeoverError` for backward compat).
+
+Total suite: 471 tests pass (was 459).
 
 ## Resources
 

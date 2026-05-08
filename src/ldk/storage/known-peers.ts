@@ -1,7 +1,8 @@
 import { idbGetAll, idbPut, idbDelete } from '../../storage/idb'
 import { captureError } from '../../storage/error-log'
-import { VssError, type VssClient } from './vss-client'
-import { ErrorCode } from './proto/vss_pb'
+import { createSerialPersister, type SerialPersister } from './serial-persister'
+import { vssWriteWithConflictRetry } from './vss-write'
+import type { VssClient } from './vss-client'
 
 export const KNOWN_PEERS_VSS_KEY = '_known_peers'
 
@@ -11,11 +12,13 @@ export interface KnownPeer {
 }
 
 let vssClient: VssClient | null = null
-let vssVersion = 0
+const vssVersionRef = { current: 0 }
+let scheduler: SerialPersister | null = null
 
 export function setKnownPeersVssClient(client: VssClient | null, initialVersion = 0): void {
   vssClient = client
-  vssVersion = initialVersion
+  vssVersionRef.current = initialVersion
+  scheduler = client ? createSerialPersister(syncPeersToVss) : null
 }
 
 export async function getKnownPeers(): Promise<Map<string, KnownPeer>> {
@@ -24,38 +27,29 @@ export async function getKnownPeers(): Promise<Map<string, KnownPeer>> {
 
 export async function putKnownPeer(pubkey: string, host: string, port: number): Promise<void> {
   await idbPut('ldk_known_peers', pubkey, { host, port })
-  await syncPeersToVss()
+  await schedulePeerSync()
 }
 
 export async function deleteKnownPeer(pubkey: string): Promise<void> {
   await idbDelete('ldk_known_peers', pubkey)
-  await syncPeersToVss()
+  await schedulePeerSync()
+}
+
+async function schedulePeerSync(): Promise<void> {
+  if (!scheduler) return
+  try {
+    await scheduler.schedule()
+  } catch (err: unknown) {
+    captureError('warning', 'known-peers', 'VSS sync failed', String(err))
+  }
 }
 
 async function syncPeersToVss(): Promise<void> {
   if (!vssClient) return
-  try {
-    const peers = await getKnownPeers()
-    const obj: Record<string, KnownPeer> = Object.fromEntries(peers)
-    const value = new TextEncoder().encode(JSON.stringify(obj))
-    vssVersion = await vssClient.putObject(KNOWN_PEERS_VSS_KEY, value, vssVersion)
-  } catch (err: unknown) {
-    if (isVssConflict(err)) {
-      // Re-fetch server version and retry once
-      try {
-        const server = await vssClient.getObject(KNOWN_PEERS_VSS_KEY)
-        vssVersion = server ? server.version : 0
-        const peers = await getKnownPeers()
-        const obj: Record<string, KnownPeer> = Object.fromEntries(peers)
-        const value = new TextEncoder().encode(JSON.stringify(obj))
-        vssVersion = await vssClient.putObject(KNOWN_PEERS_VSS_KEY, value, vssVersion)
-      } catch (retryErr: unknown) {
-        captureError('warning', 'known-peers', 'VSS conflict retry failed', String(retryErr))
-      }
-    } else {
-      captureError('warning', 'known-peers', 'VSS sync failed', String(err))
-    }
-  }
+  const peers = await getKnownPeers()
+  const obj: Record<string, KnownPeer> = Object.fromEntries(peers)
+  const value = new TextEncoder().encode(JSON.stringify(obj))
+  await vssWriteWithConflictRetry(vssClient, KNOWN_PEERS_VSS_KEY, value, vssVersionRef)
 }
 
 export function parseKnownPeers(json: string): Map<string, KnownPeer> {
@@ -75,8 +69,4 @@ export function parseKnownPeers(json: string): Map<string, KnownPeer> {
     }
   }
   return result
-}
-
-function isVssConflict(err: unknown): boolean {
-  return err instanceof VssError && err.errorCode === ErrorCode.CONFLICT_EXCEPTION
 }
