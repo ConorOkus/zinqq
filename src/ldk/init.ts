@@ -170,6 +170,21 @@ function initWasm(): Promise<void> {
 // steals the wallet lock. The old tab listens and tears down its LDK node.
 export const WALLET_LOCK_CHANNEL = 'zinqq-wallet-lock'
 
+// Wall-clock timestamp (ms) when this tab acquired the wallet lock, or null
+// if not yet acquired. Used by `persistChannelManager` to distinguish a
+// genuine version-drift conflict from a takeover-window ghost-write race
+// where the previous active tab's late VSS write landed after our initial
+// VSS read but before our first persist. See `TAKEOVER_GRACE_MS`.
+export let walletLockAcquiredAt: number | null = null
+
+/**
+ * For tests only: reset `walletLockAcquiredAt` between cases.
+ * Production code must not call this — it would defeat the takeover-grace check.
+ */
+export function __resetWalletLockAcquiredAtForTests(): void {
+  walletLockAcquiredAt = null
+}
+
 // Multi-tab lock: prevent two tabs from running independent ChannelManagers.
 // Uses `steal: true` so the most recently opened tab always wins. This avoids
 // stale locks from crashed tabs, bfcache, or service workers blocking restore.
@@ -189,6 +204,7 @@ async function acquireWalletLock(): Promise<void> {
 
   return new Promise<void>((resolve) => {
     void navigator.locks.request('zinqq-lock', { steal: true }, () => {
+      walletLockAcquiredAt = Date.now()
       resolve()
       // Hold the lock by returning a never-resolving promise
       return new Promise<void>(() => {})

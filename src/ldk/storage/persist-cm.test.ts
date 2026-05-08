@@ -3,6 +3,7 @@ import {
   createChannelManagerPersistScheduler,
   persistChannelManager,
   persistChannelManagerIdbOnly,
+  VssConflictDuringTakeoverError,
 } from './persist-cm'
 import { VssError, type VssClient } from './vss-client'
 import { ErrorCode } from './proto/vss_pb'
@@ -216,6 +217,71 @@ describe('persistChannelManager', () => {
       0
     )
     expect(cmVersionRef.current).toBe(1)
+  })
+
+  it('throws VssConflictDuringTakeoverError when 409 hits inside grace window', async () => {
+    const conflictError = new VssError('conflict', ErrorCode.CONFLICT_EXCEPTION, 409)
+    const putObject = vi.fn().mockRejectedValueOnce(conflictError).mockResolvedValue(99) // would succeed if we DID retry — must NOT be called
+    const vssClient = makeVssClient({
+      putObject,
+      getObject: vi.fn().mockResolvedValue({ value: new Uint8Array([1]), version: 7 }),
+    })
+    const cmVersionRef = { current: 0 }
+    const cm = makeCm()
+
+    // Simulate "lock acquired 100ms ago" — well within the 1s grace window
+    await expect(
+      persistChannelManager(cm, {
+        vssClient,
+        cmVersionRef,
+        walletLockAcquiredAtOverride: Date.now() - 100,
+      })
+    ).rejects.toBeInstanceOf(VssConflictDuringTakeoverError)
+
+    // versionRef MUST be updated so the caller's mustRetry latch uses the
+    // server version on the next attempt
+    expect(cmVersionRef.current).toBe(7)
+    // No retry: putObject called exactly once
+    expect(putObject).toHaveBeenCalledTimes(1)
+    // No IDB write — VSS step did not complete
+    expect(idbPut).not.toHaveBeenCalled()
+  })
+
+  it('retries past the takeover-grace window (genuine version drift)', async () => {
+    const conflictError = new VssError('conflict', ErrorCode.CONFLICT_EXCEPTION, 409)
+    const vssClient = makeVssClient({
+      putObject: vi.fn().mockRejectedValueOnce(conflictError).mockResolvedValueOnce(8),
+      getObject: vi.fn().mockResolvedValue({ value: new Uint8Array([1]), version: 7 }),
+    })
+    const cmVersionRef = { current: 0 }
+    const cm = makeCm()
+
+    // Simulate "lock acquired 5s ago" — past the 1s grace window
+    await persistChannelManager(cm, {
+      vssClient,
+      cmVersionRef,
+      walletLockAcquiredAtOverride: Date.now() - 5_000,
+    })
+
+    expect(vssClient.putObject).toHaveBeenCalledTimes(2)
+    expect(cmVersionRef.current).toBe(8)
+    expect(idbPut).toHaveBeenCalled()
+  })
+
+  it('retries when no wallet-lock timestamp is provided (test/non-locked context)', async () => {
+    const conflictError = new VssError('conflict', ErrorCode.CONFLICT_EXCEPTION, 409)
+    const vssClient = makeVssClient({
+      putObject: vi.fn().mockRejectedValueOnce(conflictError).mockResolvedValueOnce(8),
+      getObject: vi.fn().mockResolvedValue({ value: new Uint8Array([1]), version: 7 }),
+    })
+    const cmVersionRef = { current: 0 }
+    const cm = makeCm()
+
+    // No override and the production global default is null → grace check skipped
+    await persistChannelManager(cm, { vssClient, cmVersionRef })
+
+    expect(vssClient.putObject).toHaveBeenCalledTimes(2)
+    expect(cmVersionRef.current).toBe(8)
   })
 
   it('throws non-conflict VSS errors without retry', async () => {

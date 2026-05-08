@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '345'
 tags: [code-review, vss, defensive-code, pr-157]
@@ -89,7 +89,24 @@ front, that's true intra-tab but not inter-tab.
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+
+**Learnings:**
+
+- Coordinate with #347 (cross-tab leader election). If #347 lands first, Option A (remove inline retry entirely) becomes safe — the leader-election guarantees no concurrent writers and the only remaining 409 case is startup version skew, which the seeding fix from PR #114 already covers.
+
+### 2026-05-08 — Resolved as part of #347 (Option B-lite)
+
+**Implementation:**
+
+Subsumed by #347's takeover-grace check. The dangerous "loser-tab clobbers winner-tab" branch of the inline retry now throws `VssConflictDuringTakeoverError` instead of overwriting when the conflict lands inside the takeover-grace window. Outside that window, the inline retry-once is correct (server-side version drift, no concurrent writer possible thanks to the scheduler + wallet-lock takeover protocol).
 
 ## Resources
 

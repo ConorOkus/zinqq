@@ -1,5 +1,5 @@
 ---
-status: pending
+status: ready
 priority: p2
 issue_id: '344'
 tags: [code-review, architecture, vss, persistence, pr-157]
@@ -78,7 +78,18 @@ known-peers race is real and ships today.
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+
+**Learnings:**
+
+- This is the third VSS 409 incident in the codebase. Pattern is overdue for extraction. Option B (apply scheduler to `known-peers.ts` only as immediate hardening) is the minimum bar; Option A (extract `createSerialVssPersister`) is the right structural fix and should be picked when work starts unless the diff is too disruptive.
 
 ## Resources
 
