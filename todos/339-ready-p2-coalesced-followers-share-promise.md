@@ -119,7 +119,6 @@ that need durability (chain-sync) use a different API.
 
 - The P1 mustRetry latch (#335) already prevents the worst durability gap: a failed iteration is retried on the next tick. The remaining concern is per-call `await` semantics — chain-sync's tick believes the persist landed when it actually only landed on a leading iteration's bytes.
 
-
 ## Resources
 
 - PR: https://github.com/ConorOkus/zinqq/pull/157

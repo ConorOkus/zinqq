@@ -104,7 +104,6 @@ it('event-drain and sync-loop share the same scheduler instance', async () => { 
 - Fresh `cm.write()` bytes per iteration test — mutate the mock between iterations and assert `putObject` received both byte sequences in order
 - Integration test wiring `startSyncLoop` + `LdkProvider` event-drain through the same scheduler (would catch a regression where someone forgets to pass the field)
 
-
 ## Resources
 
 - PR: https://github.com/ConorOkus/zinqq/pull/157

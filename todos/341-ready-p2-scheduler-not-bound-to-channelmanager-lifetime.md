@@ -97,7 +97,6 @@ is currently created in effect, after init resolves. Awkward fit.
 
 - The P1 cancel-on-teardown (#338) covers StrictMode's "two effect runs" case in practice, but a WeakMap gives a structural guarantee that no future caller can accidentally create two schedulers per CM.
 
-
 ## Resources
 
 - PR: https://github.com/ConorOkus/zinqq/pull/157

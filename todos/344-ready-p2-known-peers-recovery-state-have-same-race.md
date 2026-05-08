@@ -91,7 +91,6 @@ known-peers race is real and ships today.
 
 - This is the third VSS 409 incident in the codebase. Pattern is overdue for extraction. Option B (apply scheduler to `known-peers.ts` only as immediate hardening) is the minimum bar; Option A (extract `createSerialVssPersister`) is the right structural fix and should be picked when work starts unless the diff is too disruptive.
 
-
 ## Resources
 
 - PR: https://github.com/ConorOkus/zinqq/pull/157

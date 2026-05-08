@@ -117,7 +117,6 @@ handler has ~tens of ms before tab kill.
 
 - Worth a small IDB-write queue rather than relying on the (undocumented) VSS-first ordering invariant. #348 covers the docs-only fallback if this slips.
 
-
 ## Resources
 
 - PR: https://github.com/ConorOkus/zinqq/pull/157
