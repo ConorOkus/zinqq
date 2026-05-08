@@ -32,7 +32,10 @@ import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
 import { reconnectDisconnectedPeers } from './peers/peer-reconnect'
 import { idbPut } from '../storage/idb'
-import { persistChannelManager, persistChannelManagerIdbOnly } from './storage/persist-cm'
+import {
+  createChannelManagerPersistScheduler,
+  persistChannelManagerIdbOnly,
+} from './storage/persist-cm'
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
 import { getPersistedOffer, putPersistedOffer } from './storage/offer'
 import { persistPayment, loadAllPayments } from './storage/payment-history'
@@ -925,6 +928,10 @@ export function LdkProvider({
           if (cancelled) return
 
           nodeRef.current = node
+          const scheduleChannelManagerPersist = createChannelManagerPersistScheduler(
+            node.channelManager,
+            cmPersistCtx
+          )
 
           // Eagerly discover LQwD's pubkey and add it to the trust set so
           // the event handler accepts 0-conf opens from the primary LSP.
@@ -1051,6 +1058,7 @@ export function LdkProvider({
               setState((prev) => (prev.status === 'ready' ? { ...prev, syncStatus } : prev))
             },
             cmPersistCtx,
+            persistChannelManager: scheduleChannelManagerPersist,
           })
 
           // Periodic reconnection: check every 3rd tick (~30s) for channel
@@ -1116,16 +1124,14 @@ export function LdkProvider({
 
             // Flush ChannelManager state immediately after processing events
             if (node.channelManager.get_and_clear_needs_persistence()) {
-              void persistChannelManager(node.channelManager, cmPersistCtx).catch(
-                (err: unknown) => {
-                  captureError(
-                    'critical',
-                    'LDK Context',
-                    'Failed to persist ChannelManager after events',
-                    String(err)
-                  )
-                }
-              )
+              void scheduleChannelManagerPersist().catch((err: unknown) => {
+                captureError(
+                  'critical',
+                  'LDK Context',
+                  'Failed to persist ChannelManager after events',
+                  String(err)
+                )
+              })
             }
           }
 

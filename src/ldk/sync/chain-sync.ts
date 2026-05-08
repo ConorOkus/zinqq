@@ -169,6 +169,7 @@ export interface SyncLoopConfig {
   rgsSyncIntervalTicks?: number
   onStatusChange?: (status: SyncStatus) => void
   cmPersistCtx?: CmPersistContext
+  persistChannelManager?: () => Promise<void>
 }
 
 const MAX_BACKOFF_MS = 5 * 60 * 1_000 // 5 minutes
@@ -229,7 +230,11 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       if (cmNeedsPersist || config.channelManager.get_and_clear_needs_persistence()) {
         cmNeedsPersist = false
         try {
-          await persistChannelManager(config.channelManager, config.cmPersistCtx)
+          if (config.persistChannelManager) {
+            await config.persistChannelManager()
+          } else {
+            await persistChannelManager(config.channelManager, config.cmPersistCtx)
+          }
         } catch (err: unknown) {
           cmNeedsPersist = true
           throw err

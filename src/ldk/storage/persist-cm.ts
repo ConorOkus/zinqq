@@ -52,6 +52,32 @@ export async function persistChannelManager(
   await idbPut('ldk_channel_manager', CM_IDB_KEY, data)
 }
 
+export function createChannelManagerPersistScheduler(
+  cm: ChannelManager,
+  ctx: CmPersistContext = {}
+): () => Promise<void> {
+  let inFlight: Promise<void> | null = null
+  let pendingDirty = false
+
+  return function scheduleChannelManagerPersist(): Promise<void> {
+    if (inFlight) {
+      pendingDirty = true
+      return inFlight
+    }
+
+    inFlight = (async () => {
+      do {
+        pendingDirty = false
+        await persistChannelManager(cm, ctx)
+      } while (pendingDirty)
+    })().finally(() => {
+      inFlight = null
+    })
+
+    return inFlight
+  }
+}
+
 /**
  * Best-effort IDB-only persist for the visibility change handler.
  *

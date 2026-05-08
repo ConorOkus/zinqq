@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { persistChannelManager, persistChannelManagerIdbOnly } from './persist-cm'
+import {
+  createChannelManagerPersistScheduler,
+  persistChannelManager,
+  persistChannelManagerIdbOnly,
+} from './persist-cm'
 import { VssError, type VssClient } from './vss-client'
 import { ErrorCode } from './proto/vss_pb'
 
@@ -9,7 +13,7 @@ vi.mock('../../storage/idb', () => ({
 
 import { idbPut } from '../../storage/idb'
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/require-await */
 
 function makeCm(data = new Uint8Array([1, 2, 3])) {
   return { write: vi.fn(() => data) } as never
@@ -24,6 +28,14 @@ function makeVssClient(overrides: Partial<VssClient> = {}): VssClient {
     listKeyVersions: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as VssClient
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
 }
 
 describe('persistChannelManager', () => {
@@ -194,6 +206,46 @@ describe('persistChannelManager', () => {
     expect(idbPut).not.toHaveBeenCalled()
     // getObject should NOT be called for non-conflict errors
     expect(vssClient.getObject).not.toHaveBeenCalled()
+  })
+})
+
+describe('createChannelManagerPersistScheduler', () => {
+  beforeEach(() => {
+    vi.mocked(idbPut).mockReset().mockResolvedValue(undefined)
+  })
+
+  it('serializes concurrent schedules and coalesces a follow-up persist', async () => {
+    const firstWrite = deferred()
+    let serverVersion = 0
+    let callCount = 0
+    const vssClient = makeVssClient({
+      putObject: vi.fn().mockImplementation(async (_key, _data, expectedVersion: number) => {
+        expect(expectedVersion).toBe(serverVersion)
+        callCount += 1
+        if (callCount === 1) await firstWrite.promise
+        serverVersion += 1
+        return serverVersion
+      }),
+    })
+    const cmVersionRef = { current: 0 }
+    const cm = makeCm()
+    const schedulePersist = createChannelManagerPersistScheduler(cm, {
+      vssClient,
+      cmVersionRef,
+    })
+
+    const first = schedulePersist()
+    const second = schedulePersist()
+    const third = schedulePersist()
+
+    expect(vssClient.putObject).toHaveBeenCalledTimes(1)
+
+    firstWrite.resolve()
+    await Promise.all([first, second, third])
+
+    expect(vssClient.putObject).toHaveBeenCalledTimes(2)
+    expect(cmVersionRef.current).toBe(2)
+    expect(idbPut).toHaveBeenCalledTimes(2)
   })
 })
 
