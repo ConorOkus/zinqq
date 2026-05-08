@@ -178,6 +178,98 @@ describe('classifyPaymentInput — BIP 321 URI validation', () => {
   })
 })
 
+describe('classifyPaymentInput — BIP 321 pj= / pjos= (Payjoin)', () => {
+  const ADDR = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq'
+
+  it('attaches payjoin context when pj= is present', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const pjUrl = 'https://btcpay.example/payjoin/xyz'
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encodeURIComponent(pjUrl)}`)
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.payjoin?.url).toBe(pjUrl)
+      expect(result.payjoin?.strict).toBe(false)
+    }
+  })
+
+  it('parses pj= case-insensitively (PJ=)', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const pjUrl = 'https://btcpay.example/payjoin/xyz'
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?PJ=${encodeURIComponent(pjUrl)}`)
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.payjoin?.url).toBe(pjUrl)
+    }
+  })
+
+  it('drops empty pj= silently (no payjoin attached)', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=`)
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.payjoin).toBeUndefined()
+    }
+  })
+
+  it('attaches strict:true when pjos=0 is present', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const pjUrl = 'https://btcpay.example/payjoin/xyz'
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encodeURIComponent(pjUrl)}&pjos=0`)
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.payjoin?.url).toBe(pjUrl)
+      expect(result.payjoin?.strict).toBe(true)
+    }
+  })
+
+  it('preserves literal `+` in pj= (BIP 77 v2 fragment separator regression)', async () => {
+    // BIP 77 v2 receiver-session URLs use `+` as a fragment separator between
+    // receiver-key, OHTTP config, and expiry segments. Manual RFC 3986 parsing
+    // (vs URLSearchParams) ensures `+` is preserved as a literal byte.
+    // Regression test for solution doc bip321-pj-urlsearchparams-plus-corruption.md.
+    const { classifyPaymentInput } = await import('./payment-input')
+    const pjUrl =
+      'HTTPS://PAYJO.IN/LANG586Q3F5PQ#RK1QD9PE26NCQN0GL99F23V3ADZGZ44CFLA8FX998LMKLX6VSL7DEDP2+OH1QYPFLM8XL59R0XV4VGPLS7FRDSSM4TUXL07TXCWC4S0GLVLNK2SE4NQ+EX1M560Z6G'
+    const encoded = pjUrl.replace(/:/g, '%3A').replace(/\//g, '%2F').replace(/#/g, '%23')
+    // `+` is left unencoded — it's not a reserved char in the path/fragment per RFC 3986,
+    // and represents the real-world wire format we receive from QR scans.
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encoded}`)
+    expect(result.type).toBe('onchain')
+    if (result.type === 'onchain') {
+      expect(result.payjoin?.url).toBe(pjUrl)
+    }
+  })
+
+  it('drops pj= values at or above the 2048-byte length cap', async () => {
+    const { classifyPaymentInput } = await import('./payment-input')
+    const at2047 = 'https://x/' + 'a'.repeat(2047 - 'https://x/'.length)
+    const at2048 = 'https://x/' + 'a'.repeat(2048 - 'https://x/'.length)
+    expect(at2047.length).toBe(2047)
+    expect(at2048.length).toBe(2048)
+
+    const r1 = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encodeURIComponent(at2047)}`)
+    expect(r1.type).toBe('onchain')
+    if (r1.type === 'onchain') expect(r1.payjoin?.url).toBe(at2047)
+
+    const r2 = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encodeURIComponent(at2048)}`)
+    expect(r2.type).toBe('onchain')
+    if (r2.type === 'onchain') expect(r2.payjoin).toBeUndefined()
+  })
+
+  it('drops payjoin when lightning= is present (Lightning takes precedence)', async () => {
+    // BIP 321 preference: BOLT 12 > BOLT 11 > on-chain. Payjoin attaches only
+    // to the on-chain branch, so a URI carrying both lightning= and pj= routes
+    // through the Lightning path with no payjoin context.
+    const { classifyPaymentInput } = await import('./payment-input')
+    const pjUrl = 'https://btcpay.example/payjoin/xyz'
+    const result = classifyPaymentInput(
+      `bitcoin:${ADDR}?lightning=lnbc50u1ptest&pj=${encodeURIComponent(pjUrl)}`
+    )
+    expect(result.type).toBe('bolt11')
+    // bolt11 variant has no payjoin field — that's the expected behavior.
+  })
+})
+
 describe('classifyPaymentInput — BIP 353', () => {
   it('parses user@domain as bip353', async () => {
     const { classifyPaymentInput } = await import('./payment-input')
