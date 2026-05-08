@@ -45,14 +45,14 @@ supersedes: docs/plans/2026-04-23-001-feat-payjoin-send-support-plan.md
 
 ### Phase plan after deepening (6 phases, was 8)
 
-| New | Old | Scope |
-|-----|-----|-------|
-| 1 | 1   | URI parsing extension (`pj=` / `pjos=`) |
-| 2 | 2   | `payjoin@0.1.1` install + Vite/PWA chunk verification |
-| 3 | 7   | `api/payjoin-proxy.ts` + dev proxy entry (moved earlier) |
-| 4 | 3+4 | Sender state machine + persister inlined + proposal validator (now with `WalletScriptOracle`) |
-| 5 | 5+6 | `transformPsbt` options-object hook + claim sentinel (per-txid, IDB-persisted) + Send.tsx wiring (privacy pill, abort, lock) + warm-load |
-| 6 | 8   | Telemetry channel + sanitizer + docs + kill-switch helper |
+| New | Old | Scope                                                                                                                                    |
+| --- | --- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 1   | URI parsing extension (`pj=` / `pjos=`)                                                                                                  |
+| 2   | 2   | `payjoin@0.1.1` install + Vite/PWA chunk verification                                                                                    |
+| 3   | 7   | `api/payjoin-proxy.ts` + dev proxy entry (moved earlier)                                                                                 |
+| 4   | 3+4 | Sender state machine + persister inlined + proposal validator (now with `WalletScriptOracle`)                                            |
+| 5   | 5+6 | `transformPsbt` options-object hook + claim sentinel (per-txid, IDB-persisted) + Send.tsx wiring (privacy pill, abort, lock) + warm-load |
+| 6   | 8   | Telemetry channel + sanitizer + docs + kill-switch helper                                                                                |
 
 ### Key improvements
 
@@ -131,34 +131,33 @@ The full sender state machine, verified against the package's `payjoin.d.ts` and
 
 ```typescript
 // 1. Parse URI
-const uri = payjoin.Uri.parse(uriString)            // .d.ts:6094
-const pjUri = uri.checkPjSupported()                // .d.ts:6101  → throws PjNotSupported
+const uri = payjoin.Uri.parse(uriString) // .d.ts:6094
+const pjUri = uri.checkPjSupported() // .d.ts:6101  → throws PjNotSupported
 
 // 2. Build initial transition
-const initial = new payjoin.SenderBuilder(psbtBase64, pjUri)   // .d.ts:5930
-  .buildRecommended(minFeeRateSatVb)               // .d.ts:5947  → InitialSendTransition
+const initial = new payjoin.SenderBuilder(psbtBase64, pjUri) // .d.ts:5930
+  .buildRecommended(minFeeRateSatVb) // .d.ts:5947  → InitialSendTransition
 
 // 3. Persist & advance to WithReplyKey
 const persister = new InMemorySenderPersister()
-const withReplyKey = initial.save(persister)        // .d.ts:5547  → WithReplyKey
+const withReplyKey = initial.save(persister) // .d.ts:5547  → WithReplyKey
 
 // 4. Encapsulate initial POST
-const { request, ohttpCtx } =
-  withReplyKey.createV2PostRequest(OHTTP_RELAY)     // .d.ts:5098
+const { request, ohttpCtx } = withReplyKey.createV2PostRequest(OHTTP_RELAY) // .d.ts:5098
 
 // 5. POST and process response → enter polling state
 const respBytes = await postRelay(request)
 const polling = withReplyKey
-  .processResponse(respBytes, ohttpCtx)             // .d.ts:5104
-  .save(persister)                                  // → PollingForProposal
+  .processResponse(respBytes, ohttpCtx) // .d.ts:5104
+  .save(persister) // → PollingForProposal
 
 // 6. Long-poll loop (CRITICAL: fresh encapsulation per iteration)
 while (deadline > Date.now()) {
-  const { request, ohttpCtx } = polling.createPollRequest(OHTTP_RELAY)  // .d.ts:4061
-  const respBytes = await postRelay(request, signal)  // 30s long-poll server-side
+  const { request, ohttpCtx } = polling.createPollRequest(OHTTP_RELAY) // .d.ts:4061
+  const respBytes = await postRelay(request, signal) // 30s long-poll server-side
   const outcome = polling.processResponse(respBytes, ohttpCtx).save(persister)
   if (outcome.tag === 'Progress') {
-    return outcome.inner.psbtBase64                 // .d.ts:4106
+    return outcome.inner.psbtBase64 // .d.ts:4106
   }
   // Stasis: re-poll (PDK keeps state internally)
   await sleepWithBackoff(attempt++)
@@ -265,7 +264,7 @@ export function loadPdk(): Promise<typeof import('payjoin/web-vite')> {
       await mod.uniffiInitAsync()
       return mod
     })().catch((err) => {
-      pdkInitPromise = null  // permit retry on next call
+      pdkInitPromise = null // permit retry on next call
       throw err
     })
   }
@@ -274,7 +273,9 @@ export function loadPdk(): Promise<typeof import('payjoin/web-vite')> {
 
 /** Warm-load hook — kicked from useEffect on Send.tsx oc-review mount when payjoin is set. */
 export function warmLoadPdk(): void {
-  void loadPdk().catch(() => { /* surface on actual send attempt */ })
+  void loadPdk().catch(() => {
+    /* surface on actual send attempt */
+  })
 }
 ```
 
@@ -302,11 +303,11 @@ export type PayjoinOutcome =
 /** Collapsed from prior 11 reasons to 7 per simplicity review; further collapse if telemetry shows hot category. */
 export const FALLBACK_REASON = {
   killSwitch: 'kill_switch',
-  protocol: 'protocol',                 // PDK exception; URI-shape, BuildSenderError, encapsulation, response errors collapse here
-  network: 'network',                   // fetch/timeout
-  validation: 'validation',             // proposal-validator (incl. fee-cap from MAX_FEE_SATS upstream)
-  receiverOwnedUtxo: 'receiver_owned_utxo',  // distinct because it's a privacy disaster, not a generic protocol failure
-  backgrounded: 'backgrounded',         // user abort / visibility change
+  protocol: 'protocol', // PDK exception; URI-shape, BuildSenderError, encapsulation, response errors collapse here
+  network: 'network', // fetch/timeout
+  validation: 'validation', // proposal-validator (incl. fee-cap from MAX_FEE_SATS upstream)
+  receiverOwnedUtxo: 'receiver_owned_utxo', // distinct because it's a privacy disaster, not a generic protocol failure
+  backgrounded: 'backgrounded', // user abort / visibility change
   unknown: 'unknown',
 } as const
 export type FallbackReason = (typeof FALLBACK_REASON)[keyof typeof FALLBACK_REASON]
@@ -314,9 +315,15 @@ export type FallbackReason = (typeof FALLBACK_REASON)[keyof typeof FALLBACK_REAS
 // In-memory persister inlined here per simplicity review.
 class InMemorySenderPersister implements import('payjoin/web-vite').JsonSenderSessionPersister {
   private events: string[] = []
-  save(event: string): void { this.events.push(event) }
-  load(): readonly string[] { return this.events.slice() }  // defensive copy
-  close(): void { this.events.length = 0 }                  // best-effort heap zeroing
+  save(event: string): void {
+    this.events.push(event)
+  }
+  load(): readonly string[] {
+    return this.events.slice()
+  } // defensive copy
+  close(): void {
+    this.events.length = 0
+  } // best-effort heap zeroing
 }
 
 // ───── factory: createPayjoinTransform ─────
@@ -340,7 +347,9 @@ export function createPayjoinTransform(
       captureEvent('Payjoin', 'fallback', { reason: outcome.reason })
       throw new ProposalValidationError(`payjoin fallback: ${outcome.reason}`)
     }
-    captureEvent('Payjoin', 'success', { /* opaque elapsed-ms bucket only */ })
+    captureEvent('Payjoin', 'success', {
+      /* opaque elapsed-ms bucket only */
+    })
     // Return a discriminated TransformResult so buildSignBroadcast knows
     // to apply_unconfirmed_txs without inspecting the original arg.
     const proposed = ctx.parsePsbt(outcome.proposalPsbtBase64)
@@ -364,11 +373,18 @@ async function tryPayjoinSend(
   }
 
   let pdk: Awaited<ReturnType<typeof loadPdk>>
-  try { pdk = await loadPdk() } catch { return { status: 'fallback', reason: FALLBACK_REASON.protocol } }
+  try {
+    pdk = await loadPdk()
+  } catch {
+    return { status: 'fallback', reason: FALLBACK_REASON.protocol }
+  }
 
   let pjUri
-  try { pjUri = pdk.payjoin.Uri.parse(payjoinUrl).checkPjSupported() }
-  catch { return { status: 'fallback', reason: FALLBACK_REASON.protocol } }
+  try {
+    pjUri = pdk.payjoin.Uri.parse(payjoinUrl).checkPjSupported()
+  } catch {
+    return { status: 'fallback', reason: FALLBACK_REASON.protocol }
+  }
 
   const persister = new InMemorySenderPersister()
   let withReplyKey
@@ -377,7 +393,9 @@ async function tryPayjoinSend(
       // min_fee_rate = user's actual rate (NOT 0) — prevents receiver fee-rate downgrade
       .buildRecommended(BigInt(Math.max(Number(feeRateSatVb), Number(MIN_FEE_RATE_SAT_VB))))
       .save(persister)
-  } catch { return { status: 'fallback', reason: FALLBACK_REASON.protocol } }
+  } catch {
+    return { status: 'fallback', reason: FALLBACK_REASON.protocol }
+  }
 
   // Initial POST + polling loop — extracted to pollUntilProgress for testability.
   // Returns proposal PSBT base64 string or throws.
@@ -397,7 +415,7 @@ The session and persister are GC'd when `tryPayjoinSend` returns. No IndexedDB; 
 ##### Polling cadence
 
 | Attempt | Delay before request | Cumulative wallclock |
-|---------|----------------------|----------------------|
+| ------- | -------------------- | -------------------- |
 | 1       | 0                    | 0s                   |
 | 2       | jitter(30s ± 20%)    | ~30s                 |
 | 3       | jitter(60s ± 20%)    | ~90s                 |
@@ -417,18 +435,18 @@ All composed via `AbortSignal.any([...])` (Safari ≥ 17.4, supported in Zinqq's
 
 ##### Errors → fallback reasons
 
-| PDK exception            | FallbackReason          | User-facing? |
-|--------------------------|-------------------------|--------------|
-| `PjNotSupported`         | `uriShape`              | No           |
-| `BuildSenderError`       | `protocol`              | No           |
-| `FeeRateError`           | `protocol`              | No           |
-| `EncapsulationError`     | `protocol`              | No           |
-| `ResponseError::WellKnown` | `protocol` (log msg)  | Yes (toast)  |
-| `ResponseError::Validation` / `::Unrecognized` | `protocol` | No |
-| `ValidationError`        | `validation`            | No           |
-| `fetch` network failure  | `network`               | No           |
-| `AbortSignal` timeout    | `timeout`               | No           |
-| User abort               | `backgrounded`          | No           |
+| PDK exception                                  | FallbackReason       | User-facing? |
+| ---------------------------------------------- | -------------------- | ------------ |
+| `PjNotSupported`                               | `uriShape`           | No           |
+| `BuildSenderError`                             | `protocol`           | No           |
+| `FeeRateError`                                 | `protocol`           | No           |
+| `EncapsulationError`                           | `protocol`           | No           |
+| `ResponseError::WellKnown`                     | `protocol` (log msg) | Yes (toast)  |
+| `ResponseError::Validation` / `::Unrecognized` | `protocol`           | No           |
+| `ValidationError`                              | `validation`         | No           |
+| `fetch` network failure                        | `network`            | No           |
+| `AbortSignal` timeout                          | `timeout`            | No           |
+| User abort                                     | `backgrounded`       | No           |
 
 `WellKnown` is documented as user-displayable (.d.ts:178). Surface its message via the existing `captureError` warning toast pattern; do not surface internal validation/protocol details.
 
@@ -472,7 +490,7 @@ export class BdkPeekOracle implements WalletScriptOracle {
     const lastExt = wallet.derivation_index(KeychainKind.External) ?? 0n
     const lastInt = wallet.derivation_index(KeychainKind.Internal) ?? 0n
     const cacheKey = `${lastExt}:${lastInt}`
-    if (this.cache?.key === cacheKey) return  // idempotent
+    if (this.cache?.key === cacheKey) return // idempotent
 
     const set = new Set<string>()
     for (const [keychain, last] of [
@@ -508,11 +526,11 @@ export function validateProposal(
 ): void {
   // Decode both PSBTs (helper omitted)
   const originalInputOutpoints = new Set(
-    decodePsbt(originalPsbtBase64).inputs.map(i => `${i.txid}:${i.vout}`)
+    decodePsbt(originalPsbtBase64).inputs.map((i) => `${i.txid}:${i.vout}`)
   )
   for (const input of decodePsbt(proposalPsbtBase64).inputs) {
     const op = `${input.txid}:${input.vout}`
-    if (originalInputOutpoints.has(op)) continue  // sender input
+    if (originalInputOutpoints.has(op)) continue // sender input
     const witnessUtxo = input.witness_utxo
     if (!witnessUtxo) {
       throw new ProposalValidationError('receiver input missing witness_utxo')
@@ -549,8 +567,8 @@ Convert `buildSignBroadcast` to options-object signature (per Kieran §8 and arc
 ```typescript
 // src/onchain/context.tsx (modified)
 type TransformResult =
-  | { kind: 'replaced'; psbt: Psbt }   // wallet didn't build this; need apply_unconfirmed_txs
-  | { kind: 'unchanged'; psbt: Psbt }  // wallet built it; no apply needed
+  | { kind: 'replaced'; psbt: Psbt } // wallet didn't build this; need apply_unconfirmed_txs
+  | { kind: 'unchanged'; psbt: Psbt } // wallet built it; no apply needed
 
 export type TransformPsbtFn = (
   unsigned: Psbt,
@@ -569,44 +587,43 @@ type BuildSignBroadcastOpts = {
   signal?: AbortSignal
 }
 
-const buildSignBroadcast = useCallback(
-  async (opts: BuildSignBroadcastOpts): Promise<string> => {
-    const wallet = walletRef.current!
-    const esplora = esploraRef.current!
-    const signal = opts.signal ?? new AbortController().signal
+const buildSignBroadcast = useCallback(async (opts: BuildSignBroadcastOpts): Promise<string> => {
+  const wallet = walletRef.current!
+  const esplora = esploraRef.current!
+  const signal = opts.signal ?? new AbortController().signal
 
-    // ... existing wallet/fee resolution ...
-    const resolvedFeeRate = opts.feeRateSatVb ?? (await getFeeRate())
-    const original = opts.buildPsbt(new FeeRate(resolvedFeeRate))
+  // ... existing wallet/fee resolution ...
+  const resolvedFeeRate = opts.feeRateSatVb ?? (await getFeeRate())
+  const original = opts.buildPsbt(new FeeRate(resolvedFeeRate))
 
-    const result: TransformResult = opts.transformPsbt
-      ? await opts.transformPsbt(original, {
-          wallet, feeRateSatVb: resolvedFeeRate, signal,
-          parsePsbt: (b64) => Psbt.from_base64(b64),
-        })
-      : { kind: 'unchanged', psbt: original }
-    const psbtToSign = result.psbt
+  const result: TransformResult = opts.transformPsbt
+    ? await opts.transformPsbt(original, {
+        wallet,
+        feeRateSatVb: resolvedFeeRate,
+        signal,
+        parsePsbt: (b64) => Psbt.from_base64(b64),
+      })
+    : { kind: 'unchanged', psbt: original }
+  const psbtToSign = result.psbt
 
-    if (psbtToSign.fee().to_sat() > MAX_FEE_SATS) {
-      discardStagedChanges(wallet)
-      throw new Error(`Fee too high: ${formatBtc(psbtToSign.fee().to_sat())} exceeds safety limit`)
-    }
-    wallet.sign(psbtToSign, new SignOptions())
-    const tx = psbtToSign.extract_tx()
-    if (result.kind === 'replaced') wallet.apply_unconfirmed_txs([tx])
+  if (psbtToSign.fee().to_sat() > MAX_FEE_SATS) {
+    discardStagedChanges(wallet)
+    throw new Error(`Fee too high: ${formatBtc(psbtToSign.fee().to_sat())} exceeds safety limit`)
+  }
+  wallet.sign(psbtToSign, new SignOptions())
+  const tx = psbtToSign.extract_tx()
+  if (result.kind === 'replaced') wallet.apply_unconfirmed_txs([tx])
 
-    // Cross-tab + cross-suspend single-broadcast guarantee — see "Claim sentinel" below.
-    const txid = tx.compute_txid().toString()
-    if (!(await claimBroadcast(txid))) return txid  // already broadcast (or in-flight) elsewhere
+  // Cross-tab + cross-suspend single-broadcast guarantee — see "Claim sentinel" below.
+  const txid = tx.compute_txid().toString()
+  if (!(await claimBroadcast(txid))) return txid // already broadcast (or in-flight) elsewhere
 
-    // ... existing broadcast/persist tail ...
-    await esplora.broadcast(tx)
-    persistChangeset(wallet)
-    syncHandleRef.current?.syncNow()
-    return txid
-  },
-  []
-)
+  // ... existing broadcast/persist tail ...
+  await esplora.broadcast(tx)
+  persistChangeset(wallet)
+  syncHandleRef.current?.syncNow()
+  return txid
+}, [])
 ```
 
 Extend `sendToAddress`'s API to accept the same options-object trailing arg:
@@ -628,7 +645,7 @@ A naive `let claimed = false` per-call sentinel does nothing useful (single broa
 ```typescript
 // src/onchain/payjoin/claim.ts
 import { idbPut, idbGet } from '../../storage/idb'
-const STORE = 'broadcast_claims'  // schema: txid -> { claimedAt: number }
+const STORE = 'broadcast_claims' // schema: txid -> { claimedAt: number }
 
 /** Returns true if THIS call won the claim; false if already claimed. */
 export async function claimBroadcast(txid: string): Promise<boolean> {
@@ -643,6 +660,7 @@ export async function claimBroadcast(txid: string): Promise<boolean> {
 ```
 
 This survives:
+
 - **Tab suspension mid-broadcast** — IDB persists; resume reads existing claim and bails.
 - **User taps Confirm twice across tabs** — Web Locks serializes; first wins, second sees the IDB row and bails.
 - **Retry after failure** — different signed PSBTs produce different txids, so retries don't collide with prior failed attempts.
@@ -651,7 +669,7 @@ This survives:
 
 ```typescript
 async function onPayjoinFallback(originalTx: Tx, reason: FallbackReason): Promise<string> {
-  captureEvent('Payjoin', 'fallback', { reason })  // structured; no err.message
+  captureEvent('Payjoin', 'fallback', { reason }) // structured; no err.message
   const txid = originalTx.compute_txid().toString()
   if (!(await claimBroadcast(txid))) return txid
   await esplora.broadcast(originalTx)
@@ -671,23 +689,32 @@ Add a row between the Network fee row (882) and the `<hr>` (883). **Render-timin
 const [pjArmed, setPjArmed] = useState(false)
 useEffect(() => {
   if (sendStep.type === 'oc-review' && sendStep.payjoin) {
-    warmLoadPdk()  // kick the 2.5MB chunk fetch
+    warmLoadPdk() // kick the 2.5MB chunk fetch
     void loadPdk()
-      .then((pdk) => { try { pdk.payjoin.Uri.parse(sendStep.payjoin!.url).checkPjSupported(); setPjArmed(true) } catch {} })
-      .catch(() => { /* leave pjArmed=false; falls back silently */ })
+      .then((pdk) => {
+        try {
+          pdk.payjoin.Uri.parse(sendStep.payjoin!.url).checkPjSupported()
+          setPjArmed(true)
+        } catch {}
+      })
+      .catch(() => {
+        /* leave pjArmed=false; falls back silently */
+      })
   }
   return () => setPjArmed(false)
 }, [sendStep])
 
-{pjArmed && (
-  <div className="flex items-center justify-between text-sm">
-    <span className="text-muted-foreground">Privacy</span>
-    <span className="flex items-center gap-2">
-      <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
-      <span>Payjoin</span>
-    </span>
-  </div>
-)}
+{
+  pjArmed && (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">Privacy</span>
+      <span className="flex items-center gap-2">
+        <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
+        <span>Payjoin</span>
+      </span>
+    </div>
+  )
+}
 ```
 
 The pill is removed before the success toast on fallback (set `pjArmed=false` in the catch arm of `handleOcConfirm`).
@@ -711,7 +738,8 @@ useEffect(() => {
         if (document.hidden) abortRef.current?.abort()
       }, 1500)
     } else if (hideTimer) {
-      clearTimeout(hideTimer); hideTimer = null
+      clearTimeout(hideTimer)
+      hideTimer = null
     }
   }
   const onUnload = () => abortRef.current?.abort()
@@ -722,7 +750,7 @@ useEffect(() => {
     abortRef.current?.abort()
     document.removeEventListener('visibilitychange', onVis)
     window.removeEventListener('beforeunload', onUnload)
-    mountedRef.current = false  // gate post-await setSendStep
+    mountedRef.current = false // gate post-await setSendStep
   }
 }, [])
 
@@ -733,7 +761,10 @@ const handleOcConfirm = async () => {
   abortRef.current = new AbortController()
   try {
     const transform = sendStep.payjoin
-      ? createPayjoinTransform({ url: sendStep.payjoin.url as PayjoinUrl, strict: sendStep.payjoin.strict }, BdkPeekOracle.build)
+      ? createPayjoinTransform(
+          { url: sendStep.payjoin.url as PayjoinUrl, strict: sendStep.payjoin.strict },
+          BdkPeekOracle.build
+        )
       : undefined
     const txid = sendStep.isSendMax
       ? await onchain.sendMax(sendStep.address, { feeRateSatVb: sendStep.feeRate })
@@ -744,7 +775,8 @@ const handleOcConfirm = async () => {
         })
     if (mountedRef.current) setSendStep({ type: 'oc-success', txid })
   } catch (err) {
-    if (mountedRef.current) setSendStep({ type: 'error', message: err.message, retryStep: sendStep })
+    if (mountedRef.current)
+      setSendStep({ type: 'error', message: err.message, retryStep: sendStep })
   } finally {
     if (mountedRef.current) {
       sendingRef.current = false
@@ -763,7 +795,10 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
   if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals)
   const ctrl = new AbortController()
   for (const s of signals) {
-    if (s.aborted) { ctrl.abort(s.reason); break }
+    if (s.aborted) {
+      ctrl.abort(s.reason)
+      break
+    }
     s.addEventListener('abort', () => ctrl.abort(s.reason), { once: true })
   }
   return ctrl.signal
@@ -800,7 +835,7 @@ const UPSTREAM = (() => {
   return url
 })()
 const TIMEOUT_MS = 90_000
-const MAX_BODY_BYTES = 65_536  // OHTTP messages are tiny
+const MAX_BODY_BYTES = 65_536 // OHTTP messages are tiny
 
 const NO_STORE = { 'Cache-Control': 'no-store' } as const
 
@@ -816,7 +851,10 @@ export async function POST(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const path = url.searchParams.get('_path') ?? ''
   if (!isValidOhttpPath(path)) {
-    return Response.json({ error: 'Bad proxy URL — expected /<ohttp-relay-path>' }, { status: 400, headers: NO_STORE })
+    return Response.json(
+      { error: 'Bad proxy URL — expected /<ohttp-relay-path>' },
+      { status: 400, headers: NO_STORE }
+    )
   }
 
   const body = await request.arrayBuffer()
@@ -962,12 +1000,15 @@ export function captureEvent(source: string, kind: string, fields?: EventFields)
 
 ```typescript
 // src/storage/error-log.ts
-const HEX_RE = /[0-9a-fA-F]{8,}/g  // catches txid / scriptPubkey / preimage / pubkey leakage
+const HEX_RE = /[0-9a-fA-F]{8,}/g // catches txid / scriptPubkey / preimage / pubkey leakage
 
 function sanitizeEventFields(fields: EventFields): EventFields {
   const out: EventFields = {}
   for (const [k, v] of Object.entries(fields)) {
-    if (typeof v === 'number') { out[k] = v; continue }
+    if (typeof v === 'number') {
+      out[k] = v
+      continue
+    }
     // String values: strip hex blobs ≥ 8 chars; reject long strings; reject obvious URLs.
     if (v.length > 256) continue
     if (/^https?:|^bitcoin:|^payjoin:/i.test(v)) continue
@@ -1201,16 +1242,16 @@ No public API breakage.
 
 ## Risk Analysis & Mitigation
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `payjoin@0.1.1` API breaks before stabilization | Medium | High | Pin exact version; audit changelog on bump; smoke-test in preview before merge |
-| OHTTP relay (`payjo.in`) goes down | Low | Medium | Single relay for MVP; future: relay fallback list (deferred) |
-| Receiver-owned-UTXO probe at index > 10,000 (theoretical) | Very low | Severe | 10,000 budget covers realistic wallet usage; document constraint; revisit if user reports false-pass |
-| WASM chunk unbounded growth in future versions | Medium | Low | Lazy-load amortizes cost; monitor bundle-size CI threshold |
-| Delayed-fallback timer abandoned on tab close | Medium | Low | In-process timer for MVP; user can re-attempt manually; document |
-| `processResponse` throws an unrecognized error type | Low | Low | Catch-all `unknown` fallback reason; structured telemetry surfaces unknown patterns |
-| Sender input PSBT field validation regresses upstream in PDK | Low | Severe | Defense-in-depth via app-side fee cap + ownership probe; pinned package version |
-| Service Worker race on PDK chunk fetch | Low | Low | Workbox NetworkFirst already handles; verified in Phase 2 |
+| Risk                                                         | Likelihood | Impact | Mitigation                                                                                           |
+| ------------------------------------------------------------ | ---------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| `payjoin@0.1.1` API breaks before stabilization              | Medium     | High   | Pin exact version; audit changelog on bump; smoke-test in preview before merge                       |
+| OHTTP relay (`payjo.in`) goes down                           | Low        | Medium | Single relay for MVP; future: relay fallback list (deferred)                                         |
+| Receiver-owned-UTXO probe at index > 10,000 (theoretical)    | Very low   | Severe | 10,000 budget covers realistic wallet usage; document constraint; revisit if user reports false-pass |
+| WASM chunk unbounded growth in future versions               | Medium     | Low    | Lazy-load amortizes cost; monitor bundle-size CI threshold                                           |
+| Delayed-fallback timer abandoned on tab close                | Medium     | Low    | In-process timer for MVP; user can re-attempt manually; document                                     |
+| `processResponse` throws an unrecognized error type          | Low        | Low    | Catch-all `unknown` fallback reason; structured telemetry surfaces unknown patterns                  |
+| Sender input PSBT field validation regresses upstream in PDK | Low        | Severe | Defense-in-depth via app-side fee cap + ownership probe; pinned package version                      |
+| Service Worker race on PDK chunk fetch                       | Low        | Low    | Workbox NetworkFirst already handles; verified in Phase 2                                            |
 
 ## Future Considerations
 

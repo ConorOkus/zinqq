@@ -184,9 +184,7 @@ describe('classifyPaymentInput — BIP 321 pj= / pjos= (Payjoin)', () => {
   it('attaches payjoin context when pj= is present', async () => {
     const { classifyPaymentInput } = await import('./payment-input')
     const pjUrl = 'https://btcpay.example/payjoin/xyz'
-    const result = classifyPaymentInput(
-      `bitcoin:${ADDR}?pj=${encodeURIComponent(pjUrl)}`
-    )
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encodeURIComponent(pjUrl)}`)
     expect(result.type).toBe('onchain')
     if (result.type === 'onchain') {
       expect(result.payjoin?.url).toBe(pjUrl)
@@ -197,9 +195,7 @@ describe('classifyPaymentInput — BIP 321 pj= / pjos= (Payjoin)', () => {
   it('parses pj= case-insensitively (PJ=)', async () => {
     const { classifyPaymentInput } = await import('./payment-input')
     const pjUrl = 'https://btcpay.example/payjoin/xyz'
-    const result = classifyPaymentInput(
-      `bitcoin:${ADDR}?PJ=${encodeURIComponent(pjUrl)}`
-    )
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?PJ=${encodeURIComponent(pjUrl)}`)
     expect(result.type).toBe('onchain')
     if (result.type === 'onchain') {
       expect(result.payjoin?.url).toBe(pjUrl)
@@ -218,9 +214,7 @@ describe('classifyPaymentInput — BIP 321 pj= / pjos= (Payjoin)', () => {
   it('attaches strict:true when pjos=0 is present', async () => {
     const { classifyPaymentInput } = await import('./payment-input')
     const pjUrl = 'https://btcpay.example/payjoin/xyz'
-    const result = classifyPaymentInput(
-      `bitcoin:${ADDR}?pj=${encodeURIComponent(pjUrl)}&pjos=0`
-    )
+    const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encodeURIComponent(pjUrl)}&pjos=0`)
     expect(result.type).toBe('onchain')
     if (result.type === 'onchain') {
       expect(result.payjoin?.url).toBe(pjUrl)
@@ -236,10 +230,7 @@ describe('classifyPaymentInput — BIP 321 pj= / pjos= (Payjoin)', () => {
     const { classifyPaymentInput } = await import('./payment-input')
     const pjUrl =
       'HTTPS://PAYJO.IN/LANG586Q3F5PQ#RK1QD9PE26NCQN0GL99F23V3ADZGZ44CFLA8FX998LMKLX6VSL7DEDP2+OH1QYPFLM8XL59R0XV4VGPLS7FRDSSM4TUXL07TXCWC4S0GLVLNK2SE4NQ+EX1M560Z6G'
-    const encoded = pjUrl
-      .replace(/:/g, '%3A')
-      .replace(/\//g, '%2F')
-      .replace(/#/g, '%23')
+    const encoded = pjUrl.replace(/:/g, '%3A').replace(/\//g, '%2F').replace(/#/g, '%23')
     // `+` is left unencoded — it's not a reserved char in the path/fragment per RFC 3986,
     // and represents the real-world wire format we receive from QR scans.
     const result = classifyPaymentInput(`bitcoin:${ADDR}?pj=${encoded}`)

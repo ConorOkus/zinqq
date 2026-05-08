@@ -80,6 +80,7 @@ That's >80% of the original implementation surface area.
 → `/ce:plan docs/brainstorms/2026-05-07-payjoin-send-npm-package-brainstorm.md`
 
 The `/ce:plan` deepening should:
+
 1. Pull architectural pieces from the [superseded plan](../plans/2026-04-23-001-feat-payjoin-send-support-plan.md) (transformPsbt hook, proposal-validator, claim() sentinel, BDK lookahead-extension, SSRF-hardened proxy, fee cap, telemetry buckets) and reaffirm or refine each against the npm-package surface.
 2. Drop everything related to the build pipeline (CI job, build script, submodule, vercel-install).
 3. Verify the `payjoin/web-vite` entry's WASM `?url` import behavior in Vite + vite-plugin-pwa, and document any required Workbox excludes.
