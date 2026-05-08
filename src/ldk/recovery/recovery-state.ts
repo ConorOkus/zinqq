@@ -1,6 +1,6 @@
 import { idbGet, idbPut, idbDelete } from '../../storage/idb'
 import type { VssClient } from '../storage/vss-client'
-import { isVssConflict } from '../storage/vss-client'
+import { vssWriteWithConflictRetry } from '../storage/vss-write'
 import { captureError } from '../../storage/error-log'
 
 const IDB_STORE = 'ldk_force_close_recovery'
@@ -19,7 +19,7 @@ export interface RecoveryState {
   updatedAt: number
 }
 
-let vssVersion = 0
+const vssVersionRef = { current: 0 }
 
 /**
  * Read recovery state from IDB (fast, local-only).
@@ -44,7 +44,7 @@ export async function seedRecoveryVssVersion(vssClient: VssClient | null): Promi
   try {
     const result = await vssClient.getObject(VSS_KEY)
     if (result) {
-      vssVersion = result.version
+      vssVersionRef.current = result.version
       // Optionally reconcile: if VSS has state but IDB doesn't, write to IDB
       const local = await readRecoveryState()
       if (!local) {
@@ -68,30 +68,14 @@ export async function writeRecoveryState(
   // Write IDB first (fast, always available)
   await idbPut(IDB_STORE, IDB_KEY, state)
 
-  // Write VSS (durable, cross-device)
+  // Write VSS (durable, cross-device). Conflict + takeover-grace handling
+  // lives in `vssWriteWithConflictRetry`.
   if (vssClient) {
     try {
       const encoded = new TextEncoder().encode(JSON.stringify(state))
-      vssVersion = await vssClient.putObject(VSS_KEY, encoded, vssVersion)
+      await vssWriteWithConflictRetry(vssClient, VSS_KEY, encoded, vssVersionRef)
     } catch (err: unknown) {
-      if (isVssConflict(err)) {
-        // Re-fetch version and retry once
-        try {
-          const result = await vssClient.getObject(VSS_KEY)
-          vssVersion = result?.version ?? 0
-          const encoded = new TextEncoder().encode(JSON.stringify(state))
-          vssVersion = await vssClient.putObject(VSS_KEY, encoded, vssVersion)
-        } catch (retryErr: unknown) {
-          captureError(
-            'error',
-            'RecoveryState',
-            'VSS write failed after conflict retry',
-            String(retryErr)
-          )
-        }
-      } else {
-        captureError('warning', 'RecoveryState', 'VSS write failed (IDB saved)', String(err))
-      }
+      captureError('warning', 'RecoveryState', 'VSS write failed (IDB saved)', String(err))
     }
   }
 }
@@ -107,8 +91,8 @@ export async function clearRecoveryState(vssClient: VssClient | null): Promise<v
 
   if (vssClient) {
     try {
-      await vssClient.deleteObject(VSS_KEY, vssVersion)
-      vssVersion = 0
+      await vssClient.deleteObject(VSS_KEY, vssVersionRef.current)
+      vssVersionRef.current = 0
     } catch (err: unknown) {
       captureError('warning', 'RecoveryState', 'Failed to clear VSS', String(err))
     }
