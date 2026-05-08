@@ -637,9 +637,7 @@ export function Receive() {
       ) : receiveState.step === 'jit-buying' ? (
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
-            <p className="text-sm text-[var(--color-on-dark-muted)]">
-              Generating payment request…
-            </p>
+            <p className="text-sm text-[var(--color-on-dark-muted)]">Generating payment request…</p>
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
           </div>
         </div>
