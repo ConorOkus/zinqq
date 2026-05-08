@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '319'
 tags: [vss, persistence, race-condition, ldk, channel-manager]
@@ -135,18 +135,40 @@ backend" patterns elsewhere in JS land.
 
 ## Acceptance Criteria
 
-- [ ] Concurrent persist calls during JIT channel open + claim produce
+- [x] Concurrent persist calls during JIT channel open + claim produce
       at most 2 VSS writes (initial + coalesced follow-up), not N.
-- [ ] No `[VSS] Transaction could not be completed due to a possible
+- [x] No `[VSS] Transaction could not be completed due to a possible
 conflict` errors during a clean JIT receive.
-- [ ] Existing `persistChannelManager` semantics preserved for callers
+- [x] Existing `persistChannelManager` semantics preserved for callers
       that legitimately want a one-shot persist (or the scheduler is a
       thin wrapper that delegates to it).
-- [ ] `pnpm test` and `pnpm lint` pass.
+- [x] `pnpm test` and `pnpm lint` pass.
+
+## Resolution
+
+Implemented Option A. `persistChannelManager` remains the one-shot
+persist primitive, and `createChannelManagerPersistScheduler` now wraps
+it with a per-node single-flight queue. Calls made while a persist is
+in flight set a dirty flag and share the same promise; when the current
+write completes, the scheduler runs one coalesced follow-up persist
+with the refreshed VSS version.
+
+`src/ldk/context.tsx` creates one scheduler for the initialized node
+and uses it for event-drain ChannelManager flushes. The same scheduler
+is passed into `startSyncLoop`, so periodic sync persistence and
+event-driven persistence serialize through the same queue instead of
+racing each other on the VSS expected version.
+
+`src/ldk/storage/persist-cm.test.ts` now covers concurrent scheduler
+calls against a fake versioned VSS client and asserts the burst
+serializes into two writes, with the second write using the updated
+version.
 
 ## Work Log
 
-(Empty)
+| Date       | Action      | Details                                                                                                        |
+| ---------- | ----------- | -------------------------------------------------------------------------------------------------------------- |
+| 2026-05-08 | Implemented | Added single-flight scheduler, wired event drain + sync loop through it, and added concurrent scheduling test. |
 
 ## Resources
 
