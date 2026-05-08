@@ -34,11 +34,13 @@ export interface CmPersistContext {
  * VSS error so callers can log/surface differently if they want.
  */
 export class VssConflictDuringTakeoverError extends Error {
-  constructor(public readonly correctedVersion: number) {
+  readonly correctedVersion: number
+  constructor(correctedVersion: number) {
     super(
       `VSS 409 within ${TAKEOVER_GRACE_MS}ms of acquiring wallet lock — likely former tab's late write. Refusing to overwrite.`
     )
     this.name = 'VssConflictDuringTakeoverError'
+    this.correctedVersion = correctedVersion
   }
 }
 
