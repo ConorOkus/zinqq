@@ -12,7 +12,6 @@ import type { WatchState } from '../traits/filter'
 import { initRapidGossipSync, syncRapidGossip, type RgsHandle } from './rapid-gossip-sync'
 import { txidBytesToHex } from '../utils'
 import { idbPut } from '../../storage/idb'
-import { persistChannelManager, type CmPersistContext } from '../storage/persist-cm'
 import type { SyncStatus } from '../ldk-context'
 import { captureError } from '../../storage/error-log'
 
@@ -168,8 +167,12 @@ export interface SyncLoopConfig {
   rgsUrl?: string
   rgsSyncIntervalTicks?: number
   onStatusChange?: (status: SyncStatus) => void
-  cmPersistCtx?: CmPersistContext
-  persistChannelManager?: () => Promise<void>
+  /**
+   * Schedule a ChannelManager persist. Required: the scheduler owns LDK's
+   * dirty bit and the must-retry latch. Calling unconditionally each tick
+   * is cheap when nothing is dirty.
+   */
+  schedulePersist: () => Promise<void>
 }
 
 const MAX_BACKOFF_MS = 5 * 60 * 1_000 // 5 minutes
@@ -181,7 +184,6 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let tickCount = 0
-  let cmNeedsPersist = false
   let rgsHandle: RgsHandle | null = null
   let rgsInitStarted = false
   let consecutiveErrors = 0
@@ -226,20 +228,11 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       config.channelManager.timer_tick_occurred()
       config.chainMonitor.rebroadcast_pending_claims()
 
-      // Persist ChannelManager if needed (cmNeedsPersist retries after prior failure)
-      if (cmNeedsPersist || config.channelManager.get_and_clear_needs_persistence()) {
-        cmNeedsPersist = false
-        try {
-          if (config.persistChannelManager) {
-            await config.persistChannelManager()
-          } else {
-            await persistChannelManager(config.channelManager, config.cmPersistCtx)
-          }
-        } catch (err: unknown) {
-          cmNeedsPersist = true
-          throw err
-        }
-      }
+      // Scheduler owns LDK's dirty bit + must-retry latch. Cheap no-op when
+      // nothing is dirty. Throws are caught by the outer tick try/catch and
+      // counted as sync errors, which is correct: the scheduler will retry
+      // on next tick via its internal mustRetry flag.
+      await config.schedulePersist()
 
       // Persist NetworkGraph + Scorer every ~10 ticks (~10 min at 60s interval)
       if ((tickCount + 1) % 10 === 0) {

@@ -16,7 +16,33 @@ import { idbPut } from '../../storage/idb'
 /* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/require-await */
 
 function makeCm(data = new Uint8Array([1, 2, 3])) {
-  return { write: vi.fn(() => data) } as never
+  return {
+    write: vi.fn(() => data),
+    get_and_clear_needs_persistence: vi.fn(() => false),
+  } as never
+}
+
+interface DirtyCm {
+  write: ReturnType<typeof vi.fn>
+  get_and_clear_needs_persistence: ReturnType<typeof vi.fn>
+  setDirty: () => void
+}
+
+// Mock CM that simulates LDK's dirty-bit semantics: get_and_clear returns
+// true exactly once per setDirty() call, then false until set again.
+function makeDirtyCm(data = new Uint8Array([1, 2, 3])): DirtyCm {
+  let dirty = false
+  return {
+    write: vi.fn(() => data),
+    get_and_clear_needs_persistence: vi.fn(() => {
+      const wasDirty = dirty
+      dirty = false
+      return wasDirty
+    }),
+    setDirty: () => {
+      dirty = true
+    },
+  }
 }
 
 function makeVssClient(overrides: Partial<VssClient> = {}): VssClient {
@@ -214,7 +240,7 @@ describe('createChannelManagerPersistScheduler', () => {
     vi.mocked(idbPut).mockReset().mockResolvedValue(undefined)
   })
 
-  it('serializes concurrent schedules and coalesces a follow-up persist', async () => {
+  it('serializes concurrent schedules and coalesces a trailing persist', async () => {
     const firstWrite = deferred()
     let serverVersion = 0
     let callCount = 0
@@ -228,15 +254,18 @@ describe('createChannelManagerPersistScheduler', () => {
       }),
     })
     const cmVersionRef = { current: 0 }
-    const cm = makeCm()
-    const schedulePersist = createChannelManagerPersistScheduler(cm, {
+    const cm = makeDirtyCm()
+    const scheduler = createChannelManagerPersistScheduler(cm as never, {
       vssClient,
       cmVersionRef,
     })
 
-    const first = schedulePersist()
-    const second = schedulePersist()
-    const third = schedulePersist()
+    cm.setDirty()
+    const first = scheduler.schedule()
+    cm.setDirty()
+    const second = scheduler.schedule()
+    cm.setDirty()
+    const third = scheduler.schedule()
 
     expect(vssClient.putObject).toHaveBeenCalledTimes(1)
 
@@ -246,6 +275,100 @@ describe('createChannelManagerPersistScheduler', () => {
     expect(vssClient.putObject).toHaveBeenCalledTimes(2)
     expect(cmVersionRef.current).toBe(2)
     expect(idbPut).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns immediately when LDK reports clean and no prior failure', async () => {
+    const vssClient = makeVssClient()
+    const cm = makeDirtyCm() // never setDirty()
+    const scheduler = createChannelManagerPersistScheduler(cm as never, {
+      vssClient,
+      cmVersionRef: { current: 0 },
+    })
+
+    await scheduler.schedule()
+
+    expect(vssClient.putObject).not.toHaveBeenCalled()
+    expect(idbPut).not.toHaveBeenCalled()
+  })
+
+  it('latches mustRetry on failure so the next schedule() retries even when LDK is clean', async () => {
+    const putObject = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce(1)
+    const vssClient = makeVssClient({ putObject })
+    const cmVersionRef = { current: 0 }
+    const cm = makeDirtyCm()
+    const scheduler = createChannelManagerPersistScheduler(cm as never, {
+      vssClient,
+      cmVersionRef,
+    })
+
+    cm.setDirty()
+    await expect(scheduler.schedule()).rejects.toThrow('transient')
+    expect(putObject).toHaveBeenCalledTimes(1)
+
+    // LDK is now reporting clean (we consumed the dirty bit on the failed
+    // attempt). Without the mustRetry latch, this call would no-op and the
+    // mutation would be silently lost. With the latch, the scheduler retries.
+    await scheduler.schedule()
+    expect(putObject).toHaveBeenCalledTimes(2)
+    expect(cmVersionRef.current).toBe(1)
+  })
+
+  it('does not stay wedged after a rejection — fresh dirty signal still triggers persist', async () => {
+    const putObject = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2)
+    const vssClient = makeVssClient({ putObject })
+    const cm = makeDirtyCm()
+    const scheduler = createChannelManagerPersistScheduler(cm as never, {
+      vssClient,
+      cmVersionRef: { current: 0 },
+    })
+
+    cm.setDirty()
+    await expect(scheduler.schedule()).rejects.toThrow('transient')
+    await scheduler.schedule() // mustRetry-driven recovery
+    cm.setDirty()
+    await scheduler.schedule() // fresh dirty bit triggers a third persist
+
+    expect(putObject).toHaveBeenCalledTimes(3)
+  })
+
+  it('cancel() suppresses trailing iterations and turns subsequent schedule() into no-ops', async () => {
+    const firstWrite = deferred()
+    let callCount = 0
+    const putObject = vi.fn().mockImplementation(async (_k, _d, version: number) => {
+      callCount += 1
+      if (callCount === 1) await firstWrite.promise
+      return version + 1
+    })
+    const vssClient = makeVssClient({ putObject })
+    const cm = makeDirtyCm()
+    const scheduler = createChannelManagerPersistScheduler(cm as never, {
+      vssClient,
+      cmVersionRef: { current: 0 },
+    })
+
+    cm.setDirty()
+    const inFlight = scheduler.schedule()
+    cm.setDirty()
+    const followUp = scheduler.schedule() // sets pendingDirty for trailing iteration
+
+    scheduler.cancel()
+    firstWrite.resolve()
+    await Promise.all([inFlight, followUp])
+
+    // Only the in-flight iteration ran; cancel() suppressed the trailing one.
+    expect(putObject).toHaveBeenCalledTimes(1)
+
+    // After cancel, schedule() is a no-op even with fresh dirty bits.
+    cm.setDirty()
+    await scheduler.schedule()
+    expect(putObject).toHaveBeenCalledTimes(1)
   })
 })
 

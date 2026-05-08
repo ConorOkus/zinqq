@@ -890,6 +890,7 @@ export function LdkProvider({
     let peerTimerId: ReturnType<typeof setInterval> | null = null
     let cleanupEventHandlerFn: (() => void) | null = null
     let offerRetryTimer: ReturnType<typeof setTimeout> | null = null
+    let cmPersistScheduler: ReturnType<typeof createChannelManagerPersistScheduler> | null = null
 
     const vssDisabled = import.meta.env.VITE_DISABLE_VSS === 'true'
     const vssAuth = vssDisabled ? null : new SignatureHeaderProvider(vssSigningKey)
@@ -928,10 +929,11 @@ export function LdkProvider({
           if (cancelled) return
 
           nodeRef.current = node
-          const scheduleChannelManagerPersist = createChannelManagerPersistScheduler(
+          cmPersistScheduler = createChannelManagerPersistScheduler(
             node.channelManager,
             cmPersistCtx
           )
+          const schedulePersist = cmPersistScheduler.schedule
 
           // Eagerly discover LQwD's pubkey and add it to the trust set so
           // the event handler accepts 0-conf opens from the primary LSP.
@@ -1057,8 +1059,7 @@ export function LdkProvider({
             onStatusChange: (syncStatus) => {
               setState((prev) => (prev.status === 'ready' ? { ...prev, syncStatus } : prev))
             },
-            cmPersistCtx,
-            persistChannelManager: scheduleChannelManagerPersist,
+            schedulePersist,
           })
 
           // Periodic reconnection: check every 3rd tick (~30s) for channel
@@ -1122,17 +1123,17 @@ export function LdkProvider({
               )
             }
 
-            // Flush ChannelManager state immediately after processing events
-            if (node.channelManager.get_and_clear_needs_persistence()) {
-              void scheduleChannelManagerPersist().catch((err: unknown) => {
-                captureError(
-                  'critical',
-                  'LDK Context',
-                  'Failed to persist ChannelManager after events',
-                  String(err)
-                )
-              })
-            }
+            // Scheduler owns the dirty bit; calling unconditionally is a
+            // no-op when nothing changed. On failure the scheduler latches
+            // mustRetry so the next chain-sync tick retries.
+            void schedulePersist().catch((err: unknown) => {
+              captureError(
+                'critical',
+                'LDK Context',
+                'Failed to persist ChannelManager after events',
+                String(err)
+              )
+            })
           }
 
           // Coalesce rapid WebSocket messages into a single drain per
@@ -1425,6 +1426,9 @@ export function LdkProvider({
     const connections = activeConnections.current
     const teardown = () => {
       cancelled = true
+      // Suppress trailing scheduler iterations so this tab can't write to
+      // VSS after wallet-takeover hands the lock to another tab.
+      cmPersistScheduler?.cancel()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       syncHandle?.stop()
       cleanupEventHandlerFn?.()
