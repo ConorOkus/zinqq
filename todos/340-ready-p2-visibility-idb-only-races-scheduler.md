@@ -1,5 +1,5 @@
 ---
-status: pending
+status: ready
 priority: p2
 issue_id: '340'
 tags: [code-review, idb, visibility, channel-manager, pr-157]
@@ -104,7 +104,19 @@ handler has ~tens of ms before tab kill.
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+
+**Learnings:**
+
+- Worth a small IDB-write queue rather than relying on the (undocumented) VSS-first ordering invariant. #348 covers the docs-only fallback if this slips.
+
 
 ## Resources
 

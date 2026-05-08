@@ -1,6 +1,6 @@
 ---
-status: pending
-priority: p3
+status: complete
+priority: p2
 issue_id: '347'
 tags: [code-review, vss, multi-tab, broadcastchannel, pr-157]
 dependencies: []
@@ -87,7 +87,33 @@ gate.
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work, upgraded P3 → P2
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+- **Priority upgraded P3 → P2** because mainnet GA prep is upcoming (per `project_blockstream_staging_creds.md`) and a multi-tab clobber that loses preimages = funds loss
+
+**Learnings:**
+
+- Treat as a mainnet-GA gate. Coordinate with #345 (inline VSS conflict retry) — if leader election lands, the inline retry can be removed safely (Option A in #345). The wallet-takeover BroadcastChannel at `context.tsx:1449-1459` is the natural extension point.
+
+### 2026-05-08 — Resolved (Option B-lite)
+
+**Implementation:**
+
+- `init.ts` exports `walletLockAcquiredAt: number | null` set when `acquireWalletLock` resolves
+- `persist-cm.ts` checks `Date.now() - walletLockAcquiredAt < TAKEOVER_GRACE_MS (1s)`. If inside the grace window, throws a typed `VssConflictDuringTakeoverError` after updating `versionRef` so the caller's `mustRetry` latch refetches and retries on the next chain-sync tick (by which time the takeover race is resolved). Outside the grace window, the existing retry-once behaviour is preserved for genuine server-side version drift.
+- `CmPersistContext.walletLockAcquiredAtOverride` is a test-only injection point.
+
+**Why this scope (not full leader election):**
+
+The existing wallet-lock takeover protocol (`init.ts:177-197`) already prevents two concurrently-running tabs. The only residual race is the narrow takeover-handshake window where the previous tab's in-flight `putObject` lands after our initial VSS read. The grace-window guard closes that specific window without the design weight of a full BroadcastChannel persist-leader.
+
+**Subsumes #345** — the inline retry path is now scope-documented and the dangerous "loser-tab clobbers winner-tab" branch is closed.
 
 ## Resources
 

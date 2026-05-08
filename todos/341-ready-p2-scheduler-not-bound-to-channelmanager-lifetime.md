@@ -1,5 +1,5 @@
 ---
-status: pending
+status: ready
 priority: p2
 issue_id: '341'
 tags: [code-review, lifecycle, react, strictmode, pr-157]
@@ -84,7 +84,19 @@ is currently created in effect, after init resolves. Awkward fit.
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+
+**Learnings:**
+
+- The P1 cancel-on-teardown (#338) covers StrictMode's "two effect runs" case in practice, but a WeakMap gives a structural guarantee that no future caller can accidentally create two schedulers per CM.
+
 
 ## Resources
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: ready
 priority: p2
 issue_id: '343'
 tags: [code-review, tests, channel-manager, pr-157]
@@ -89,7 +89,21 @@ it('event-drain and sync-loop share the same scheduler instance', async () => { 
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work (scope reduced)
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+- 4 of the 5 originally listed gaps were addressed in the P1 fix commit (rejection recovery, post-quiesce, no-op when clean, cancel)
+
+**Remaining scope:**
+
+- Fresh `cm.write()` bytes per iteration test — mutate the mock between iterations and assert `putObject` received both byte sequences in order
+- Integration test wiring `startSyncLoop` + `LdkProvider` event-drain through the same scheduler (would catch a regression where someone forgets to pass the field)
+
 
 ## Resources
 

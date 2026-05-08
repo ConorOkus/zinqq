@@ -1,5 +1,5 @@
 ---
-status: pending
+status: ready
 priority: p2
 issue_id: '339'
 tags: [code-review, semantics, channel-manager, pr-157]
@@ -105,7 +105,20 @@ that need durability (chain-sync) use a different API.
 
 ## Work Log
 
-_(empty)_
+### 2026-05-08 — Approved for work
+
+**By:** Claude Triage System
+
+**Actions:**
+
+- Issue approved during triage session
+- Status changed from pending → ready
+- Ready to be picked up and worked on
+
+**Learnings:**
+
+- The P1 mustRetry latch (#335) already prevents the worst durability gap: a failed iteration is retried on the next tick. The remaining concern is per-call `await` semantics — chain-sync's tick believes the persist landed when it actually only landed on a leading iteration's bytes.
+
 
 ## Resources
 
