@@ -224,30 +224,39 @@ export async function getJitQuote(
   opts: { retryConnectOnce: boolean },
   signal: AbortSignal
 ): Promise<JitQuote> {
-  // Step 0: Ensure peer connection.
-  try {
-    await withAbort(connect(node.peerManager, contact.nodeId, contact.host, contact.port), signal)
-  } catch (firstErr) {
-    if (signal.aborted) throw firstErr
-    if (!opts.retryConnectOnce) {
-      throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
-    }
-    // Soft retry — mobile WebSockets die when backgrounded; the peer
-    // may have raced into a connected state via a parallel attempt.
-    const isConnected = node.peerManager
+  // Step 0: Ensure peer connection. Skip the connect() call when LDK
+  // already has the peer — `new_outbound_connection` rejects a duplicate
+  // and we'd uselessly fail through to fallback. This is the common case
+  // for the LSP we just ran a quote against, or one we auto-reconnected
+  // to on startup because of an existing channel.
+  const alreadyConnected = (): boolean =>
+    node.peerManager
       .list_peers()
       .some((p) => bytesToHex(p.get_counterparty_node_id()) === contact.nodeId)
-    if (!isConnected) {
-      try {
-        await withAbort(
-          connect(node.peerManager, contact.nodeId, contact.host, contact.port),
-          signal
-        )
-      } catch (secondErr) {
-        if (signal.aborted) throw secondErr
-        throw new JitPeerConnectError(
-          `peer_connect (${contact.label}, retry): ${String(secondErr)}`
-        )
+
+  if (!alreadyConnected()) {
+    try {
+      await withAbort(connect(node.peerManager, contact.nodeId, contact.host, contact.port), signal)
+    } catch (firstErr) {
+      if (signal.aborted) throw firstErr
+      // A parallel attempt may have raced us to a connected state.
+      if (alreadyConnected()) {
+        // fall through — connection is up, proceed to LSPS2 RPC
+      } else if (!opts.retryConnectOnce) {
+        throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
+      } else {
+        // Soft retry — mobile WebSockets die when backgrounded.
+        try {
+          await withAbort(
+            connect(node.peerManager, contact.nodeId, contact.host, contact.port),
+            signal
+          )
+        } catch (secondErr) {
+          if (signal.aborted) throw secondErr
+          throw new JitPeerConnectError(
+            `peer_connect (${contact.label}, retry): ${String(secondErr)}`
+          )
+        }
       }
     }
   }
