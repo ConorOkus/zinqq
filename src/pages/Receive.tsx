@@ -20,9 +20,6 @@ type QrPage = 'unified' | 'bolt12'
 
 const MAX_DIGITS = 8
 
-/** Debounce window for the eager Phase A pre-warm during numpad input. */
-const PREWARM_DEBOUNCE_MS = 300
-
 type InvoicePath = 'none' | 'standard' | 'jit'
 
 type ReceiveState =
@@ -45,7 +42,7 @@ type ReceiveState =
       displayMinSats: bigint
     }
   | { step: 'jit-buying' }
-  | { step: 'jit-error'; message: string; retryStep: 'jit-quoting' }
+  | { step: 'jit-error'; retryStep: 'jit-quoting' }
   | { step: 'success'; amountSats: bigint }
 
 export function Receive() {
@@ -72,12 +69,6 @@ export function Receive() {
   const amountButtonRef = useRef<HTMLButtonElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const requestCounterRef = useRef(0)
-  /** Speculative quote fetched while the user types on the numpad. */
-  const prewarmRef = useRef<{
-    amountSats: bigint
-    promise: Promise<JitQuote>
-    controller: AbortController
-  } | null>(null)
   /** Active phase-B controller. Aborted on Back from Review, never inside `jit-buying` itself. */
   const buyControllerRef = useRef<AbortController | null>(null)
 
@@ -167,18 +158,8 @@ export function Receive() {
       setInvoiceError(null)
       setReceiveState({ step: 'jit-quoting' })
 
-      // Reuse a fresh pre-warm if it matches the confirmed amount; otherwise
-      // start a new quote scoped to its own controller.
-      const prewarm = prewarmRef.current
-      const useExisting =
-        prewarm !== null &&
-        prewarm.amountSats === confirmedAmountSats &&
-        !prewarm.controller.signal.aborted
-      const ctrl = useExisting ? prewarm.controller : new AbortController()
-      const quotePromise = useExisting ? prewarm.promise : requestJitQuote(amountMsat, ctrl.signal)
-      // The pre-warm is consumed exactly once; clear it so a subsequent
-      // amount-change + Done doesn't reuse a now-stale controller.
-      if (useExisting) prewarmRef.current = null
+      const ctrl = new AbortController()
+      const quotePromise = requestJitQuote(amountMsat, ctrl.signal)
 
       quotePromise
         .then((quote) => {
@@ -240,44 +221,6 @@ export function Receive() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createInvoice, requestJitQuote, confirmedAmountSats, peersReconnected])
-
-  // Eager Phase A pre-warm. While the user types on the numpad, debounce
-  // 300ms and speculatively fetch a quote so the Review screen renders
-  // instantly when they tap Done. Only runs when JIT is needed.
-  useEffect(() => {
-    if (!editingAmount) return
-    if (!requestJitQuote) return
-    if (editingAmountSats <= 0n) return
-
-    // Cheap inline check: if the wallet has any usable inbound capacity that
-    // covers the typed amount, no JIT is needed and pre-warming would waste
-    // an RPC.
-    const channels = listChannels?.() ?? []
-    let inboundMsat = 0n
-    for (const ch of channels) {
-      if (ch.get_is_usable()) inboundMsat += ch.get_inbound_capacity_msat()
-    }
-    const amountMsat = editingAmountSats * 1000n
-    if (inboundMsat >= amountMsat) return
-
-    const timer = setTimeout(() => {
-      // Skip refetch if a fresh prewarm already covers this amount.
-      const prior = prewarmRef.current
-      if (prior && prior.amountSats === editingAmountSats && !prior.controller.signal.aborted) {
-        return
-      }
-      prior?.controller.abort()
-      const ctrl = new AbortController()
-      const promise = requestJitQuote(amountMsat, ctrl.signal)
-      prewarmRef.current = { amountSats: editingAmountSats, promise, controller: ctrl }
-      // Swallow pre-warm rejections — they only matter when the user commits
-      // (in which case the main effect surfaces the error).
-      promise.catch(() => undefined)
-    }, PREWARM_DEBOUNCE_MS)
-
-    return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingAmount, editingAmountSats, requestJitQuote])
 
   // <link rel="preconnect"> to the LSP same-origin proxy on Receive mount.
   // Buys a few hundred ms on the first quote by warming DNS / TLS handshake.
@@ -388,10 +331,21 @@ export function Receive() {
   }, [])
 
   const handleConfirmAmount = useCallback(() => {
+    // Decide JIT inline so we can flip to the quoting skeleton in the same
+    // render batch as the amount commit. Without this the next render briefly
+    // shows the on-chain QR before the Phase A effect sets `jit-quoting`.
+    const amountMsat = editingAmountSats * 1000n
+    let inboundMsat = 0n
+    for (const ch of listChannels?.() ?? []) {
+      if (ch.get_is_usable()) inboundMsat += ch.get_inbound_capacity_msat()
+    }
+    if (inboundMsat < amountMsat) {
+      setReceiveState({ step: 'jit-quoting' })
+    }
     setConfirmedAmountDigits(amountDigits)
     setEditingAmount(false)
     requestAnimationFrame(() => amountButtonRef.current?.focus())
-  }, [amountDigits])
+  }, [amountDigits, editingAmountSats, listChannels])
 
   const handleCancelAmount = useCallback(() => {
     setAmountDigits(confirmedAmountDigits)
@@ -439,19 +393,13 @@ export function Receive() {
         if (buyControllerRef.current !== ctrl) return
         buyControllerRef.current = null
         captureError('warning', 'Receive', 'JIT buy failed', String(err))
-        setReceiveState({
-          step: 'jit-error',
-          message: err instanceof Error ? err.message : 'Could not finish setup',
-          retryStep: 'jit-quoting',
-        })
+        setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
       })
   }, [executeJitBuy, receiveState])
 
   const handleReviewBack = useCallback(() => {
     // Cancel any in-flight quote so its resolution can't race the numpad.
     requestCounterRef.current++
-    prewarmRef.current?.controller.abort()
-    prewarmRef.current = null
     // Restore the numpad with the previous amount preserved.
     setAmountDigits(confirmedAmountDigits)
     setConfirmedAmountDigits('')
@@ -689,7 +637,7 @@ export function Receive() {
       ) : receiveState.step === 'jit-buying' ? (
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
-            <p className="text-sm text-[var(--color-on-dark-muted)]">Setting up channel…</p>
+            <p className="text-sm text-[var(--color-on-dark-muted)]">Generating payment request…</p>
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
           </div>
         </div>
@@ -711,8 +659,9 @@ export function Receive() {
                 />
               </svg>
             </div>
-            <p className="text-base font-semibold text-on-dark">Could not finish setup</p>
-            <p className="max-w-[280px] text-center text-sm text-red-400">{receiveState.message}</p>
+            <p className="text-base font-semibold text-on-dark">
+              Could not generate payment request
+            </p>
           </div>
           <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
             <button

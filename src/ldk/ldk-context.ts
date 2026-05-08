@@ -46,8 +46,11 @@ export type LdkContextValue =
       ) => { bolt11: string; paymentHash: string }
       /**
        * Phase A — fetch an LSPS2 quote with failover. Returns the displayable
-       * fee disclosure (fee, menu, picked LSP). No LSP-side commitment is made;
-       * safe to call speculatively (e.g. as a numpad pre-warm).
+       * fee disclosure (fee, menu, picked LSP). No LSP-side commitment is made,
+       * so programmatic callers may invoke this freely. UI callers should
+       * debounce: don't fire on every numpad keystroke — wait for an explicit
+       * commit to avoid burning RPCs (and surfacing captured errors) on
+       * amounts the user is still typing.
        */
       requestJitQuote: (amountMsat: bigint, signal: AbortSignal) => Promise<JitQuote>
       /**
