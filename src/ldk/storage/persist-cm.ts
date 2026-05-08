@@ -1,14 +1,45 @@
 import type { ChannelManager } from 'lightningdevkit'
 import { idbPut } from '../../storage/idb'
+import { walletLockAcquiredAt } from '../init'
 import { isVssConflict, type VssClient } from './vss-client'
 
 const CM_VSS_KEY = 'channel_manager'
 const CM_IDB_KEY = 'primary'
 
+/**
+ * Window after acquiring the wallet lock during which a 409 from VSS is
+ * presumed to be a ghost-write from the previous active tab — its in-flight
+ * `putObject` landed after our initial VSS read but before our first persist.
+ * Inside this window we update `versionRef` and throw without retrying so the
+ * caller's `mustRetry` latch picks up on the next tick (by which time the
+ * race has resolved). Outside the window we keep the existing retry-once
+ * behaviour for genuine server-side version drift.
+ */
+const TAKEOVER_GRACE_MS = 1_000
+
 export interface CmPersistContext {
   vssClient?: VssClient | null
   /** Mutable ref holding the current VSS version for the ChannelManager key. */
   cmVersionRef?: { current: number }
+  /**
+   * Override for `walletLockAcquiredAt` — tests inject a fixed value to
+   * exercise the takeover-grace branch without racing the real lock.
+   */
+  walletLockAcquiredAtOverride?: number | null
+}
+
+/**
+ * Error thrown when a VSS conflict is observed inside the takeover-grace
+ * window. Distinguishes the "former tab's ghost write" case from a generic
+ * VSS error so callers can log/surface differently if they want.
+ */
+export class VssConflictDuringTakeoverError extends Error {
+  constructor(public readonly correctedVersion: number) {
+    super(
+      `VSS 409 within ${TAKEOVER_GRACE_MS}ms of acquiring wallet lock — likely former tab's late write. Refusing to overwrite.`
+    )
+    this.name = 'VssConflictDuringTakeoverError'
+  }
 }
 
 /**
@@ -36,10 +67,27 @@ export async function persistChannelManager(
       versionRef.current = newVersion
     } catch (err: unknown) {
       if (isVssConflict(err)) {
-        // Re-fetch server version and retry once
+        // Re-fetch server version. In all cases we want versionRef updated so
+        // the next attempt uses the correct expected version.
         const serverObj = await vssClient.getObject(CM_VSS_KEY)
         const correctedVersion = serverObj ? serverObj.version : 0
         versionRef.current = correctedVersion
+
+        // Detect the takeover-window ghost-write race: a 409 within the grace
+        // period after acquiring the wallet lock almost certainly came from
+        // the previous active tab's in-flight putObject completing AFTER our
+        // initial VSS read. Overwriting at `correctedVersion` would clobber
+        // that tab's last-known state (which our in-memory CM doesn't include
+        // because we loaded from VSS before its write landed).
+        const acquiredAt = ctx.walletLockAcquiredAtOverride ?? walletLockAcquiredAt
+        if (acquiredAt !== null && Date.now() - acquiredAt < TAKEOVER_GRACE_MS) {
+          throw new VssConflictDuringTakeoverError(correctedVersion)
+        }
+
+        // Past the grace window: a 409 means the server drifted under us
+        // (server-side issue) or — within a single tab — it should be
+        // structurally impossible because the scheduler serialises writes.
+        // The retry-once preserves existing behaviour for the drift case.
         const newVersion = await vssClient.putObject(CM_VSS_KEY, data, correctedVersion)
         versionRef.current = newVersion
       } else {
