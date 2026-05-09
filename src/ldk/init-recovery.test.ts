@@ -202,6 +202,7 @@ vi.mock('lightningdevkit', () => ({
       })),
       get_channel_handshake_limits: vi.fn(() => ({
         set_trust_own_funding_0conf: vi.fn(),
+        set_force_announced_channel_preference: vi.fn(),
       })),
       get_channel_config: vi.fn(() => ({
         set_accept_underpaying_htlcs: vi.fn(),
