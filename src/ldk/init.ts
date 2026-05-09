@@ -79,7 +79,11 @@ import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
 import { captureError } from '../storage/error-log'
 
-import type { CmPersistContext } from './storage/persist-cm'
+import {
+  createChannelManagerPersistScheduler,
+  type CmPersistContext,
+  type ChannelManagerPersistScheduler,
+} from './storage/persist-cm'
 
 export interface LdkNode {
   nodeId: string
@@ -119,6 +123,13 @@ export interface InitResult {
   setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => void
   setRecoveryNeededCallback: (cb: RecoveryNeededCallback | undefined) => void
   cmPersistCtx: CmPersistContext
+  /**
+   * Single-flight persist scheduler for the ChannelManager. Constructed
+   * once here so its lifetime mirrors the `node.channelManager` exactly —
+   * no cache, no module-level state, no risk of two effect runs creating
+   * separate schedulers that race on the same VSS key.
+   */
+  cmPersistScheduler: ChannelManagerPersistScheduler
 }
 
 function createUserConfig(): UserConfig {
@@ -844,6 +855,10 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     trustedLspIds,
   }
 
+  // Single-flight scheduler bound to this CM. One per node lifetime by
+  // construction (see todos #341 / #350) — no caching layer needed.
+  const cmPersistScheduler = createChannelManagerPersistScheduler(node.channelManager, cmPersistCtx)
+
   return {
     node,
     watchState,
@@ -866,6 +881,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       recoveryNeededCallback = cb
     },
     cmPersistCtx,
+    cmPersistScheduler,
   }
 }
 

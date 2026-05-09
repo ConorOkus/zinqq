@@ -33,8 +33,8 @@ import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/p
 import { reconnectDisconnectedPeers } from './peers/peer-reconnect'
 import { idbPut } from '../storage/idb'
 import {
-  createChannelManagerPersistScheduler,
   persistChannelManagerIdbOnly,
+  type ChannelManagerPersistScheduler,
 } from './storage/persist-cm'
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
 import { getPersistedOffer, putPersistedOffer } from './storage/offer'
@@ -890,7 +890,7 @@ export function LdkProvider({
     let peerTimerId: ReturnType<typeof setInterval> | null = null
     let cleanupEventHandlerFn: (() => void) | null = null
     let offerRetryTimer: ReturnType<typeof setTimeout> | null = null
-    let cmPersistScheduler: ReturnType<typeof createChannelManagerPersistScheduler> | null = null
+    let cmPersistScheduler: ChannelManagerPersistScheduler | null = null
 
     const vssDisabled = import.meta.env.VITE_DISABLE_VSS === 'true'
     const vssAuth = vssDisabled ? null : new SignatureHeaderProvider(vssSigningKey)
@@ -924,16 +924,16 @@ export function LdkProvider({
           setSyncNeededCallback,
           setConnectionNeededCallback,
           setRecoveryNeededCallback,
-          cmPersistCtx,
+          cmPersistScheduler: persistScheduler,
         }) => {
           if (cancelled) return
 
           nodeRef.current = node
-          cmPersistScheduler = createChannelManagerPersistScheduler(
-            node.channelManager,
-            cmPersistCtx
-          )
-          const schedulePersist = cmPersistScheduler.schedule
+          // Scheduler is constructed once in init.ts; here we just hold the
+          // reference for teardown. Lifetime mirrors the node — no cache
+          // needed (see todos #341, #350).
+          cmPersistScheduler = persistScheduler
+          const schedulePersist = persistScheduler.schedule
 
           // Eagerly discover LQwD's pubkey and add it to the trust set so
           // the event handler accepts 0-conf opens from the primary LSP.
