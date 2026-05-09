@@ -71,4 +71,27 @@ describe('createFeeEstimator', () => {
 
     expect(satKw).toBe(500_000)
   })
+
+  // Regression guards for the LDK 1 sat/vB minimum on both *RemoteFee floors.
+  // LQwD (non-anchor LSP, 2026-05) proposes 253 sat/kW commitment feerates;
+  // raising either floor above 253 brings back "Peer's feerate much too low".
+  it('floors MinAllowedAnchorChannelRemoteFee at 253 sat/kW (LDK absolute min)', () => {
+    ratesByTarget[144] = 0 // esplora returns nothing usable
+
+    const satKw = computeFeeRateSatKw(
+      ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee
+    )
+
+    expect(satKw).toBe(253)
+  })
+
+  it('floors MinAllowedNonAnchorChannelRemoteFee at 253 sat/kW (LQwD compatibility)', () => {
+    ratesByTarget[144] = 0
+
+    const satKw = computeFeeRateSatKw(
+      ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee
+    )
+
+    expect(satKw).toBe(253)
+  })
 })
