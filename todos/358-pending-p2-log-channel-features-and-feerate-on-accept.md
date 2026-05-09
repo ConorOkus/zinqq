@@ -28,6 +28,7 @@ Today, `event-handler.ts:641` only logs `tempChannelId` on accept.
 **Option A — Log negotiated channel features at accept**
 
 In `src/ldk/traits/event-handler.ts:640-645`, before logging "accepted 0-conf from LSP", surface from the `Event_OpenChannelRequest` event:
+
 - `channel_type` features (anchors? scid alias?)
 - `push_msat`, `funding_satoshis`
 - `channel_flags & 1` (announce bit)

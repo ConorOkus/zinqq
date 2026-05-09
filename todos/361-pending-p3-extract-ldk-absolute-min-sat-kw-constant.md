@@ -31,13 +31,19 @@ const LDK_ABSOLUTE_MIN_SAT_KW = 253
 
 const DEFAULT_FEE_RATES: Record<ConfirmationTarget, number> = {
   // ...
-  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: LDK_ABSOLUTE_MIN_SAT_KW,
-  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]: LDK_ABSOLUTE_MIN_SAT_KW,
+  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]:
+    LDK_ABSOLUTE_MIN_SAT_KW,
+  [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]:
+    LDK_ABSOLUTE_MIN_SAT_KW,
   // ...
 }
 
 // in computeFeeRateSatKw:
-return Math.max(satKw, DEFAULT_FEE_RATES[confirmation_target] ?? LDK_ABSOLUTE_MIN_SAT_KW, LDK_ABSOLUTE_MIN_SAT_KW)
+return Math.max(
+  satKw,
+  DEFAULT_FEE_RATES[confirmation_target] ?? LDK_ABSOLUTE_MIN_SAT_KW,
+  LDK_ABSOLUTE_MIN_SAT_KW
+)
 ```
 
 - Pros: Intent visible at a glance; one place to change if LDK ever raises the floor.

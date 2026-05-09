@@ -11,10 +11,12 @@ dependencies: []
 ## Problem Statement
 
 The `fix/lqwd-channel-acceptance` branch makes two behavioural changes:
+
 1. `src/ldk/init.ts:163` — `handshakeLimits.set_force_announced_channel_preference(false)`
 2. `src/ldk/traits/fee-estimator.ts:22` — `MinAllowedNonAnchorChannelRemoteFee: 253`
 
 Neither change has a positive test asserting the contract:
+
 - `init-recovery.test.ts:205` only mocks the new setter (so init doesn't crash) — it does **not** assert it was called with `false`.
 - `fee-estimator.test.ts` covers `UrgentOnChainSweep` and `MaximumFeeEstimate` but has zero cases for `MinAllowedNonAnchorChannelRemoteFee` or `MinAllowedAnchorChannelRemoteFee`.
 

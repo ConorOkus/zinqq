@@ -15,6 +15,7 @@ dependencies: []
 Architectural consequence: the resulting channel has **no anchor outputs**. A pre-signed 1 sat/vB commitment tx cannot be CPFP-bumped in raw LDK without anchors — `BumpTransactionEventHandler` (init step 14) is a no-op for non-anchor closes. During a sustained mempool congestion event, the commitment tx may be evicted before confirming, leaving funds stuck until `to_self_delay` expires (typically 144+ blocks).
 
 Mitigation context (why this is P2 not P1):
+
 - LSPS2 JIT channel value is bounded to ~0.01 BTC (`max_payment_size_msat` in `lsps2/types.test.ts:152`).
 - LSPS2 channels resolve **cooperatively** within seconds — force-close is the rare path.
 - We trust the LSP via 0-conf, so the LSP has no incentive to grief the cooperative path.

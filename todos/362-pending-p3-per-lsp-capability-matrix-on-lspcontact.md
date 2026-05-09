@@ -12,12 +12,12 @@ dependencies: []
 
 `UserConfig` (`init.ts createUserConfig()`) is a single global passed to `ChannelManager`. Two trusted LSPs with divergent capabilities now share one config:
 
-| LSP | Anchors? | Announce flag |
-|-----|----------|---------------|
-| Megalith | Yes (PR #100, #102) | unannounced |
-| LQwD | No (this branch) | divergent (this branch) |
+| LSP      | Anchors?            | Announce flag           |
+| -------- | ------------------- | ----------------------- |
+| Megalith | Yes (PR #100, #102) | unannounced             |
+| LQwD     | No (this branch)    | divergent (this branch) |
 
-This branch makes the config the loosest common denominator: announce check disabled, both feerate floors at 253. Adding a *third* LSP with different requirements pushes the config looser still — eventually the global config provides no validation at all.
+This branch makes the config the loosest common denominator: announce check disabled, both feerate floors at 253. Adding a _third_ LSP with different requirements pushes the config looser still — eventually the global config provides no validation at all.
 
 The healthier model is per-LSP capability metadata, consulted before we add the LSP to `trustedLspIds` and used to decline LSPs that don't meet a minimum bar.
 
@@ -31,9 +31,9 @@ The healthier model is per-LSP capability metadata, consulted before we add the 
 
 ```ts
 type LspCapabilities = {
-  supportsAnchors: boolean    // option_anchors_zero_fee_htlc_tx
+  supportsAnchors: boolean // option_anchors_zero_fee_htlc_tx
   channelsAreAnnounced: boolean
-  minProposedFeerateSatKw: number  // observed lower bound
+  minProposedFeerateSatKw: number // observed lower bound
 }
 
 type LspContact = {
@@ -53,7 +53,7 @@ if (!meetsMinimumBar(lqwd.capabilities)) {
 trustedLspIds.add(lqwd.nodeId)
 ```
 
-`meetsMinimumBar` could require, e.g., `supportsAnchors` for any *new* LSP added to the trust set going forward, while grandfathering LQwD via explicit override.
+`meetsMinimumBar` could require, e.g., `supportsAnchors` for any _new_ LSP added to the trust set going forward, while grandfathering LQwD via explicit override.
 
 - Pros: Codifies the LSP compatibility matrix surfaced by learnings-researcher.
 - Pros: Future LSPs can't silently regress safety.
