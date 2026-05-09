@@ -113,7 +113,14 @@ vi.mock('./sync/esplora-client', () => ({
       .mockResolvedValue('000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f')
   },
 }))
-vi.mock('./storage/persist-cm', () => ({}))
+vi.mock('./storage/persist-cm', () => ({
+  // Stubbed: init.ts now constructs the scheduler. Tests don't exercise
+  // the persist path, so a no-op scheduler is sufficient.
+  createChannelManagerPersistScheduler: vi.fn(() => ({
+    schedule: vi.fn().mockResolvedValue(undefined),
+    cancel: vi.fn(),
+  })),
+}))
 
 // Mock persist module
 const mockVersionCache = new Map<string, number>()

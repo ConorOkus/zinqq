@@ -1,5 +1,5 @@
 ---
-status: ready
+status: complete
 priority: p2
 issue_id: '341'
 tags: [code-review, lifecycle, react, strictmode, pr-157]
@@ -96,6 +96,12 @@ is currently created in effect, after init resolves. Awkward fit.
 **Learnings:**
 
 - The P1 cancel-on-teardown (#338) covers StrictMode's "two effect runs" case in practice, but a WeakMap gives a structural guarantee that no future caller can accidentally create two schedulers per CM.
+
+### 2026-05-08 — Resolved (Option B, not Option A)
+
+**First attempt (closed PR #160):** Implemented Option A (WeakMap cache). Code review surfaced a P1 regression: the cancelled-scheduler-poisons-cache hazard converted noisy 409s into silent persistence failure on StrictMode/HMR remount. Three independent reviewers (kieran-typescript, security-sentinel, architecture) recommended Option B instead.
+
+**Resolution (PR for #350):** Scheduler is now constructed once inside `initializeLdk` (`init.ts`) and exposed on `InitResult.cmPersistScheduler`. Lifetime mirrors the `node` exactly: one scheduler per `initializeLdk` resolution, dedup'd via `initPromise`. No cache, no module-level state, no cancel/cache interaction. Restores pattern parity with `known-peers.ts` (also init'd from `init.ts`).
 
 ## Resources
 
