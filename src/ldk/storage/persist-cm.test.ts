@@ -306,6 +306,67 @@ describe('createChannelManagerPersistScheduler', () => {
     vi.mocked(idbPut).mockReset().mockResolvedValue(undefined)
   })
 
+  it('returns the same scheduler instance when called twice with the same ChannelManager', () => {
+    const cm = makeDirtyCm()
+    const ctx = { vssClient: makeVssClient(), cmVersionRef: { current: 0 } }
+
+    const a = createChannelManagerPersistScheduler(cm as never, ctx)
+    const b = createChannelManagerPersistScheduler(cm as never, ctx)
+
+    expect(a).toBe(b)
+  })
+
+  it('returns distinct schedulers for distinct ChannelManagers', () => {
+    const cm1 = makeDirtyCm()
+    const cm2 = makeDirtyCm()
+    const ctx = { vssClient: makeVssClient(), cmVersionRef: { current: 0 } }
+
+    const s1 = createChannelManagerPersistScheduler(cm1 as never, ctx)
+    const s2 = createChannelManagerPersistScheduler(cm2 as never, ctx)
+
+    expect(s1).not.toBe(s2)
+  })
+
+  it('shares in-flight state between callers that pass the same ChannelManager', async () => {
+    // Simulates StrictMode: two effect runs call the factory; they must end
+    // up with one scheduler, so a schedule() from the second run coalesces
+    // into the first run's in-flight iteration instead of racing.
+    const firstWrite = deferred()
+    let callCount = 0
+    const vssClient = makeVssClient({
+      putObject: vi.fn().mockImplementation(async (_key, _data, version: number) => {
+        callCount += 1
+        if (callCount === 1) await firstWrite.promise
+        return version + 1
+      }),
+    })
+    const cm = makeDirtyCm()
+    const cmVersionRef = { current: 0 }
+
+    const schedulerA = createChannelManagerPersistScheduler(cm as never, {
+      vssClient,
+      cmVersionRef,
+    })
+    const schedulerB = createChannelManagerPersistScheduler(cm as never, {
+      vssClient,
+      cmVersionRef,
+    })
+
+    cm.setDirty()
+    const fromA = schedulerA.schedule()
+    cm.setDirty()
+    const fromB = schedulerB.schedule()
+
+    // Only one putObject in flight despite two distinct calls
+    expect(vssClient.putObject).toHaveBeenCalledTimes(1)
+
+    firstWrite.resolve()
+    await Promise.all([fromA, fromB])
+
+    // 1 leading + 1 trailing for the second dirty signal
+    expect(vssClient.putObject).toHaveBeenCalledTimes(2)
+  })
+
   it('serializes concurrent schedules and coalesces a trailing persist', async () => {
     const firstWrite = deferred()
     let serverVersion = 0

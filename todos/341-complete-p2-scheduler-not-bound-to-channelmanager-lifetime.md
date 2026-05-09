@@ -1,5 +1,5 @@
 ---
-status: ready
+status: complete
 priority: p2
 issue_id: '341'
 tags: [code-review, lifecycle, react, strictmode, pr-157]
@@ -96,6 +96,22 @@ is currently created in effect, after init resolves. Awkward fit.
 **Learnings:**
 
 - The P1 cancel-on-teardown (#338) covers StrictMode's "two effect runs" case in practice, but a WeakMap gives a structural guarantee that no future caller can accidentally create two schedulers per CM.
+
+### 2026-05-08 — Resolved (Option A)
+
+**Implementation:**
+
+`SCHEDULERS_BY_CM = new WeakMap<ChannelManager, ChannelManagerPersistScheduler>` in `persist-cm.ts`. `createChannelManagerPersistScheduler(cm, ctx)` now checks the map first and returns the cached scheduler if one exists — repeated calls with the same `cm` (e.g. StrictMode double-effect, fast-refresh, future code paths that recreate `LdkProvider`) share state. The first call's `ctx` is captured by the closure; later `ctx` arguments are silently ignored (callers should pass the same VSS client/version ref).
+
+WeakMap means no manual cleanup: when LDK drops the `ChannelManager` reference, the entry GC's automatically.
+
+**Tests:**
+
+- `returns the same scheduler instance when called twice with the same ChannelManager`
+- `returns distinct schedulers for distinct ChannelManagers`
+- `shares in-flight state between callers that pass the same ChannelManager` (simulates StrictMode: two factory calls, second schedule() coalesces into the first's in-flight)
+
+Total persist-cm tests: 23 (was 20). Full suite: 474 pass.
 
 ## Resources
 
