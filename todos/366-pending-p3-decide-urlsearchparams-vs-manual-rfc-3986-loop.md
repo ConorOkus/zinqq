@@ -13,6 +13,7 @@ dependencies: []
 `parseBip321()` (`src/ldk/payment-input.ts:208-227`) hand-rolls a `split('&')` + `decodeURIComponent` loop instead of using `URLSearchParams`. The original justification was Payjoin: `pj=`'s value carried literal `+` bytes (BIP 77 v2 fragment separator) that `URLSearchParams` would have decoded to spaces.
 
 After PR #164's Payjoin removal, the surviving params are:
+
 - `lno=` — bech32m offer; alphabet `[02-9ac-hj-np-z]`, no `+`.
 - `lightning=` — bech32 invoice; same alphabet, no `+`.
 - `amount=` — decimal digits + `.`, no `+`.
@@ -21,7 +22,7 @@ After PR #164's Payjoin removal, the surviving params are:
 
 Two defensible directions:
 
-1. **Simplify to `URLSearchParams`.** Smaller code, idiomatic, standard semantics. Risk: if a *future* query param ever needs to carry a literal `+`, the bug returns silently.
+1. **Simplify to `URLSearchParams`.** Smaller code, idiomatic, standard semantics. Risk: if a _future_ query param ever needs to carry a literal `+`, the bug returns silently.
 2. **Keep the manual loop.** Defensive against future param additions. Cost: ~15 lines of bespoke parsing for behavior that no current consumer needs.
 
 Both are reasonable. Worth an explicit decision rather than letting drift settle it.
