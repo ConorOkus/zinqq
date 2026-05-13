@@ -24,12 +24,14 @@ This is **pre-existing**, not introduced by PR #147. It became visible because P
 
 ## Proposed Solution
 
-Mirror what `api/payjoin-proxy.ts` (now deleted) did: parse the target via a `parseTarget` helper that:
+Add a `parseTarget` helper (or inline the checks) that:
 
 1. Rejects non-`https:` schemes.
 2. Rejects private IPs (RFC 1918, link-local, loopback, IPv6 ULA, IPv4-mapped IPv6).
 3. Normalizes hostname (lowercase, IDN punycode).
 4. Optionally enforces a soft allowlist of well-known LNURL servers if we have one.
+
+Look at `api/esplora-proxy.ts` and `api/vss-proxy.ts` for the same-origin proxy pattern shape (they don't currently do the SSRF checks listed above, but share the URL-reconstruction structure).
 
 If we don't want a strict allowlist, at minimum enforce points 1–3.
 
@@ -47,7 +49,6 @@ If we don't want a strict allowlist, at minimum enforce points 1–3.
 
 - **PR:** #147
 - **Reviewer:** `security-sentinel`
-- **Reference:** the deleted `api/payjoin-proxy.ts`'s `parseTarget` (in git history)
 
 ## Work Log
 
