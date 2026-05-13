@@ -6,11 +6,11 @@ tags: [code-review, docs, onchain]
 dependencies: []
 ---
 
-# `buildSignBroadcast` lacks a docstring after Payjoin removal
+# `buildSignBroadcast` lacks a docstring for its non-obvious lifecycle
 
 ## Problem Statement
 
-The pre-PR #147 JSDoc on `buildSignBroadcast` was Payjoin-flavored ("transformPsbt", "Payjoin proposal exchange"), so removing it was the right call. But the helper still does meaningful non-obvious work — pause sync → fee floor check → MAX_FEE_SATS sanity → sign → broadcast → balance update → persist changeset → resume sync — and now has no docstring at all. A future reader gets nothing.
+`buildSignBroadcast` does meaningful non-obvious work — pause sync → fee floor check → MAX_FEE_SATS sanity → sign → broadcast → balance update → persist changeset → resume sync — and has no docstring. Three callers (`sendToAddress`, both `sendMax` codepaths) rely on the lifecycle, so a future reader needs to chase each step manually.
 
 ## Findings
 

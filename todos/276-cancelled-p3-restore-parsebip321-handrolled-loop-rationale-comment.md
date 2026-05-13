@@ -1,5 +1,5 @@
 ---
-status: pending
+status: cancelled
 priority: p3
 issue_id: '276'
 tags: [code-review, docs, comments, bip321]
@@ -57,3 +57,7 @@ To be filled during triage.
 ### 2026-04-29 — Surfaced during PR #147 review
 
 **By:** kieran-typescript-reviewer
+
+## Cancelled
+
+Superseded by a Group B follow-up from PR #164's review. Now that Payjoin is gone and the original `pj=` `+`-preservation rationale is moot, the upstream question — "do we even need the hand-rolled loop?" — must be settled first. That decision is tracked in the new todo (decide `URLSearchParams` vs manual RFC 3986 loop in `parseBip321`). If that decision lands on "keep the loop," re-open this todo, clear this Cancelled section, and inline the rationale at the loop site. Note: the solution-doc reference (`docs/solutions/integration-issues/bip321-pj-urlsearchparams-plus-corruption.md`) was deleted in PR #164; any revived comment must inline the rationale instead of pointing at the doc.

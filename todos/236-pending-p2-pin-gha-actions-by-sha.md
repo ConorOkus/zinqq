@@ -2,7 +2,7 @@
 status: pending
 priority: p2
 issue_id: '236'
-tags: [code-review, payjoin, security, ci, supply-chain]
+tags: [code-review, security, ci, supply-chain]
 dependencies: []
 ---
 
@@ -19,7 +19,7 @@ All GitHub Actions in `ci.yml` use mutable tag refs (`@v4`, `@v3`):
 - `actions/upload-artifact@v4`
 - `actions/download-artifact@v4`
 
-A maintainer takeover, tag rewrite, or npm-style takeover of any of these namespaces lets an attacker push arbitrary code into the action and have it run in every CI run. `permissions: {}` on `payjoin-build` caps the blast radius; but the `check` job and others still run with default token scope (see #235).
+A maintainer takeover, tag rewrite, or npm-style takeover of any of these namespaces lets an attacker push arbitrary code into the action and have it run in every CI run. Jobs run with default token scope until `permissions:` is locked down per-job (see #235).
 
 GitHub's recommended practice is to pin actions by commit SHA and use Dependabot to surface updates as PRs.
 

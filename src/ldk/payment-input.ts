@@ -23,20 +23,6 @@ export interface LnurlPayMetadata {
   description: string
 }
 
-/**
- * Branded URL minted only inside `parseBip321()` after a successful `pj=`
- * extraction + length-cap check. Downstream Payjoin code accepts only
- * `PayjoinUrl`, not arbitrary strings — compile-time guarantee that the
- * value reached the sender via the parser, not by direct construction.
- */
-export type PayjoinUrl = string & { readonly __brand: 'PayjoinUrl' }
-
-export interface PayjoinContext {
-  url: PayjoinUrl
-  /** True if the URI included `pjos=0`. Parsed but not enforced at runtime — see plan §"Resolved Decisions". */
-  strict: boolean
-}
-
 export type ParsedPaymentInput =
   | {
       type: 'bolt11'
@@ -59,12 +45,7 @@ export type ParsedPaymentInput =
    * is assembled directly from the resolved metadata rather than during parsing.
    */
   | { type: 'lnurl'; domain: string; user: string; metadata: LnurlPayMetadata; raw: string }
-  | {
-      type: 'onchain'
-      address: string
-      amountSats: bigint | null
-      payjoin?: PayjoinContext
-    }
+  | { type: 'onchain'; address: string; amountSats: bigint | null }
   | { type: 'error'; message: string }
 
 /**
@@ -223,8 +204,6 @@ function parseBip321(input: string): ParsedPaymentInput {
   let lnoValue: string | null = null
   let lightningValue: string | null = null
   let amountBtc: string | null = null
-  let pjValue: string | null = null
-  let pjosValue: string | null = null
 
   if (queryPart) {
     for (const pair of queryPart.split('&')) {
@@ -244,12 +223,10 @@ function parseBip321(input: string): ParsedPaymentInput {
       if (lowerKey === 'lno') lnoValue = value
       else if (lowerKey === 'lightning') lightningValue = value
       else if (lowerKey === 'amount') amountBtc = value
-      else if (lowerKey === 'pj') pjValue = value
-      else if (lowerKey === 'pjos') pjosValue = value
     }
   }
 
-  // Preference: BOLT 12 > BOLT 11 > on-chain. Payjoin only attaches to the on-chain branch.
+  // Preference: BOLT 12 > BOLT 11 > on-chain.
   if (lnoValue) {
     return parseBolt12Offer(lnoValue)
   }
@@ -277,17 +254,7 @@ function parseBip321(input: string): ParsedPaymentInput {
     }
   }
 
-  // Payjoin attachment — Phase 1: parse-only, no functional behavior change.
-  // Length cap defends against pathological URIs; defer scheme/shape validation
-  // to PDK's `Uri.parse(...).checkPjSupported()` at send time. The branded
-  // `PayjoinUrl` is minted only here, so downstream code receives a value
-  // that has already passed the size gate.
-  let payjoin: PayjoinContext | undefined
-  if (pjValue && pjValue.length > 0 && pjValue.length < 2048) {
-    payjoin = { url: pjValue as PayjoinUrl, strict: pjosValue === '0' }
-  }
-
-  return { type: 'onchain', address, amountSats, ...(payjoin ? { payjoin } : {}) }
+  return { type: 'onchain', address, amountSats }
 }
 
 /** Convert a BTC-denominated string to satoshis using fixed-point parsing. */
