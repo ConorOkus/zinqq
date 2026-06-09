@@ -37,6 +37,7 @@ kieran-typescript (P2), agent-native (P3).
 ## Proposed Solutions
 
 ### Option A — Extract one helper, reuse everywhere (Small, recommended)
+
 ```ts
 function usableInboundMsat(listChannels: ListChannelsFn | null): bigint {
   let inbound = 0n
@@ -46,6 +47,7 @@ function usableInboundMsat(listChannels: ListChannelsFn | null): bigint {
   return inbound
 }
 ```
+
 - `editingNeedsJit` → `usableInboundMsat(listChannels) < editingAmountSats * 1000n`
   (drop the `useMemo`, compute inline).
 - `handleConfirmAmount` → `const needsJit = usableInboundMsat(listChannels) < amountMsat`

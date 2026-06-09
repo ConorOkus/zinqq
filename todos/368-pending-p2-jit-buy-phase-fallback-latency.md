@@ -35,16 +35,19 @@ recovery is ~30–40 s. That reads as "frozen" and most users will abandon.
 ## Proposed Solutions
 
 ### Option A: Shorter, buy-specific timeout
+
 Give `lsps2.buy` its own (shorter, e.g. 8–10 s) deadline distinct from the
 30 s default, after which we fall back. Simplest; needs the deadline plumbed
 per-request rather than the single global reaper interval.
 
 ### Option B: Health-gate the primary
+
 Track that the primary's last buy timed out and skip it (go straight to
 `skipPrimary`) for a cooldown window, so repeat receives in a degraded session
 don't re-pay the timeout each time.
 
 ### Option C: Both — short buy timeout + primary cooldown
+
 Best UX; most scope.
 
 ## Recommended Action

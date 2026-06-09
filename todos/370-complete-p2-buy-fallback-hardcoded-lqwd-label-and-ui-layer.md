@@ -26,7 +26,7 @@ independently flagged this as the top issue. It has three coupled problems:
 
 1. **Topology leak / latent bug.** The authoritative primary/fallback mapping
    lives in `resolveLspContacts()` (`src/ldk/lsp/contacts.ts:31`), which assigns
-   *slots*. The ordering already flipped once (Megalith→LQwD as primary in
+   _slots_. The ordering already flipped once (Megalith→LQwD as primary in
    PR #148, per `reference_lqwd_lsp.md`). If it flips again, `runJitQuoteFlow`
    keeps working (it reasons about slots) but this UI check silently stops
    triggering fallback — no type error, no test failure.
@@ -50,6 +50,7 @@ independently flagged this as the top issue. It has three coupled problems:
 ## Proposed Solutions
 
 ### Option A — Minimal: stop comparing the `'lqwd'` literal (Small)
+
 Carry quote provenance on `JitQuote` — e.g. `role: 'primary' | 'fallback'` set
 in `runJitQuoteFlow` where the quote is constructed — and branch on
 `quote.role === 'primary'`. Drop `viaFallback` and render the disclosure banner
@@ -58,6 +59,7 @@ double-source-of-truth in one change. **Pros:** small, removes fragility now.
 **Cons:** orchestration still in the UI.
 
 ### Option B — Full: hoist a `runJitBuyFlow` orchestrator into `context.tsx` (Medium/Large)
+
 Mirror `runJitQuoteFlow`: a pure function that tries the buy against
 `quote.contact`, and on failure — if that contact was the primary slot and a
 distinct fallback exists — re-quotes+buys the fallback, returning the new quote
@@ -80,7 +82,7 @@ below.
 - **Affected files**: `src/pages/Receive.tsx`, `src/ldk/context.tsx`,
   `src/ldk/ldk-context.ts`, `src/ldk/lsp/contacts.ts`.
 - Related design-debt (architecture-strategist P2): `skipPrimary: boolean`
-  expresses *position* not *intent*; an ordered `LspContact[]` candidate list
+  expresses _position_ not _intent_; an ordered `LspContact[]` candidate list
   would generalize to N LSPs and remove the synthetic `{primary:null, fallback}`
   reshape in `context.tsx:417-419`. Fold into Option B if pursued.
 

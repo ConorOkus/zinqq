@@ -14,7 +14,7 @@ dependencies: []
 hand-maintained envelope over "the effective minimum of every configured LSP"
 (doc-comment cites LQwD ~100, Megalith ~2,501). Because quotes are never
 pre-fetched on keystrokes (`feedback_no_jit_quote_prewarm.md`), a static numpad
-gate is the right *mechanism* — but the constant can silently diverge from the
+gate is the right _mechanism_ — but the constant can silently diverge from the
 LSPs' real menus:
 
 - If a fallback LSP raises its minimum above 5,000, the gate passes amounts the
@@ -34,12 +34,14 @@ Flagged by kieran-typescript (P3) and architecture-strategist (P3).
 ## Proposed Solutions
 
 ### Option A — Close the loop at quote time (Small, recommended)
+
 When a menu IS fetched (quote phase), assert the static floor still dominates:
 `computeMinReceiveSats(menu) <= MIN_JIT_RECEIVE_SATS`. If not, `captureError`
 (warning) so drift becomes an observable signal — without violating no-prewarm,
 since the check runs on a quote the user already triggered.
 
 ### Option B — Co-locate the constant with LSP config (Small)
+
 Move `MIN_JIT_RECEIVE_SATS` next to `LDK_CONFIG`/`resolveLspContacts` so "which
 LSPs exist + their floors + the UI floor" is one concern in one place, and
 document its provenance as a derived invariant (`>= max(per-LSP effective min)`)
