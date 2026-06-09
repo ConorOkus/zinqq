@@ -19,10 +19,20 @@ import {
 } from '../ldk/lsps2/types'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { LDK_CONFIG } from '../ldk/config'
+import type { ChannelDetails } from 'lightningdevkit'
 
 type QrPage = 'unified' | 'bolt12'
 
 const MAX_DIGITS = 8
+
+/** Sum of inbound capacity (msat) across usable channels. */
+function usableInboundMsat(channels: ChannelDetails[]): bigint {
+  let inbound = 0n
+  for (const ch of channels) {
+    if (ch.get_is_usable()) inbound += ch.get_inbound_capacity_msat()
+  }
+  return inbound
+}
 
 type InvoicePath = 'none' | 'standard' | 'jit'
 
@@ -36,8 +46,6 @@ type ReceiveState =
       quote: JitQuote
       quoteStatus: 'fresh' | 'reQuoting' | 'updated'
       consecutiveUpwardReQuotes: number
-      /** Set when this quote is from the fallback LSP after the primary's buy failed. */
-      viaFallback?: boolean
     }
   | {
       step: 'jit-review'
@@ -99,16 +107,10 @@ export function Receive() {
   }, [listChannels, channelChangeCounter])
 
   // Whether the amount being typed would require a JIT channel (inbound
-  // capacity can't cover it). Mirrors the decision in handleConfirmAmount.
-  const editingNeedsJit = useMemo(() => {
-    if (!listChannels) return true
-    let inboundMsat = 0n
-    for (const ch of listChannels()) {
-      if (ch.get_is_usable()) inboundMsat += ch.get_inbound_capacity_msat()
-    }
-    return inboundMsat < editingAmountSats * 1000n
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listChannels, editingAmountSats, channelChangeCounter])
+  // capacity can't cover it). Recomputed each render — cheap, and always
+  // reflects current channel state without a memo.
+  const editingNeedsJit =
+    !listChannels || usableInboundMsat(listChannels()) < editingAmountSats * 1000n
 
   // Block advancing past the numpad for a JIT receive below the floor every
   // configured LSP can service. On-chain receives are unaffected.
@@ -150,12 +152,7 @@ export function Receive() {
 
     // Compute inbound capacity inline (not memoized) so it doesn't appear in deps
     const channels = listChannels?.() ?? []
-    let inboundMsat = 0n
-    for (const ch of channels) {
-      if (ch.get_is_usable()) {
-        inboundMsat += ch.get_inbound_capacity_msat()
-      }
-    }
+    const inboundMsat = usableInboundMsat(channels)
     const hasUsable = inboundMsat > 0n || channels.some((ch) => ch.get_is_usable())
 
     const needsJit = amountMsat !== undefined ? inboundMsat < amountMsat : !hasUsable
@@ -354,27 +351,20 @@ export function Receive() {
   }, [])
 
   const handleConfirmAmount = useCallback(() => {
-    // Decide JIT inline so we can flip to the quoting skeleton in the same
-    // render batch as the amount commit. Without this the next render briefly
-    // shows the on-chain QR before the Phase A effect sets `jit-quoting`.
-    const amountMsat = editingAmountSats * 1000n
-    let inboundMsat = 0n
-    for (const ch of listChannels?.() ?? []) {
-      if (ch.get_is_usable()) inboundMsat += ch.get_inbound_capacity_msat()
-    }
-    const needsJit = inboundMsat < amountMsat
-    // Defense in depth: the numpad Next button is also disabled below the
-    // floor, but guard here too so a stray call can't start a doomed quote.
-    if (needsJit && editingAmountSats < MIN_JIT_RECEIVE_SATS) {
-      return
-    }
-    if (needsJit) {
+    // Defense in depth: the numpad Next button is also disabled when
+    // belowJitMinimum, but guard here too so a stray call can't start a
+    // doomed quote.
+    if (belowJitMinimum) return
+    // Flip to the quoting skeleton in the same render batch as the amount
+    // commit. Without this the next render briefly shows the on-chain QR
+    // before the Phase A effect sets `jit-quoting`.
+    if (editingNeedsJit) {
       setReceiveState({ step: 'jit-quoting' })
     }
     setConfirmedAmountDigits(amountDigits)
     setEditingAmount(false)
     requestAnimationFrame(() => amountButtonRef.current?.focus())
-  }, [amountDigits, editingAmountSats, listChannels])
+  }, [amountDigits, editingNeedsJit, belowJitMinimum])
 
   const handleCancelAmount = useCallback(() => {
     setAmountDigits(confirmedAmountDigits)
@@ -422,7 +412,6 @@ export function Receive() {
             quote,
             quoteStatus: 'updated',
             consecutiveUpwardReQuotes: 0,
-            viaFallback: true,
           })
         })
         .catch((err: unknown) => {
@@ -439,7 +428,6 @@ export function Receive() {
     if (receiveState.step !== 'jit-review' || receiveState.kind !== 'commit') return
     const quote = receiveState.quote
     const amountSats = receiveState.amountSats
-    const viaFallback = receiveState.viaFallback === true
     const ctrl = new AbortController()
     buyControllerRef.current = ctrl
     setReceiveState({ step: 'jit-buying' })
@@ -459,11 +447,18 @@ export function Receive() {
         if (buyControllerRef.current !== ctrl) return
         buyControllerRef.current = null
         captureError('warning', 'Receive', 'JIT buy failed', String(err))
-        // If the primary LSP's buy failed (and we haven't already fallen back),
-        // re-quote the fallback LSP. The orphaned primary reservation simply
-        // expires unredeemed. If no fallback is configured, the re-quote throws
-        // and reQuoteSkippingPrimary lands on jit-error.
-        if (quote.contact.label === 'lqwd' && !viaFallback) {
+        // If this quote was from the primary LSP, re-quote the fallback (a
+        // fallback quote has role 'fallback', so a second failure ends in
+        // jit-error rather than looping). We key on the quote's role — set by
+        // runJitQuoteFlow — never on a hardcoded LSP label. If no fallback is
+        // configured, the re-quote throws and reQuoteSkippingPrimary lands on
+        // jit-error.
+        //
+        // Note (todo 373): a buy that times out *after* the request reached the
+        // LSP may leave an orphaned primary-side reservation. That's LSP cost,
+        // not user funds — no payable primary invoice ever existed — so we
+        // accept it here.
+        if (quote.role === 'primary') {
           reQuoteSkippingPrimary(amountSats)
           return
         }
@@ -663,7 +658,7 @@ export function Receive() {
                       )
                     })()}
                   </div>
-                  {receiveState.viaFallback && (
+                  {receiveState.quote.role === 'fallback' && (
                     <>
                       <hr className="border-dark-border" />
                       <p className="text-xs text-amber-400" role="status">

@@ -43,6 +43,7 @@ function makeQuote(amountMsat: bigint, openingFeeMsat = 2_500_000n): JitQuote {
     menu: [params],
     openingFeeMsat,
     amountMsat,
+    role: 'primary',
   }
 }
 
@@ -465,11 +466,10 @@ describe('Receive', () => {
       // First quote = primary (lqwd). Second quote (skipPrimary) = fallback.
       const requestJitQuote = vi
         .fn()
+        // First quote = primary (role 'primary'); its buy fails below.
         .mockResolvedValueOnce(makeQuote(50_000_000n, 50n))
-        .mockResolvedValueOnce({
-          ...makeQuote(50_000_000n, 3_000_000n),
-          contact: { ...TEST_LSP, label: 'megalith' as const },
-        })
+        // Re-quote (skipPrimary) returns the fallback's quote (role 'fallback').
+        .mockResolvedValueOnce({ ...makeQuote(50_000_000n, 3_000_000n), role: 'fallback' as const })
       const executeJitBuy = vi.fn().mockRejectedValue(new Error('LSPS2 request timed out'))
 
       renderReceive(
