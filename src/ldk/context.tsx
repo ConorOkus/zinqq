@@ -405,9 +405,18 @@ export async function runJitQuoteFlow(args: {
   signal?: AbortSignal
   /** Test seam: defaults to the real LSPS2 quote dance. */
   attempt?: GetJitQuoteFn
+  /**
+   * Skip the primary LSP and quote the fallback directly. Used by the
+   * buy-phase fallback: when a buy fails against the primary, the primary
+   * is unhealthy, so we re-quote the fallback rather than loop on it.
+   */
+  skipPrimary?: boolean
 }): Promise<JitQuote> {
   const attempt = args.attempt ?? getJitQuote
-  const { node, amountMsat, connect, contacts } = args
+  const { node, amountMsat, connect } = args
+  const contacts = args.skipPrimary
+    ? { primary: null, fallback: args.contacts.fallback }
+    : args.contacts
   const t0 = performance.now()
 
   if (!contacts.primary && !contacts.fallback) {
@@ -713,7 +722,11 @@ export function LdkProvider({
   )
 
   const requestJitQuote = useCallback(
-    async (amountMsat: bigint, signal: AbortSignal): Promise<JitQuote> => {
+    async (
+      amountMsat: bigint,
+      signal: AbortSignal,
+      opts?: { skipPrimary?: boolean }
+    ): Promise<JitQuote> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
       const contacts = await resolveLspContacts()
@@ -723,6 +736,7 @@ export function LdkProvider({
         connect: connectAndTrack,
         contacts,
         signal,
+        skipPrimary: opts?.skipPrimary,
       })
     },
     []

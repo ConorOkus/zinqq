@@ -12,7 +12,11 @@ import { buildBip321Uri } from '../onchain/bip321'
 import { CopyIcon } from '../components/icons'
 import { captureError } from '../storage/error-log'
 import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
-import { computeMinReceiveSats, type OpeningFeeParams } from '../ldk/lsps2/types'
+import {
+  computeMinReceiveSats,
+  MIN_JIT_RECEIVE_SATS,
+  type OpeningFeeParams,
+} from '../ldk/lsps2/types'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { LDK_CONFIG } from '../ldk/config'
 
@@ -32,6 +36,8 @@ type ReceiveState =
       quote: JitQuote
       quoteStatus: 'fresh' | 'reQuoting' | 'updated'
       consecutiveUpwardReQuotes: number
+      /** Set when this quote is from the fallback LSP after the primary's buy failed. */
+      viaFallback?: boolean
     }
   | {
       step: 'jit-review'
@@ -91,6 +97,23 @@ export function Receive() {
     return !listChannels().some((ch) => ch.get_is_usable())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listChannels, channelChangeCounter])
+
+  // Whether the amount being typed would require a JIT channel (inbound
+  // capacity can't cover it). Mirrors the decision in handleConfirmAmount.
+  const editingNeedsJit = useMemo(() => {
+    if (!listChannels) return true
+    let inboundMsat = 0n
+    for (const ch of listChannels()) {
+      if (ch.get_is_usable()) inboundMsat += ch.get_inbound_capacity_msat()
+    }
+    return inboundMsat < editingAmountSats * 1000n
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listChannels, editingAmountSats, channelChangeCounter])
+
+  // Block advancing past the numpad for a JIT receive below the floor every
+  // configured LSP can service. On-chain receives are unaffected.
+  const belowJitMinimum =
+    editingNeedsJit && editingAmountSats > 0n && editingAmountSats < MIN_JIT_RECEIVE_SATS
 
   // Start with numpad open when amount is required (first receive / no channels)
   const didInitAmountRef = useRef(false)
@@ -339,7 +362,13 @@ export function Receive() {
     for (const ch of listChannels?.() ?? []) {
       if (ch.get_is_usable()) inboundMsat += ch.get_inbound_capacity_msat()
     }
-    if (inboundMsat < amountMsat) {
+    const needsJit = inboundMsat < amountMsat
+    // Defense in depth: the numpad Next button is also disabled below the
+    // floor, but guard here too so a stray call can't start a doomed quote.
+    if (needsJit && editingAmountSats < MIN_JIT_RECEIVE_SATS) {
+      return
+    }
+    if (needsJit) {
       setReceiveState({ step: 'jit-quoting' })
     }
     setConfirmedAmountDigits(amountDigits)
@@ -370,10 +399,47 @@ export function Receive() {
     setEditingAmount(true)
   }, [confirmedAmountDigits])
 
+  // Buy-phase fallback. A buy commits to one LSP's quote and can't be retried
+  // against another (the fee `promise` is LSP-signed), so when the primary's
+  // buy fails we re-quote the fallback and return to Review for re-confirmation
+  // at its (higher) fee — honest disclosure rather than a silent fee swap.
+  const reQuoteSkippingPrimary = useCallback(
+    (amountSats: bigint) => {
+      if (!requestJitQuote) {
+        setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
+        return
+      }
+      const thisRequest = ++requestCounterRef.current
+      setReceiveState({ step: 'jit-quoting' })
+      const ctrl = new AbortController()
+      requestJitQuote(amountSats * 1000n, ctrl.signal, { skipPrimary: true })
+        .then((quote) => {
+          if (requestCounterRef.current !== thisRequest) return
+          setReceiveState({
+            step: 'jit-review',
+            kind: 'commit',
+            amountSats,
+            quote,
+            quoteStatus: 'updated',
+            consecutiveUpwardReQuotes: 0,
+            viaFallback: true,
+          })
+        })
+        .catch((err: unknown) => {
+          if (requestCounterRef.current !== thisRequest) return
+          captureError('warning', 'Receive', 'JIT fallback quote failed', String(err))
+          setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
+        })
+    },
+    [requestJitQuote]
+  )
+
   const handleGenerateInvoice = useCallback(() => {
     if (!executeJitBuy) return
     if (receiveState.step !== 'jit-review' || receiveState.kind !== 'commit') return
     const quote = receiveState.quote
+    const amountSats = receiveState.amountSats
+    const viaFallback = receiveState.viaFallback === true
     const ctrl = new AbortController()
     buyControllerRef.current = ctrl
     setReceiveState({ step: 'jit-buying' })
@@ -393,9 +459,17 @@ export function Receive() {
         if (buyControllerRef.current !== ctrl) return
         buyControllerRef.current = null
         captureError('warning', 'Receive', 'JIT buy failed', String(err))
+        // If the primary LSP's buy failed (and we haven't already fallen back),
+        // re-quote the fallback LSP. The orphaned primary reservation simply
+        // expires unredeemed. If no fallback is configured, the re-quote throws
+        // and reQuoteSkippingPrimary lands on jit-error.
+        if (quote.contact.label === 'lqwd' && !viaFallback) {
+          reQuoteSkippingPrimary(amountSats)
+          return
+        }
         setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
       })
-  }, [executeJitBuy, receiveState])
+  }, [executeJitBuy, receiveState, reQuoteSkippingPrimary])
 
   const handleReviewBack = useCallback(() => {
     // Cancel any in-flight quote so its resolution can't race the numpad.
@@ -589,6 +663,15 @@ export function Receive() {
                       )
                     })()}
                   </div>
+                  {receiveState.viaFallback && (
+                    <>
+                      <hr className="border-dark-border" />
+                      <p className="text-xs text-amber-400" role="status">
+                        Preferred provider was unavailable — using a backup provider at a higher
+                        fee.
+                      </p>
+                    </>
+                  )}
                 </div>
               </>
             ) : (
@@ -703,11 +786,16 @@ export function Receive() {
                 Remove amount
               </button>
             )}
+            {belowJitMinimum && (
+              <p className="text-sm text-red-400" role="alert">
+                Minimum {formatBtc(MIN_JIT_RECEIVE_SATS)}
+              </p>
+            )}
           </div>
           <Numpad
             onKey={handleNumpadKey}
             onNext={handleConfirmAmount}
-            nextDisabled={editingAmountSats <= 0n}
+            nextDisabled={editingAmountSats <= 0n || belowJitMinimum}
             nextLabel={needsAmount && confirmedAmountSats <= 0n ? 'Request' : 'Done'}
           />
         </div>

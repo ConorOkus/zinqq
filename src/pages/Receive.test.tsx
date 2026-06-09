@@ -384,7 +384,12 @@ describe('Receive', () => {
         })
       )
 
-      await user.click(screen.getByRole('button', { name: '1' }))
+      // 50,000 sats — clears the JIT minimum so Phase A actually runs.
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
       await waitFor(() => {
@@ -410,8 +415,9 @@ describe('Receive', () => {
         })
       )
 
-      // Type 2,000 sats (below the 3,000-sat minFee floor).
-      await user.click(screen.getByRole('button', { name: '2' }))
+      // Type 5,000 sats — clears the UI floor so Phase A runs, but the LSP
+      // still rejects it as below its menu minimum (mocked above).
+      await user.click(screen.getByRole('button', { name: '5' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: '0' }))
@@ -422,6 +428,80 @@ describe('Receive', () => {
       // Minimum copy is rendered, and the disabled CTA is wired to it.
       expect(screen.getByText(/minimum receive/i)).toBeInTheDocument()
       expect(cta).toHaveAttribute('aria-describedby', 'receive-min-hint')
+    })
+
+    it('blocks the numpad below the 5,000-sat JIT minimum', async () => {
+      const user = userEvent.setup()
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(49_990_000n))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []), // no channels → JIT required
+          requestJitQuote,
+        })
+      )
+
+      // 4,999 sats — one below the floor.
+      await user.click(screen.getByRole('button', { name: '4' }))
+      await user.click(screen.getByRole('button', { name: '9' }))
+      await user.click(screen.getByRole('button', { name: '9' }))
+      await user.click(screen.getByRole('button', { name: '9' }))
+
+      const next = screen.getByRole('button', { name: /request/i })
+      expect(next).toBeDisabled()
+      expect(screen.getByText(/minimum ₿5,000/i)).toBeInTheDocument()
+
+      // Adding a digit (49,990) clears the floor and enables the CTA. The label
+      // stays "Request" until an amount is confirmed.
+      await user.click(screen.getByRole('button', { name: '0' }))
+      expect(screen.getByRole('button', { name: /request/i })).toBeEnabled()
+      await user.click(screen.getByRole('button', { name: /request/i }))
+      await waitFor(() => expect(requestJitQuote).toHaveBeenCalled())
+    })
+
+    it('re-quotes the fallback LSP and re-confirms when the primary buy fails', async () => {
+      const user = userEvent.setup()
+      // First quote = primary (lqwd). Second quote (skipPrimary) = fallback.
+      const requestJitQuote = vi
+        .fn()
+        .mockResolvedValueOnce(makeQuote(50_000_000n, 50n))
+        .mockResolvedValueOnce({
+          ...makeQuote(50_000_000n, 3_000_000n),
+          contact: { ...TEST_LSP, label: 'megalith' as const },
+        })
+      const executeJitBuy = vi.fn().mockRejectedValue(new Error('LSPS2 request timed out'))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote,
+          executeJitBuy,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
+
+      // First Review (primary, lqwd) → commit.
+      const cta = await screen.findByRole('button', { name: /generate payment request/i })
+      await user.click(cta)
+
+      // Primary buy fails → auto re-quote fallback → Review re-appears with the
+      // fallback's (higher) fee and the backup-provider disclosure.
+      await waitFor(() => {
+        expect(screen.getByText(/backup provider at a higher fee/i)).toBeInTheDocument()
+      })
+      const reviewRegion = screen.getByRole('region', { name: /review receive/i })
+      expect(reviewRegion).toHaveTextContent('₿3,000') // fallback setup fee
+      // Second quote was requested with skipPrimary.
+      expect(requestJitQuote).toHaveBeenCalledTimes(2)
+      expect(requestJitQuote.mock.calls[1]![2]).toEqual({ skipPrimary: true })
     })
 
     it('falls back to on-chain only when Phase A fails for non-size reasons', async () => {
@@ -436,7 +516,12 @@ describe('Receive', () => {
         })
       )
 
-      await user.click(screen.getByRole('button', { name: '1' }))
+      // 50,000 sats — clears the JIT minimum so Phase A actually runs.
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
       // Should fall back to QR (on-chain only).

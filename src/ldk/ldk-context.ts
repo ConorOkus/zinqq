@@ -52,7 +52,11 @@ export type LdkContextValue =
        * commit to avoid burning RPCs (and surfacing captured errors) on
        * amounts the user is still typing.
        */
-      requestJitQuote: (amountMsat: bigint, signal: AbortSignal) => Promise<JitQuote>
+      requestJitQuote: (
+        amountMsat: bigint,
+        signal: AbortSignal,
+        opts?: { skipPrimary?: boolean }
+      ) => Promise<JitQuote>
       /**
        * Phase B — commit a previously-displayed quote and produce a BOLT11
        * invoice. Single-LSP, NOT failover-eligible: `buyChannel` reserves
