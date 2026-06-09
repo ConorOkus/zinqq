@@ -106,7 +106,7 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
       attempt,
     })
 
-    expect(result).toBe(QUOTE_LQWD)
+    expect(result).toEqual({ ...QUOTE_LQWD, role: 'primary' })
     expect(attempt).toHaveBeenCalledTimes(1)
     const firstCall = attempt.mock.calls[0]
     expect(firstCall).toBeDefined()
@@ -134,7 +134,7 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
       attempt,
     })
 
-    expect(result).toBe(QUOTE_MEGALITH)
+    expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
     expect(attempt).toHaveBeenCalledTimes(1)
     const firstCall = attempt.mock.calls[0]
     expect(firstCall).toBeDefined()
@@ -161,7 +161,7 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
       attempt,
     })
 
-    expect(result).toBe(QUOTE_MEGALITH)
+    expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
     expect(attempt).toHaveBeenCalledTimes(2)
     const [first, second] = attempt.mock.calls
     expect(first).toBeDefined()
@@ -194,7 +194,7 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
       attempt,
     })
 
-    expect(result).toBe(QUOTE_MEGALITH)
+    expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
     expect(attempt).toHaveBeenCalledTimes(2)
   })
 
@@ -218,7 +218,7 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
       attempt,
     })
 
-    expect(result).toBe(QUOTE_MEGALITH)
+    expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
     expect(attempt).toHaveBeenCalledTimes(2)
   })
 
@@ -359,7 +359,7 @@ describe('runJitQuoteFlow — cancellation and timeouts', () => {
       await vi.advanceTimersByTimeAsync(7_500)
 
       const result = await promise
-      expect(result).toBe(QUOTE_MEGALITH)
+      expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
       expect(attempt).toHaveBeenCalledTimes(2)
       expect(attempt.mock.calls[1]![1].label).toBe('megalith')
     } finally {

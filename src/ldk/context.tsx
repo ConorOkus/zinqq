@@ -45,6 +45,8 @@ import { captureError } from '../storage/error-log'
 import {
   selectCheapestParams,
   calculateOpeningFee,
+  computeMinReceiveSats,
+  MIN_JIT_RECEIVE_SATS,
   type JitInvoiceResult,
   type OpeningFeeParams,
 } from './lsps2/types'
@@ -130,6 +132,13 @@ export interface JitQuote {
   openingFeeMsat: bigint
   /** The amount the quote covers, in msat. */
   amountMsat: bigint
+  /**
+   * Which LSP slot served this quote. Stamped by `runJitQuoteFlow` (the only
+   * entry point the receive UI uses) — a raw `getJitQuote` result leaves it
+   * undefined. Drives the buy-phase fallback decision and the fallback fee
+   * disclosure; never compare LSP labels for that.
+   */
+  role?: 'primary' | 'fallback'
 }
 
 type GetJitQuoteFn = (
@@ -270,6 +279,24 @@ export async function getJitQuote(
     signal
   )
 
+  // Drift guard (todo 372): the static numpad floor (MIN_JIT_RECEIVE_SATS) must
+  // dominate every LSP's live menu minimum, otherwise the gate admits amounts a
+  // fallback LSP can't service. We can't pre-fetch menus (no-prewarm rule), so
+  // verify it here on a real quote and surface drift as an observable signal.
+  const menuMinSats = computeMinReceiveSats(feeMenu)
+  if (menuMinSats > MIN_JIT_RECEIVE_SATS) {
+    captureError(
+      'warning',
+      'LSP',
+      `LSP menu minimum exceeds MIN_JIT_RECEIVE_SATS — numpad floor may admit unservable amounts`,
+      JSON.stringify({
+        lsp: contact.label,
+        menuMinSats: menuMinSats.toString(),
+        floorSats: MIN_JIT_RECEIVE_SATS.toString(),
+      })
+    )
+  }
+
   // Step 2: Select cheapest valid params for this amount. Null means the
   // LSP's fee menu has no entry whose payment-size range covers
   // `amountMsat` (or whose fee is less than the payment) — failover-eligible.
@@ -405,9 +432,18 @@ export async function runJitQuoteFlow(args: {
   signal?: AbortSignal
   /** Test seam: defaults to the real LSPS2 quote dance. */
   attempt?: GetJitQuoteFn
+  /**
+   * Skip the primary LSP and quote the fallback directly. Used by the
+   * buy-phase fallback: when a buy fails against the primary, the primary
+   * is unhealthy, so we re-quote the fallback rather than loop on it.
+   */
+  skipPrimary?: boolean
 }): Promise<JitQuote> {
   const attempt = args.attempt ?? getJitQuote
-  const { node, amountMsat, connect, contacts } = args
+  const { node, amountMsat, connect } = args
+  const contacts = args.skipPrimary
+    ? { primary: null, fallback: args.contacts.fallback }
+    : args.contacts
   const t0 = performance.now()
 
   if (!contacts.primary && !contacts.fallback) {
@@ -420,7 +456,7 @@ export async function runJitQuoteFlow(args: {
   if (contacts.primary) {
     try {
       const perLspSignal = timeoutSignal(overallSignal, PHASE_A_PER_LSP_BUDGET_MS)
-      return await attempt(
+      const quote = await attempt(
         node,
         contacts.primary,
         amountMsat,
@@ -428,6 +464,7 @@ export async function runJitQuoteFlow(args: {
         { retryConnectOnce: false },
         perLspSignal
       )
+      return { ...quote, role: 'primary' }
     } catch (err) {
       // Don't try fallback if the user externally cancelled.
       if (externalSignal.aborted) throw err
@@ -488,7 +525,7 @@ export async function runJitQuoteFlow(args: {
   // mobile WebSockets die when backgrounded.
   const perLspSignal = timeoutSignal(overallSignal, PHASE_A_PER_LSP_BUDGET_MS)
   try {
-    return await attempt(
+    const quote = await attempt(
       node,
       contacts.fallback!,
       amountMsat,
@@ -496,6 +533,7 @@ export async function runJitQuoteFlow(args: {
       { retryConnectOnce: true },
       perLspSignal
     )
+    return { ...quote, role: 'fallback' }
   } catch (err) {
     captureError(
       'error',
@@ -713,7 +751,11 @@ export function LdkProvider({
   )
 
   const requestJitQuote = useCallback(
-    async (amountMsat: bigint, signal: AbortSignal): Promise<JitQuote> => {
+    async (
+      amountMsat: bigint,
+      signal: AbortSignal,
+      opts?: { skipPrimary?: boolean }
+    ): Promise<JitQuote> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
       const contacts = await resolveLspContacts()
@@ -723,6 +765,7 @@ export function LdkProvider({
         connect: connectAndTrack,
         contacts,
         signal,
+        skipPrimary: opts?.skipPrimary,
       })
     },
     []

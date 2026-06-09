@@ -107,6 +107,18 @@ export function selectCheapestParams(
 }
 
 /**
+ * Hard floor (in sats) for a JIT (LSP-channel) receive, enforced in the UI
+ * before any quote is requested.
+ *
+ * Set above the effective minimum of *every* configured LSP — LQwD (~100 sat)
+ * and the Megalith fallback (~2,501 sat) — so that whichever LSP ends up
+ * serving the buy (including a buy-time fallback) can always service the
+ * amount. We can't derive this from a live menu because quotes are never
+ * pre-fetched (see the no-prewarm rule), so it is a fixed policy constant.
+ */
+export const MIN_JIT_RECEIVE_SATS = 5_000n
+
+/**
  * Smallest amount, in sats (rounded up), that the menu would accept *and*
  * yield net > 0 after the opening fee. Used to render the "Minimum receive"
  * affordance when the user enters an amount below the menu's effective floor.
