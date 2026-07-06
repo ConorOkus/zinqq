@@ -57,7 +57,7 @@ import { createBdkSignerProvider } from './traits/bdk-signer-provider'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { drainPendingBroadcasts } from './traits/broadcaster'
-import { Wallet as LdkWallet, BumpTransactionEventHandler } from 'lightningdevkit'
+import { WalletSync as LdkWallet, BumpTransactionEventHandlerSync } from 'lightningdevkit'
 import { createUserConfig } from './user-config'
 import { createBdkWalletSource } from './traits/bdk-wallet-source'
 import { LDK_CONFIG } from './config'
@@ -269,7 +269,15 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   const startingTimeSecs = BigInt(Math.floor(nowMs / 1000))
   const startingTimeNanos = (nowMs % 1000) * 1_000_000
   const nodeSecretKey = deriveNodeSecret(seed)
-  const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos)
+  // v2_remote_key_derivation = false: LDK 0.2 gate. Enabling it uses keys prior
+  // versions cannot derive, which permanently blocks downgrade — keep off to
+  // preserve a rollback path.
+  const keysManager = KeysManager.constructor_new(
+    seed,
+    startingTimeSecs,
+    startingTimeNanos,
+    false
+  )
 
   // Derive a purpose-specific HMAC key for channel_keys_id generation
   // before zeroing the master seed. Only this derived 32-byte key is held
@@ -450,6 +458,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     setChainMonitor,
     onPersistFailure,
     backfillManifest,
+    registerLoadedMonitor,
     versionCache,
   } = createPersister({
     ...persisterOptions,
@@ -475,7 +484,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     broadcaster,
     logger,
     feeEstimator,
-    persister
+    persister,
+    keysManager.as_EntropySource(),
+    keysManager.as_NodeSigner().get_peer_storage_key()
   )
   setChainMonitor(chainMonitor)
   onPersistFailure(({ key, error }) => {
@@ -593,8 +604,11 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     // Register restored monitors with ChainMonitor
     const watch = chainMonitor.as_Watch()
     for (const monitor of restoredMonitors) {
-      const fundingTxo = monitor.get_funding_txo().get_a()
-      watch.watch_channel(fundingTxo, monitor)
+      // Register the monitor's storage key so archive_persisted_channel (which
+      // only receives a MonitorName in LDK 0.2) can locate the IDB/VSS key.
+      registerLoadedMonitor(monitor)
+      // LDK 0.2: Watch.watch_channel keys on ChannelId, not the funding OutPoint.
+      watch.watch_channel(monitor.channel_id(), monitor)
     }
   } else {
     // Orphaned monitors without a ChannelManager means channels exist but state is lost.
@@ -669,6 +683,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     gossipSync.as_RoutingMessageHandler(),
     onionMessenger.as_OnionMessageHandler(),
     lspsHandler,
+    ignorer.as_SendOnlyMessageHandler(), // LDK 0.2: new send-only handler slot
     Math.floor(Date.now() / 1000),
     keysManager.as_EntropySource().get_secure_random_bytes(),
     logger,
@@ -702,8 +717,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   // 14. Create BumpTransactionEventHandler for anchor channel CPFP
   const bdkWalletSource = createBdkWalletSource(bdkWallet)
   const ldkWallet = LdkWallet.constructor_new(bdkWalletSource, logger)
-  const coinSelectionSource = ldkWallet.as_CoinSelectionSource()
-  const bumpTxHandler = BumpTransactionEventHandler.constructor_new(
+  const coinSelectionSource = ldkWallet.as_CoinSelectionSourceSync()
+  const bumpTxHandler = BumpTransactionEventHandlerSync.constructor_new(
     broadcaster,
     coinSelectionSource,
     bdkSignerProvider,

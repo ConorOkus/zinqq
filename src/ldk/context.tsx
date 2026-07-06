@@ -1,14 +1,18 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import {
-  UtilMethods,
   Retry,
   Option_u64Z,
   Option_u64Z_Some,
   Option_u64Z_None,
   Option_u16Z_None,
+  Option_u32Z,
   Option_StrZ,
+  Option_ThirtyTwoBytesZ,
+  Description,
+  Bolt11InvoiceDescription,
+  RouteParametersConfig,
   Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK,
-  Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK,
+  Result_DescriptionCreationErrorZ_OK,
   Result_Bolt11InvoiceSignOrCreationErrorZ_OK,
   Result_OfferWithDerivedMetadataBuilderBolt12SemanticErrorZ_OK,
   Result_OfferBolt12SemanticErrorZ_OK,
@@ -728,12 +732,19 @@ export function LdkProvider({
           ? Option_u64Z.constructor_some(amountMsat)
           : Option_u64Z_None.constructor_none()
 
-      const result = UtilMethods.constructor_create_invoice_from_channelmanager(
-        node.channelManager,
+      // LDK 0.2: create_bolt11_invoice is a ChannelManager method (the old
+      // UtilMethods.constructor_create_invoice_from_channelmanager was removed)
+      // and takes a Bolt11InvoiceDescription rather than a raw string.
+      const descResult = Description.constructor_new(description)
+      if (!(descResult instanceof Result_DescriptionCreationErrorZ_OK)) {
+        throw new Error('Invalid invoice description')
+      }
+      const result = node.channelManager.create_bolt11_invoice(
         amountOption,
-        description,
-        3600, // 1 hour expiry
-        Option_u16Z_None.constructor_none()
+        Bolt11InvoiceDescription.constructor_direct(descResult.res),
+        Option_u32Z.constructor_some(3600), // 1 hour expiry
+        Option_u16Z_None.constructor_none(),
+        Option_ThirtyTwoBytesZ.constructor_none()
       )
 
       if (!(result instanceof Result_Bolt11InvoiceSignOrCreationErrorZ_OK)) {
@@ -793,32 +804,21 @@ export function LdkProvider({
       if (!hasAmount && amountMsat == null) {
         throw new Error('Amount is required for invoices without an embedded amount')
       }
-      const paramsResult = hasAmount
-        ? UtilMethods.constructor_payment_parameters_from_invoice(invoice)
-        : UtilMethods.constructor_payment_parameters_from_variable_amount_invoice(
-            invoice,
-            amountMsat as bigint
-          )
 
-      if (
-        !(
-          paramsResult instanceof
-          Result_C3Tuple_ThirtyTwoBytesRecipientOnionFieldsRouteParametersZNoneZ_OK
-        )
-      ) {
-        throw new Error('Failed to extract payment parameters from invoice')
-      }
+      // Use the payment hash as the payment ID (guaranteed unique per invoice).
+      const paymentHash = invoice.payment_hash()
+      const paymentId = paymentHash
 
-      const paymentHash = paramsResult.res.get_a()
-      const recipientOnion = paramsResult.res.get_b()
-      const routeParams = paramsResult.res.get_c()
-      const paymentId = paymentHash // use payment hash as ID (guaranteed unique per invoice)
-
-      const result = node.channelManager.send_payment(
-        paymentHash,
-        recipientOnion,
+      // LDK 0.2: pay_for_bolt11_invoice replaces the manual
+      // payment_parameters_from_invoice + send_payment sequence. amount_msats is
+      // an override used only for zero-amount invoices.
+      const result = node.channelManager.pay_for_bolt11_invoice(
+        invoice,
         paymentId,
-        routeParams,
+        hasAmount
+          ? Option_u64Z.constructor_none()
+          : Option_u64Z.constructor_some(amountMsat as bigint),
+        RouteParametersConfig.constructor_default(),
         Retry.constructor_attempts(3)
       )
 
@@ -869,16 +869,18 @@ export function LdkProvider({
       // Use 8 random bytes for payment ID (safe u128 range per institutional learning)
       const paymentId = crypto.getRandomValues(new Uint8Array(32))
 
+      // LDK 0.2: pay_for_offer dropped the `quantity` arg and folded max-routing-fee
+      // into RouteParametersConfig; remaining optional params are payer_note,
+      // route_params_config, retry_strategy.
       const result = node.channelManager.pay_for_offer(
         offer,
-        Option_u64Z.constructor_none(), // quantity
         amountMsat != null
           ? Option_u64Z.constructor_some(amountMsat)
           : Option_u64Z.constructor_none(),
-        payerNote ? Option_StrZ.constructor_some(payerNote) : Option_StrZ.constructor_none(),
         paymentId,
-        Retry.constructor_attempts(3),
-        Option_u64Z.constructor_none() // max routing fee
+        payerNote ? Option_StrZ.constructor_some(payerNote) : Option_StrZ.constructor_none(),
+        RouteParametersConfig.constructor_default(),
+        Retry.constructor_attempts(3)
       )
 
       if (!result.is_ok()) {
@@ -1236,6 +1238,12 @@ export function LdkProvider({
             node.peerManager.timer_tick_occurred()
             node.peerManager.process_events()
 
+            // LDK 0.2 removed Event::PendingHTLCsForwardable; forwarding is now
+            // driven by polling the ChannelManager for pending HTLC work.
+            if (node.channelManager.needs_pending_htlc_processing()) {
+              node.channelManager.process_pending_htlc_forwards()
+            }
+
             // Check for disconnected channel peers every ~30s
             peerTickCount += 1
             if (peerTickCount % 3 === 0) {
@@ -1316,9 +1324,7 @@ export function LdkProvider({
                 return
               }
 
-              const builderResult = node.channelManager.create_offer_builder(
-                Option_u64Z.constructor_none() // no expiry
-              )
+              const builderResult = node.channelManager.create_offer_builder()
               if (
                 !(
                   builderResult instanceof

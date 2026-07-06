@@ -40,38 +40,35 @@ export function createBdkSignerProvider(
   const defaultProvider = keysManager.as_SignerProvider()
 
   const impl: SignerProviderInterface = {
-    generate_channel_keys_id(
-      inbound: boolean,
-      channel_value_satoshis: bigint,
-      user_channel_id: bigint
-    ): Uint8Array {
+    generate_channel_keys_id(inbound: boolean, user_channel_id: bigint): Uint8Array {
       // Deterministic derivation from a purpose-specific HMAC key + channel
       // parameters for cross-device recovery. The HMAC key was derived at init
       // time as HMAC-SHA256(seed, "zinq/channel_keys_id/v1"), so the master seed
       // is not held in this closure.
       //
       // Wire format (must be reproduced exactly for cross-platform recovery):
-      //   [1 byte: inbound flag] [8 bytes: channel_value_satoshis BE]
+      //   [1 byte: inbound flag]
       //   [8 bytes: user_channel_id lower 64 bits BE] [8 bytes: upper 64 bits BE]
+      //
+      // LDK 0.2 note: `channel_value_satoshis` was dropped from this callback
+      // (the channel value is now supplied to the signer via channel parameters,
+      // not at keys-id generation). Existing channels are unaffected — their
+      // channel_keys_id is persisted in the ChannelMonitor and reconstructed via
+      // `derive_channel_signer(channel_keys_id)`, not re-derived here.
       //
       // WASM u128 note: We operate on the raw BigInt value directly rather than
       // re-encoding through LDK's encodeUint128 (which rejects values >= 2^124).
-      const data = new Uint8Array(1 + 8 + 16) // inbound + value + user_channel_id
+      const data = new Uint8Array(1 + 16) // inbound + user_channel_id
       data[0] = inbound ? 1 : 0
       const view = new DataView(data.buffer)
-      view.setBigUint64(1, channel_value_satoshis, false)
-      view.setBigUint64(9, user_channel_id & 0xffffffffffffffffn, false)
-      view.setBigUint64(17, user_channel_id >> 64n, false)
+      view.setBigUint64(1, user_channel_id & 0xffffffffffffffffn, false)
+      view.setBigUint64(9, user_channel_id >> 64n, false)
 
       return hmac(sha256, channelKeyHmacKey, data)
     },
 
-    derive_channel_signer(channel_value_satoshis: bigint, channel_keys_id: Uint8Array) {
-      return defaultProvider.derive_channel_signer(channel_value_satoshis, channel_keys_id)
-    },
-
-    read_chan_signer(reader: Uint8Array) {
-      return defaultProvider.read_chan_signer(reader)
+    derive_channel_signer(channel_keys_id: Uint8Array) {
+      return defaultProvider.derive_channel_signer(channel_keys_id)
     },
 
     get_destination_script(channel_keys_id: Uint8Array) {

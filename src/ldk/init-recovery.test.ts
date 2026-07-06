@@ -131,6 +131,7 @@ vi.mock('./traits/persist', async (importOriginal) => {
       persist: {},
       setChainMonitor: vi.fn(),
       onPersistFailure: vi.fn(),
+      registerLoadedMonitor: vi.fn(),
       backfillManifest: vi.fn(),
       versionCache: mockVersionCache,
     })),
@@ -152,7 +153,11 @@ const {
   MockScorerResult: class {},
   MockNodeIdResult: class {},
   mockChannelMonitor: {
-    get_funding_txo: () => ({ get_a: () => ({}) }),
+    // LDK 0.2: get_funding_txo returns an OutPoint directly (no get_a tuple);
+    // channel_id + persistence_key are used by watch_channel and registerLoadedMonitor.
+    get_funding_txo: () => ({ get_txid: () => new Uint8Array(32), get_index: () => 0 }),
+    channel_id: () => ({}),
+    persistence_key: () => ({ to_str: () => 'mock-monitor-name' }),
   },
 }))
 
@@ -169,6 +174,7 @@ vi.mock('lightningdevkit', () => ({
           Object.assign(r, { is_ok: () => true, res: new Uint8Array(33) })
           return r
         },
+        get_peer_storage_key: () => ({}),
       }),
     })),
   },
@@ -267,6 +273,7 @@ vi.mock('lightningdevkit', () => ({
     constructor_new: vi.fn(() => ({
       as_CustomOnionMessageHandler: () => ({}),
       as_CustomMessageHandler: () => ({}),
+      as_SendOnlyMessageHandler: () => ({}),
     })),
   },
   CustomMessageHandler: {
@@ -290,12 +297,12 @@ vi.mock('lightningdevkit', () => ({
       set_optional_custom_bit: vi.fn(() => ({ is_ok: () => true })),
     })),
   },
-  Wallet: {
+  WalletSync: {
     constructor_new: vi.fn(() => ({
-      as_CoinSelectionSource: vi.fn(() => ({})),
+      as_CoinSelectionSourceSync: vi.fn(() => ({})),
     })),
   },
-  BumpTransactionEventHandler: {
+  BumpTransactionEventHandlerSync: {
     constructor_new: vi.fn(() => ({
       handle_event: vi.fn(),
     })),

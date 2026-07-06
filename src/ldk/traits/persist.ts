@@ -5,6 +5,8 @@ import {
   type ChannelMonitor,
   type ChannelMonitorUpdate,
   type ChainMonitor,
+  type MonitorName,
+  type TwoTuple_ChannelIdu64Z,
 } from 'lightningdevkit'
 import { idbPut, idbDelete } from '../../storage/idb'
 import { bytesToHex } from '../utils'
@@ -70,6 +72,7 @@ export function createPersister(options: PersisterOptions = {}): {
   persist: Persist
   setChainMonitor: (cm: ChainMonitor) => void
   onPersistFailure: (handler: (err: PersistError) => void) => void
+  registerLoadedMonitor: (monitor: ChannelMonitor) => void
   backfillManifest: () => void
   versionCache: Map<string, number>
 } {
@@ -81,6 +84,12 @@ export function createPersister(options: PersisterOptions = {}): {
   let failureHandler: ((err: PersistError) => void) | null = null
   const versionCache = new Map<string, number>()
   const monitorKeys = new Set<string>(options.initialMonitorKeys)
+
+  // LDK 0.2 keys Persist callbacks by an opaque MonitorName. archive_persisted_channel
+  // receives only the name (no monitor), so map MonitorName.to_str() → our
+  // `{txid}:{vout}` storage key. Populated on every persist/update and for
+  // monitors restored at startup (registerLoadedMonitor).
+  const nameToKey = new Map<string, string>()
 
   // Serialize manifest writes so each one reads the correct version after the previous completes.
   let manifestWriteChain: Promise<void> = Promise.resolve()
@@ -242,8 +251,12 @@ export function createPersister(options: PersisterOptions = {}): {
   // return halts further updates per channel, so queue depth is bounded at 1-2.
   const channelWriteChains = new Map<string, Promise<void>>()
 
-  function handlePersist(channel_funding_outpoint: OutPoint, monitor: ChannelMonitor): void {
-    const key = outpointKey(channel_funding_outpoint)
+  function handlePersist(monitor: ChannelMonitor): void {
+    // Extract everything needed synchronously — the WASM monitor object may be
+    // freed once the callback returns, so we must not touch it inside the async
+    // continuation. channelId is retained by reference for the completion call.
+    const key = outpointKey(monitor.get_funding_txo())
+    const channelId = monitor.channel_id()
     const data = monitor.write()
     const updateId = monitor.get_latest_update_id()
 
@@ -256,7 +269,8 @@ export function createPersister(options: PersisterOptions = {}): {
     next
       .then(() => {
         if (chainMonitorRef) {
-          chainMonitorRef.channel_monitor_updated(channel_funding_outpoint, updateId)
+          // LDK 0.2: channel_monitor_updated keys on ChannelId, not the funding OutPoint.
+          chainMonitorRef.channel_monitor_updated(channelId, updateId)
         }
       })
       .catch((err: unknown) => {
@@ -269,30 +283,56 @@ export function createPersister(options: PersisterOptions = {}): {
       })
   }
 
+  function keyForMonitor(monitor_name: MonitorName, monitor: ChannelMonitor): string {
+    const key = outpointKey(monitor.get_funding_txo())
+    nameToKey.set(monitor_name.to_str(), key)
+    return key
+  }
+
   const persist = Persist.new_impl({
     persist_new_channel(
-      channel_funding_outpoint: OutPoint,
+      monitor_name: MonitorName,
       monitor: ChannelMonitor
     ): ChannelMonitorUpdateStatus {
-      const key = outpointKey(channel_funding_outpoint)
+      const key = keyForMonitor(monitor_name, monitor)
       monitorKeys.add(key)
       writeManifest()
-      handlePersist(channel_funding_outpoint, monitor)
+      handlePersist(monitor)
       return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
     update_persisted_channel(
-      channel_funding_outpoint: OutPoint,
-      _monitor_update: ChannelMonitorUpdate | null,
+      monitor_name: MonitorName,
+      _monitor_update: ChannelMonitorUpdate,
       monitor: ChannelMonitor
     ): ChannelMonitorUpdateStatus {
-      handlePersist(channel_funding_outpoint, monitor)
+      keyForMonitor(monitor_name, monitor)
+      handlePersist(monitor)
       return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
-    archive_persisted_channel(channel_funding_outpoint: OutPoint): void {
-      const key = outpointKey(channel_funding_outpoint)
+    // We signal completion eagerly via ChainMonitor.channel_monitor_updated in
+    // handlePersist (the push model, still supported in LDK 0.2), so this
+    // pull-based alternative always returns empty.
+    get_and_clear_completed_updates(): TwoTuple_ChannelIdu64Z[] {
+      return []
+    },
+
+    archive_persisted_channel(monitor_name: MonitorName): void {
+      const key = nameToKey.get(monitor_name.to_str())
+      if (key === undefined) {
+        // No mapping (e.g. monitor never persisted/registered this session).
+        // Orphaned VSS/IDB entries only waste storage — fund safety is unaffected
+        // since the channel is already closed.
+        captureError(
+          'warning',
+          'LDK Persist',
+          `archive_persisted_channel: no storage key for monitor ${monitor_name.to_str().slice(0, 24)}…`
+        )
+        return
+      }
       monitorKeys.delete(key)
+      nameToKey.delete(monitor_name.to_str())
       channelWriteChains.delete(key) // Clean up resolved promise reference
       writeManifest()
 
@@ -330,6 +370,12 @@ export function createPersister(options: PersisterOptions = {}): {
     },
     onPersistFailure: (handler: (err: PersistError) => void) => {
       failureHandler = handler
+    },
+    // Pre-register monitors restored at startup so archive_persisted_channel can
+    // resolve their storage key from MonitorName even before any persist/update
+    // callback fires this session.
+    registerLoadedMonitor: (monitor: ChannelMonitor) => {
+      nameToKey.set(monitor.persistence_key().to_str(), outpointKey(monitor.get_funding_txo()))
     },
     backfillManifest: () => {
       if (monitorKeys.size > 0 && !versionCache.has(MONITOR_MANIFEST_KEY)) {

@@ -1,6 +1,6 @@
 import {
   Result_CVec_u8ZPeerHandleErrorZ_OK,
-  Result_boolPeerHandleErrorZ_OK,
+  Result_NonePeerHandleErrorZ_OK,
   Option_SocketAddressZ,
   type PeerManager,
   type SocketDescriptor,
@@ -93,7 +93,7 @@ export function connectToPeer(
       const data = new Uint8Array(event.data)
 
       const readResult = peerManager.read_event(descriptor, data)
-      if (!(readResult instanceof Result_boolPeerHandleErrorZ_OK)) {
+      if (!(readResult instanceof Result_NonePeerHandleErrorZ_OK)) {
         cleanup()
         if (!resolved) {
           resolved = true
