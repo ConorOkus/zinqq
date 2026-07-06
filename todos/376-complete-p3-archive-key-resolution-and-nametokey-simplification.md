@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: 376
 tags: [code-review, ldk, persist, simplification, robustness]
@@ -70,3 +70,4 @@ _(leave blank for triage)_
 ## Resources
 
 - PR #166. `node_modules/lightningdevkit/structs/MonitorName.d.mts`.
+- 2026-07-06 — RESOLVED. Kept the `nameToKey` map (robust). Rejected the `to_str().replace('_',':')` fallback: `MonitorName.to_str()`'s txid byte order isn't verified to match our storage key, so a transform could silently target the wrong key. Documented in the archive-miss branch why a miss is effectively unreachable (all watch-entry paths — persist_new_channel + registerLoadedMonitor — populate the map). Option B (retire the map) left for a future PR pending a V2-channel confirmation.

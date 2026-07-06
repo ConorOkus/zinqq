@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: 377
 tags: [code-review, ldk, documentation, persist]
@@ -57,3 +57,4 @@ _(leave blank for triage)_
 ## Resources
 
 - PR #166. `docs/solutions/integration-issues/ldk-wasm-foundation-layer-patterns.md`.
+- 2026-07-06 — DONE. Annotated `_monitor_update: ChannelMonitorUpdate | null`; added the persistence_key≡MonitorName invariant comment in `extractMonitor`; added a "push-only completion (decline pull)" section + WASM-borrow note to `ldk-wasm-foundation-layer-patterns.md`.

@@ -81,9 +81,38 @@ jsdom doesn't include IndexedDB. Install `fake-indexeddb` and import in test set
 expect(Array.from(result!)).toEqual(Array.from(expected))
 ```
 
+### 7. LDK 0.2: push-only monitor-persist completion (decline the pull path)
+
+LDK 0.2 offers **two** ways to signal that an async `ChannelMonitor` persist has completed:
+
+- **Push (what we use):** call `ChainMonitor.channel_monitor_updated(channelId, updateId)` when the
+  async write resolves. In 0.2 this keys on `ChannelId` (not the funding `OutPoint`).
+- **Pull (added in 0.2):** the ChainMonitor calls `Persist.get_and_clear_completed_updates()` to
+  collect finished `(ChannelId, updateId)` pairs.
+
+These are alternatives. We deliberately keep the push model and implement the pull method as a no-op
+(`return []`). **Do not** start populating the pull vec — signaling the same completion through both
+paths risks double-signaling. This is the same "return `InProgress`, signal later via
+`channel_monitor_updated`" contract as 0.1, just with the ChannelId-keyed API.
+
+Two related 0.2 gotchas:
+
+- The `monitor` handed to `persist_new_channel`/`update_persisted_channel` is a **borrowed** WASM
+  handle (`new ChannelMonitor(null, monitor)`) that Rust frees when the callback returns. Any handle
+  derived from it — notably `channel_id()` — dangles afterward. Extract owned values (bytes via
+  `channel_id().get_a()`, `write()`, `get_latest_update_id()`) in **one synchronous choke point** and
+  rebuild `ChannelId.constructor_from_bytes(...)` at completion. Never touch the monitor in a `.then()`.
+- `archive_persisted_channel` receives only a `MonitorName` in 0.2. We map
+  `MonitorName.to_str()` → storage key, populated on every persist/update and via
+  `registerLoadedMonitor` for restored monitors. The mapping relies on
+  `monitor.persistence_key().to_str()` equaling the `MonitorName.to_str()` seen in the persist
+  callbacks (guaranteed by LDK for the same channel).
+
 ## Prevention
 
 - Always return `InProgress` from sync trait methods wrapping async storage — never claim completion until durable.
+- LDK 0.2: signal monitor-persist completion via `channel_monitor_updated` (push) only; keep `get_and_clear_completed_updates` a `return []` no-op.
+- Extract all values from a borrowed WASM callback arg synchronously; never dereference it (or a derived handle) in an async continuation.
 - Use `instanceof` with LDK Result subclasses, never `as` casts.
 - Split React context/types/hooks into separate files from the start.
 - Use discriminated unions for any multi-state context value.

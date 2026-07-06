@@ -252,18 +252,39 @@ export function createPersister(options: PersisterOptions = {}): {
   // return halts further updates per channel, so queue depth is bounded at 1-2.
   const channelWriteChains = new Map<string, Promise<void>>()
 
-  function handlePersist(monitor: ChannelMonitor): void {
-    // Extract everything needed synchronously — the WASM monitor object is a
-    // borrowed handle that Rust frees once the callback returns, so we must not
-    // touch it (or any handle derived from it) inside the async continuation.
-    // channel_id() returns a handle whose pointer lives inside the borrowed
-    // monitor, so capture its bytes now (owned Uint8Array) and rebuild a fresh
-    // ChannelId when we signal completion.
-    const key = outpointKey(monitor.get_funding_txo())
-    const channelIdBytes = monitor.channel_id().get_a()
-    const data = monitor.write()
-    const updateId = monitor.get_latest_update_id()
+  interface ExtractedMonitor {
+    key: string
+    channelIdBytes: Uint8Array
+    data: Uint8Array
+    updateId: bigint
+  }
 
+  /**
+   * The SINGLE place the borrowed WASM `monitor` is touched.
+   *
+   * The `monitor` passed to the Persist callbacks is a borrowed handle that Rust
+   * frees once the callback returns, so every value we need later must be pulled
+   * into owned JS values here and never read from the monitor (or a handle derived
+   * from it, e.g. `channel_id()`) inside an async continuation.
+   *
+   * Also records the MonitorName → storage-key mapping. Invariant: the
+   * `monitor_name.to_str()` seen here must equal `monitor.persistence_key().to_str()`
+   * used by `registerLoadedMonitor` — they are the same MonitorName for a given
+   * channel, which is what lets `archive_persisted_channel` (name-only in LDK 0.2)
+   * resolve the key. This equality is guaranteed by LDK, not by us.
+   */
+  function extractMonitor(monitor_name: MonitorName, monitor: ChannelMonitor): ExtractedMonitor {
+    const key = outpointKey(monitor.get_funding_txo())
+    nameToKey.set(monitor_name.to_str(), key)
+    return {
+      key,
+      channelIdBytes: monitor.channel_id().get_a(),
+      data: monitor.write(),
+      updateId: monitor.get_latest_update_id(),
+    }
+  }
+
+  function handlePersist({ key, channelIdBytes, data, updateId }: ExtractedMonitor): void {
     const prev = channelWriteChains.get(key) ?? Promise.resolve()
     const next = prev
       .catch(() => {}) // Swallow previous error so the chain continues
@@ -274,7 +295,7 @@ export function createPersister(options: PersisterOptions = {}): {
       .then(() => {
         if (chainMonitorRef) {
           // LDK 0.2: channel_monitor_updated keys on ChannelId, not the funding OutPoint.
-          // Rebuild from the bytes captured synchronously above (the original handle is
+          // Rebuild from the bytes captured in extractMonitor (the original handle was
           // tied to the now-freed borrowed monitor).
           chainMonitorRef.channel_monitor_updated(
             ChannelId.constructor_from_bytes(channelIdBytes),
@@ -292,31 +313,27 @@ export function createPersister(options: PersisterOptions = {}): {
       })
   }
 
-  function keyForMonitor(monitor_name: MonitorName, monitor: ChannelMonitor): string {
-    const key = outpointKey(monitor.get_funding_txo())
-    nameToKey.set(monitor_name.to_str(), key)
-    return key
-  }
-
   const persist = Persist.new_impl({
     persist_new_channel(
       monitor_name: MonitorName,
       monitor: ChannelMonitor
     ): ChannelMonitorUpdateStatus {
-      const key = keyForMonitor(monitor_name, monitor)
-      monitorKeys.add(key)
+      const extracted = extractMonitor(monitor_name, monitor)
+      monitorKeys.add(extracted.key)
       writeManifest()
-      handlePersist(monitor)
+      handlePersist(extracted)
       return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
+    // LDK 0.2 types monitor_update as non-null in the generated interface, but
+    // upstream can pass null during chain-sync and some rare cases; we ignore it
+    // (we always re-persist the full monitor), so the annotation is `| null` for honesty.
     update_persisted_channel(
       monitor_name: MonitorName,
-      _monitor_update: ChannelMonitorUpdate,
+      _monitor_update: ChannelMonitorUpdate | null,
       monitor: ChannelMonitor
     ): ChannelMonitorUpdateStatus {
-      keyForMonitor(monitor_name, monitor)
-      handlePersist(monitor)
+      handlePersist(extractMonitor(monitor_name, monitor))
       return ChannelMonitorUpdateStatus.LDKChannelMonitorUpdateStatus_InProgress
     },
 
@@ -330,9 +347,14 @@ export function createPersister(options: PersisterOptions = {}): {
     archive_persisted_channel(monitor_name: MonitorName): void {
       const key = nameToKey.get(monitor_name.to_str())
       if (key === undefined) {
-        // No mapping (e.g. monitor never persisted/registered this session).
-        // Orphaned VSS/IDB entries only waste storage — fund safety is unaffected
-        // since the channel is already closed.
+        // Effectively unreachable: every monitor the ChainMonitor can archive first
+        // entered its watch set via persist_new_channel (new channels) or
+        // registerLoadedMonitor (monitors restored at startup) — both populate
+        // nameToKey. We intentionally do NOT fall back to deriving the key from
+        // monitor_name.to_str(): MonitorName's string form ({txid}_{vout}) is not
+        // guaranteed to match our storage key's txid byte order, so a transform could
+        // silently target the wrong key. A miss here only leaves orphaned VSS/IDB
+        // storage (fund-safe — the channel is already closed), so we log and return.
         captureError(
           'warning',
           'LDK Persist',

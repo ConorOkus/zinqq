@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: 378
 tags: [code-review, ldk, hygiene, simplification]
@@ -52,3 +52,4 @@ _(leave blank for triage)_
 ## Resources
 
 - PR #166. Related: #375 (use-after-free), #374.
+- 2026-07-06 — DONE (extraction). Consolidated all borrowed-monitor reads into a single `extractMonitor()` choke point; `handlePersist` now takes owned values and never touches the monitor. Decision on `cleanup`: KEEP the documented no-op (removing it touches 4 files across the return-type contract — deferred, not worth inline churn); its explanatory comment stands.
