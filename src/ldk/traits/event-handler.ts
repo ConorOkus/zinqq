@@ -69,7 +69,6 @@ import { LDK_CONFIG } from '../config'
 import { sweepSpendableOutputs } from '../sweep'
 import { captureError } from '../../storage/error-log'
 
-
 export type PaymentEventCallback = (
   event:
     | { type: 'sent'; paymentHash: string; preimage: Uint8Array; feePaidMsat: bigint | null }

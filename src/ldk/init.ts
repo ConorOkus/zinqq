@@ -272,12 +272,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   // v2_remote_key_derivation = false: LDK 0.2 gate. Enabling it uses keys prior
   // versions cannot derive, which permanently blocks downgrade — keep off to
   // preserve a rollback path.
-  const keysManager = KeysManager.constructor_new(
-    seed,
-    startingTimeSecs,
-    startingTimeNanos,
-    false
-  )
+  const keysManager = KeysManager.constructor_new(seed, startingTimeSecs, startingTimeNanos, false)
 
   // Derive a purpose-specific HMAC key for channel_keys_id generation
   // before zeroing the master seed. Only this derived 32-byte key is held
