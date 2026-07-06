@@ -33,8 +33,8 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
       lightningdevkit:
-        specifier: 0.1.8-0
-        version: 0.1.8-0
+        specifier: 0.1.11-0
+        version: 0.1.11-0
       qr-scanner:
         specifier: ^1.4.2
         version: 1.4.2
@@ -2489,8 +2489,8 @@ packages:
     resolution: {integrity: sha512-l51N2r93WmGUye3WuFoN5k10zyvrVs0qfKBhyC5ogUQ6Ew6JUSswh78mbSO+IU3nTWsyOArqPCcShdQSadghBQ==}
     engines: {node: '>= 12.0.0'}
 
-  lightningdevkit@0.1.8-0:
-    resolution: {integrity: sha512-TAWaaXnIzA5mAvo0a4kFUq313tfX4cWtgNIyaWS/97TXLyTbD55wBJnT5WV0xF/eJo5PNIACYBm4MxgBsXbjNg==}
+  lightningdevkit@0.1.11-0:
+    resolution: {integrity: sha512-8tt5S7XB8YBtUuYCQlkX4+kODqRF8b8VI+JNZq7Tjtd5GUa0Vpok3o3q5Lp4lRrEWE4WRIqwj/tvTZzok9C6yg==}
 
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
@@ -5832,7 +5832,7 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.31.1
       lightningcss-win32-x64-msvc: 1.31.1
 
-  lightningdevkit@0.1.8-0: {}
+  lightningdevkit@0.1.11-0: {}
 
   locate-path@6.0.0:
     dependencies:
