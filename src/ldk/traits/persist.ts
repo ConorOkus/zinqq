@@ -1,5 +1,6 @@
 import {
   Persist,
+  ChannelId,
   ChannelMonitorUpdateStatus,
   type OutPoint,
   type ChannelMonitor,
@@ -252,11 +253,14 @@ export function createPersister(options: PersisterOptions = {}): {
   const channelWriteChains = new Map<string, Promise<void>>()
 
   function handlePersist(monitor: ChannelMonitor): void {
-    // Extract everything needed synchronously — the WASM monitor object may be
-    // freed once the callback returns, so we must not touch it inside the async
-    // continuation. channelId is retained by reference for the completion call.
+    // Extract everything needed synchronously — the WASM monitor object is a
+    // borrowed handle that Rust frees once the callback returns, so we must not
+    // touch it (or any handle derived from it) inside the async continuation.
+    // channel_id() returns a handle whose pointer lives inside the borrowed
+    // monitor, so capture its bytes now (owned Uint8Array) and rebuild a fresh
+    // ChannelId when we signal completion.
     const key = outpointKey(monitor.get_funding_txo())
-    const channelId = monitor.channel_id()
+    const channelIdBytes = monitor.channel_id().get_a()
     const data = monitor.write()
     const updateId = monitor.get_latest_update_id()
 
@@ -270,7 +274,12 @@ export function createPersister(options: PersisterOptions = {}): {
       .then(() => {
         if (chainMonitorRef) {
           // LDK 0.2: channel_monitor_updated keys on ChannelId, not the funding OutPoint.
-          chainMonitorRef.channel_monitor_updated(channelId, updateId)
+          // Rebuild from the bytes captured synchronously above (the original handle is
+          // tied to the now-freed borrowed monitor).
+          chainMonitorRef.channel_monitor_updated(
+            ChannelId.constructor_from_bytes(channelIdBytes),
+            updateId
+          )
         }
       })
       .catch((err: unknown) => {

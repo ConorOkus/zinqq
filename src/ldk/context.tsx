@@ -1137,6 +1137,15 @@ export function LdkProvider({
             node.chainMonitor.as_EventsProvider().process_pending_events(node.eventHandler)
             node.onionMessenger.as_EventsProvider().process_pending_events(node.eventHandler)
 
+            // LDK 0.2 removed Event::PendingHTLCsForwardable; drive forwarding by polling.
+            // Run this AFTER draining events so HTLCs made forwardable by this pass are
+            // processed in the same cycle. Living here (rather than only in the peer timer)
+            // means every drain path — timer, WebSocket message, and tab-foreground — covers
+            // HTLC forwarding, so receive/JIT settlement isn't delayed up to a full timer tick.
+            if (node.channelManager.needs_pending_htlc_processing()) {
+              node.channelManager.process_pending_htlc_forwards()
+            }
+
             // Recompute Lightning balance and update context if changed
             const newBalanceSats = getOutboundCapacitySats(node.channelManager)
             const balanceChanged = newBalanceSats !== lightningBalanceSatsRef.current
@@ -1237,12 +1246,8 @@ export function LdkProvider({
           peerTimerId = setInterval(() => {
             node.peerManager.timer_tick_occurred()
             node.peerManager.process_events()
-
-            // LDK 0.2 removed Event::PendingHTLCsForwardable; forwarding is now
-            // driven by polling the ChannelManager for pending HTLC work.
-            if (node.channelManager.needs_pending_htlc_processing()) {
-              node.channelManager.process_pending_htlc_forwards()
-            }
+            // HTLC forwarding is handled inside drainEventsAndRefresh() (called below),
+            // which every drain path shares.
 
             // Check for disconnected channel peers every ~30s
             peerTickCount += 1

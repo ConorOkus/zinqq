@@ -24,6 +24,10 @@ vi.mock('lightningdevkit', () => {
     ChannelMonitorUpdateStatus: {
       LDKChannelMonitorUpdateStatus_InProgress: InProgress,
     },
+    // Completion rebuilds a ChannelId from bytes; return a sentinel wrapping them.
+    ChannelId: {
+      constructor_from_bytes: (bytes: Uint8Array) => ({ __fromBytes: bytes }),
+    },
   }
 })
 
@@ -50,8 +54,10 @@ function makeOutpoint(txid: string, index: number) {
 }
 
 function makeMonitor(data: Uint8Array, updateId = 1n, outpoint = makeOutpoint('abcd', 0)) {
-  // channel_id is memoized so completion assertions can compare by reference.
-  const channelId = { write: () => new Uint8Array([0xc1, 0xd0]) }
+  // channel_id() returns a borrowed handle in real LDK; the impl extracts its bytes
+  // synchronously via get_a() before the async completion, so expose get_a() here.
+  const channelIdBytes = new Uint8Array([0xc1, 0xd0])
+  const channelId = { get_a: () => channelIdBytes, write: () => channelIdBytes }
   return {
     write: () => data,
     get_latest_update_id: () => updateId,
@@ -110,9 +116,10 @@ describe('createPersister', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(idbPut).toHaveBeenCalledWith('ldk_channel_monitors', expect.any(String), data)
-      // LDK 0.2: completion is keyed by ChannelId (from monitor.channel_id()), not the OutPoint.
+      // LDK 0.2: completion is keyed by a ChannelId rebuilt from bytes captured
+      // synchronously (get_a()), signaled with the monitor's latest update id.
       expect(mockChainMonitor.channel_monitor_updated).toHaveBeenCalledWith(
-        monitor.channel_id(),
+        { __fromBytes: new Uint8Array([0xc1, 0xd0]) },
         42n
       )
     })
