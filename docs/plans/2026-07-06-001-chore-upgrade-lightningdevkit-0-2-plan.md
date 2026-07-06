@@ -203,13 +203,15 @@ both Send flows still compile and route.
 ## Acceptance Criteria
 
 ### Functional
-- [ ] `package.json` pins `lightningdevkit` `0.2.4-0`; lockfile updated; `copy:wasm` copies the 0.2 `liblightningjs.wasm`.
-- [ ] `pnpm typecheck`, `pnpm test`, `pnpm build` all pass with no LDK-related errors.
-- [ ] Every mapped break (#1–#12) is resolved or explicitly confirmed non-applicable against the 0.2 `.d.mts`.
-- [ ] `Event_PendingHTLCsForwardable` removed and replaced with `needs_pending_htlc_processing()` polling.
-- [ ] `ClosureReason` switch updated to 0.2 variants; no dangling `HolderForceClosed` reference.
-- [ ] `pay_for_offer` migrated to the `optional_params` signature; both BOLT11 and BOLT12 sends compile.
-- [ ] `UserConfig` audit complete; LSPS2-critical settings verified; no downgrade-blocking feature enabled.
+- [x] `package.json` pins `lightningdevkit` `0.2.4-0`; lockfile updated; `copy:wasm` copies the 0.2 `liblightningjs.wasm` (filename unchanged).
+- [x] `pnpm typecheck`, `pnpm test`, `pnpm build` all pass with no LDK-related errors (472 tests; also fixed the no-op typecheck script → `tsc -b`).
+- [x] Every mapped break is resolved. Actual `tsc -b` break set was 26 errors across 9 files; the table's expectations held, plus newly discovered sync-variant renames (WalletSourceSync, WalletSync, BumpTransactionEventHandlerSync) and constructor-arity changes (KeysManager +v2_remote_key_derivation, ChainMonitor +EntropySource/PeerStorageKey, PeerManager +SendOnlyMessageHandler).
+- [x] `Event_PendingHTLCsForwardable` removed and replaced with `needs_pending_htlc_processing()` polling in the background loop.
+- [x] `ClosureReason` handled for 0.2 (`HolderForceClosed` still exists in bindings; added `LocallyCoopClosedUnfundedChannel`).
+- [x] `pay_for_offer` migrated to the `optional_params` signature; BOLT11 send migrated to `pay_for_bolt11_invoice`; both compile.
+- [x] `UserConfig` audit complete; LSPS2-critical settings verified unchanged; no downgrade-blocking feature enabled (`v2_remote_key_derivation=false`, no splicing/HTLC-hold).
+
+> **Note on the built-in LSP client:** unaffected — the JIT/LSPS2 path is hand-rolled over `CustomMessageHandler`; LDK's `LSPS2ClientHandler` is not used. Migrating to it is a separate, deferred refactor.
 
 ### Non-Functional / Quality Gates
 - [ ] Real 0.1.8-persisted state deserializes cleanly on 0.2.4; `list_channels()` matches pre-upgrade.
