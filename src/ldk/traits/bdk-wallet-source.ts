@@ -1,6 +1,6 @@
 import {
-  WalletSource,
-  type WalletSourceInterface,
+  WalletSourceSync,
+  type WalletSourceSyncInterface,
   Utxo,
   OutPoint as LdkOutPoint,
   TxOut as LdkTxOut,
@@ -22,8 +22,8 @@ const P2WPKH_SATISFACTION_WEIGHT = 107n
  * Wallet wrapper), enabling BumpTransactionEventHandler to use BDK UTXOs
  * for anchor channel CPFP fee bumping.
  */
-export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
-  const impl: WalletSourceInterface = {
+export function createBdkWalletSource(bdkWallet: Wallet): WalletSourceSync {
+  const impl: WalletSourceSyncInterface = {
     list_confirmed_utxos(): Result_CVec_UtxoZNoneZ {
       try {
         const unspent = bdkWallet.list_unspent()
@@ -123,7 +123,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSource {
     },
   }
 
-  return WalletSource.new_impl(impl)
+  return WalletSourceSync.new_impl(impl)
 }
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {

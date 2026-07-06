@@ -4,7 +4,6 @@ import {
   Event_PaymentClaimed,
   Event_PaymentSent,
   Event_PaymentFailed,
-  Event_PendingHTLCsForwardable,
   Event_SpendableOutputs,
   Event_ChannelPending,
   Event_ChannelReady,
@@ -28,7 +27,7 @@ import {
   SocketAddress_TcpIpV4,
   SocketAddress_TcpIpV6,
   SocketAddress_Hostname,
-  type BumpTransactionEventHandler,
+  type BumpTransactionEventHandlerSync,
   BumpTransactionEvent_ChannelClose,
   BumpTransactionEvent_HTLCResolution,
   type ClosureReason,
@@ -43,6 +42,7 @@ import {
   ClosureReason_DisconnectedPeer,
   ClosureReason_OutdatedChannelManager,
   ClosureReason_CounterpartyCoopClosedUnfundedChannel,
+  ClosureReason_LocallyCoopClosedUnfundedChannel,
   ClosureReason_FundingBatchClosure,
   ClosureReason_HTLCsTimedOut,
   ClosureReason_PeerFeerateTooLow,
@@ -68,8 +68,6 @@ import { ONCHAIN_CONFIG } from '../../onchain/config'
 import { LDK_CONFIG } from '../config'
 import { sweepSpendableOutputs } from '../sweep'
 import { captureError } from '../../storage/error-log'
-
-const MAX_FORWARD_DELAY_MS = 10_000
 
 export type PaymentEventCallback = (
   event:
@@ -109,14 +107,12 @@ export function createEventHandler(
   onChannelClosed?: ChannelClosedCallback,
   onSyncNeeded?: SyncNeededCallback,
   onConnectionNeeded?: ConnectionNeededCallback,
-  bumpTxHandler?: BumpTransactionEventHandler,
+  bumpTxHandler?: BumpTransactionEventHandlerSync,
   onRecoveryNeeded?: RecoveryNeededCallback
 ): {
   handler: EventHandler
   cleanup: () => void
 } {
-  let forwardTimerId: ReturnType<typeof setTimeout> | null = null
-
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
@@ -126,10 +122,6 @@ export function createEventHandler(
           keysManager,
           bdkWallet,
           isTrustedLsp,
-          (id) => {
-            if (forwardTimerId !== null) clearTimeout(forwardTimerId)
-            forwardTimerId = id
-          },
           onPaymentEvent,
           onChannelClosed,
           onSyncNeeded,
@@ -164,12 +156,10 @@ export function createEventHandler(
 
   return {
     handler,
-    cleanup: () => {
-      if (forwardTimerId !== null) {
-        clearTimeout(forwardTimerId)
-        forwardTimerId = null
-      }
-    },
+    // No teardown needed: HTLC-forward processing moved to the background poll
+    // loop (needs_pending_htlc_processing) after LDK 0.2 removed
+    // Event::PendingHTLCsForwardable. Retained for caller API stability.
+    cleanup: () => {},
   }
 }
 
@@ -179,12 +169,11 @@ function handleEvent(
   keysManager: KeysManager,
   bdkWallet: Wallet,
   isTrustedLsp: IsTrustedLsp,
-  setForwardTimer: (id: ReturnType<typeof setTimeout>) => void,
   onPaymentEvent?: PaymentEventCallback,
   onChannelClosed?: ChannelClosedCallback,
   onSyncNeeded?: SyncNeededCallback,
   onConnectionNeeded?: ConnectionNeededCallback,
-  bumpTxHandler?: BumpTransactionEventHandler,
+  bumpTxHandler?: BumpTransactionEventHandlerSync,
   onRecoveryNeeded?: RecoveryNeededCallback
 ): void {
   // Payment events
@@ -286,16 +275,10 @@ function handleEvent(
     return
   }
 
-  // HTLC forwarding — deduplicate by clearing previous timer
-  if (event instanceof Event_PendingHTLCsForwardable) {
-    const delayMs = Math.min(Number(event.time_forwardable) * 1000, MAX_FORWARD_DELAY_MS)
-    setForwardTimer(
-      setTimeout(() => {
-        channelManager.process_pending_htlc_forwards()
-      }, delayMs)
-    )
-    return
-  }
+  // NOTE: LDK 0.2 removed Event::PendingHTLCsForwardable. HTLC forwarding is now
+  // driven by polling channelManager.needs_pending_htlc_processing() in the
+  // background timer loop (see context.tsx), which calls
+  // process_pending_htlc_forwards() when work is pending.
 
   // Channel lifecycle
   if (event instanceof Event_ChannelPending) {
@@ -635,7 +618,8 @@ function handleEvent(
       const result = channelManager.accept_inbound_channel_from_trusted_peer_0conf(
         event.temporary_channel_id,
         event.counterparty_node_id,
-        userChannelId
+        userChannelId,
+        null // no per-channel config overrides
       )
       if (result.is_ok()) {
         console.log(
@@ -660,7 +644,7 @@ function handleEvent(
     captureError(
       'error',
       'LDK Event',
-      `HTLCHandlingFailed: channelId: ${bytesToHex(event.prev_channel_id.write())} failedNextDestination: ${event.failed_next_destination.constructor.name}`
+      `HTLCHandlingFailed: prevChannelId: ${bytesToHex(event.prev_channel_id.write())} failureType: ${event.failure_type.constructor.name}`
     )
     return
   }
@@ -736,6 +720,8 @@ function describeClosureReason(reason: ClosureReason): string {
   if (reason instanceof ClosureReason_OutdatedChannelManager) return 'Outdated channel manager'
   if (reason instanceof ClosureReason_CounterpartyCoopClosedUnfundedChannel)
     return 'Counterparty closed unfunded channel'
+  if (reason instanceof ClosureReason_LocallyCoopClosedUnfundedChannel)
+    return 'Closed unfunded channel'
   if (reason instanceof ClosureReason_FundingBatchClosure) return 'Funding batch closure'
   if (reason instanceof ClosureReason_HTLCsTimedOut) return 'HTLCs timed out'
   if (reason instanceof ClosureReason_PeerFeerateTooLow) return 'Peer feerate too low'

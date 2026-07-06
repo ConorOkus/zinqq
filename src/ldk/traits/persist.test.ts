@@ -24,25 +24,46 @@ vi.mock('lightningdevkit', () => {
     ChannelMonitorUpdateStatus: {
       LDKChannelMonitorUpdateStatus_InProgress: InProgress,
     },
+    // Completion rebuilds a ChannelId from bytes; return a sentinel wrapping them.
+    ChannelId: {
+      constructor_from_bytes: (bytes: Uint8Array) => ({ __fromBytes: bytes }),
+    },
   }
 })
 
 import { idbPut, idbDelete } from '../../storage/idb'
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/require-await */
 
+function keyOf(txidBytes: Uint8Array, index: number): string {
+  return `${Array.from(txidBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}:${index}`
+}
+
+// makeOutpoint doubles as a MonitorName mock: LDK 0.2 keys Persist callbacks by
+// MonitorName, and our impl derives the storage key from the funding OutPoint, so
+// both need to agree. to_str() returns the same `{txid}:{index}` storage key.
 function makeOutpoint(txid: string, index: number) {
   const txidBytes = new Uint8Array(txid.split('').map((c) => c.charCodeAt(0)))
   return {
     get_txid: () => txidBytes,
     get_index: () => index,
+    to_str: () => keyOf(txidBytes, index),
   }
 }
 
-function makeMonitor(data: Uint8Array, updateId = 1n) {
+function makeMonitor(data: Uint8Array, updateId = 1n, outpoint = makeOutpoint('abcd', 0)) {
+  // channel_id() returns a borrowed handle in real LDK; the impl extracts its bytes
+  // synchronously via get_a() before the async completion, so expose get_a() here.
+  const channelIdBytes = new Uint8Array([0xc1, 0xd0])
+  const channelId = { get_a: () => channelIdBytes, write: () => channelIdBytes }
   return {
     write: () => data,
     get_latest_update_id: () => updateId,
+    get_funding_txo: () => outpoint,
+    channel_id: () => channelId,
+    persistence_key: () => ({ to_str: () => outpoint.to_str() }),
   }
 }
 
@@ -95,7 +116,12 @@ describe('createPersister', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect(idbPut).toHaveBeenCalledWith('ldk_channel_monitors', expect.any(String), data)
-      expect(mockChainMonitor.channel_monitor_updated).toHaveBeenCalledWith(outpoint, 42n)
+      // LDK 0.2: completion is keyed by a ChannelId rebuilt from bytes captured
+      // synchronously (get_a()), signaled with the monitor's latest update id.
+      expect(mockChainMonitor.channel_monitor_updated).toHaveBeenCalledWith(
+        { __fromBytes: new Uint8Array([0xc1, 0xd0]) },
+        42n
+      )
     })
 
     it('retries with exponential backoff on IDB failure then succeeds', async () => {
@@ -123,8 +149,10 @@ describe('createPersister', () => {
     })
 
     it('archives by deleting from IDB', async () => {
-      const { persist } = createTestPersister()
+      const { persist, registerLoadedMonitor } = createTestPersister()
       const outpoint = makeOutpoint('abcd', 0)
+      // Register so the MonitorName → storage-key mapping exists for archive.
+      registerLoadedMonitor(makeMonitor(new Uint8Array([1]), 1n, outpoint) as never)
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(persist as any).archive_persisted_channel(outpoint)
@@ -482,8 +510,9 @@ describe('createPersister', () => {
           callOrder.push('idb')
         })
 
-        const { persist, versionCache } = createTestPersister({ vssClient })
+        const { persist, versionCache, registerLoadedMonitor } = createTestPersister({ vssClient })
         const outpoint = makeOutpoint('abcd', 0)
+        registerLoadedMonitor(makeMonitor(new Uint8Array([1]), 1n, outpoint) as never)
 
         // Pre-populate version cache
         const key = `${Array.from(outpoint.get_txid())
@@ -505,8 +534,9 @@ describe('createPersister', () => {
           deleteObject: vi.fn().mockRejectedValue(new Error('VSS error')),
         })
 
-        const { persist } = createTestPersister({ vssClient })
+        const { persist, registerLoadedMonitor } = createTestPersister({ vssClient })
         const outpoint = makeOutpoint('abcd', 0)
+        registerLoadedMonitor(makeMonitor(new Uint8Array([1]), 1n, outpoint) as never)
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ;(persist as any).archive_persisted_channel(outpoint)

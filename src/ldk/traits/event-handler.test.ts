@@ -34,9 +34,6 @@ vi.mock('lightningdevkit', () => {
     payment_hash = new Option_ThirtyTwoBytesZ_Some(new Uint8Array([1, 2, 3]))
     reason = new Option_PaymentFailureReasonZ_Some(0) // RecipientRejected
   }
-  class Event_PendingHTLCsForwardable extends MockEvent {
-    time_forwardable = BigInt(2)
-  }
   class Event_SpendableOutputs extends MockEvent {
     outputs = [{ write: () => new Uint8Array([10, 20, 30]) }]
   }
@@ -177,7 +174,6 @@ vi.mock('lightningdevkit', () => {
     Event_PaymentClaimed,
     Event_PaymentSent,
     Event_PaymentFailed,
-    Event_PendingHTLCsForwardable,
     Event_SpendableOutputs,
     Event_ChannelPending,
     Event_ChannelReady,
@@ -291,7 +287,7 @@ vi.mock('../utils', () => ({
 import { createEventHandler } from './event-handler'
 import { idbPut } from '../../storage/idb'
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ldk: any = await import('lightningdevkit')
@@ -300,7 +296,6 @@ const {
   Event_PaymentClaimed,
   Event_PaymentSent,
   Event_PaymentFailed,
-  Event_PendingHTLCsForwardable,
   Event_SpendableOutputs,
   Event_ChannelPending,
   Event_ChannelReady,
@@ -431,31 +426,10 @@ describe('createEventHandler', () => {
     )
   })
 
-  it('schedules HTLC forwarding with delay', () => {
-    handleEvent(new Event_PendingHTLCsForwardable())
-    expect(mockProcessPendingHtlcForwards).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(2000)
-    expect(mockProcessPendingHtlcForwards).toHaveBeenCalledOnce()
-  })
-
-  it('clamps HTLC forwarding delay to 10s max', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const event = Object.assign(new Event_PendingHTLCsForwardable(), {
-      time_forwardable: BigInt(999),
-    })
-    handleEvent(event)
-    vi.advanceTimersByTime(9999)
-    expect(mockProcessPendingHtlcForwards).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(1)
-    expect(mockProcessPendingHtlcForwards).toHaveBeenCalledOnce()
-  })
-
-  it('cleanup cancels pending HTLC forward timer', () => {
-    handleEvent(new Event_PendingHTLCsForwardable())
-    cleanup()
-    vi.advanceTimersByTime(10000)
-    expect(mockProcessPendingHtlcForwards).not.toHaveBeenCalled()
-  })
+  // LDK 0.2 removed Event::PendingHTLCsForwardable — HTLC forwarding is now
+  // driven by the background poll loop (needs_pending_htlc_processing +
+  // process_pending_htlc_forwards) in context.tsx, so the former
+  // event-scheduling / timer-cleanup tests no longer apply.
 
   it('persists SpendableOutputs to IDB', () => {
     handleEvent(new Event_SpendableOutputs())
