@@ -19,7 +19,7 @@ const TEST_LSP: LspContact = {
   host: 'lsp.test',
   port: 9735,
   token: null,
-  label: 'lqwd',
+  label: 'megalith',
 }
 
 function makeParams(overrides: Partial<LSPS2OpeningFeeParams> = {}): LSPS2OpeningFeeParams {
@@ -464,7 +464,7 @@ describe('Receive', () => {
 
     it('re-quotes the fallback LSP and re-confirms when the primary buy fails', async () => {
       const user = userEvent.setup()
-      // First quote = primary (lqwd). Second quote (skipPrimary) = fallback.
+      // First quote = primary (megalith). Second quote (skipPrimary) = fallback.
       const requestJitQuote = vi
         .fn()
         // First quote = primary (role 'primary'); its buy fails below.
@@ -489,7 +489,7 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
-      // First Review (primary, lqwd) → commit.
+      // First Review (primary, megalith) → commit.
       const cta = await screen.findByRole('button', { name: /generate payment request/i })
       await user.click(cta)
 

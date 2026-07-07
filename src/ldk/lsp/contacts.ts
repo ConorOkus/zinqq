@@ -1,15 +1,20 @@
 /**
  * LSP contact resolution.
  *
- * Combines runtime discovery (LQwD primary) with env-var config
- * (Megalith fallback) into a primary/fallback pair consumed by the
- * receive flow.
+ * Builds the LSP contact pair from env-var config. Megalith is the sole LSP and
+ * occupies the `primary` slot; the `fallback` slot is retained (currently always
+ * null) so a second LSP can be re-introduced without reworking the receive
+ * flow's primary/fallback failover orchestration.
  */
 
 import { LDK_CONFIG } from '../config'
-import { fetchLqwdContact } from './lqwd-discovery'
 
-export type LspLabel = 'lqwd' | 'megalith'
+/**
+ * Free-form telemetry / display tag for an LSP. Only `'megalith'` is configured
+ * today; the failover orchestration is label-agnostic, so additional LSPs can be
+ * added without changing this type.
+ */
+export type LspLabel = string
 
 export interface LspContact {
   nodeId: string
@@ -25,13 +30,15 @@ export interface LspContactPair {
 }
 
 /**
- * Resolve the primary (LQwD via /get_info) and fallback (Megalith via
- * env vars) LSP contacts. Either side may be null if discovery failed
- * or the env config is empty.
+ * Resolve the primary (Megalith, via env vars) LSP contact. `primary` is null
+ * when the env config is empty (LSPS2 disabled). `fallback` is currently always
+ * null — the slot is kept for a future second LSP.
+ *
+ * Returns a `Promise` (though resolution is synchronous today) so a future
+ * async discovery step can be reintroduced without changing call sites.
  */
-export async function resolveLspContacts(): Promise<LspContactPair> {
-  const primary = await fetchLqwdContact().catch(() => null)
-  const fallback: LspContact | null =
+export function resolveLspContacts(): Promise<LspContactPair> {
+  const primary: LspContact | null =
     LDK_CONFIG.lspNodeId && LDK_CONFIG.lspHost
       ? {
           nodeId: LDK_CONFIG.lspNodeId,
@@ -41,5 +48,5 @@ export async function resolveLspContacts(): Promise<LspContactPair> {
           label: 'megalith',
         }
       : null
-  return { primary, fallback }
+  return Promise.resolve({ primary, fallback: null })
 }

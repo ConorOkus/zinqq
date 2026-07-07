@@ -103,10 +103,10 @@ export interface LdkNode {
   lsps2Client: LSPS2Client
   /**
    * Pubkeys (66-char lowercase hex) of LSPs we trust to open 0-conf
-   * inbound channels for JIT receive. Seeded with the env-var Megalith
-   * fallback at init; LdkProvider adds the runtime-discovered LQwD
-   * primary once `fetchLqwdContact()` resolves. Read by the event
-   * handler's `Event_OpenChannelRequest` gate.
+   * inbound channels for JIT receive. Seeded at init with the env-var
+   * LSP (Megalith). The set is mutable so additional LSPs can be added
+   * at runtime if a discovery step is ever reintroduced. Read by the
+   * event handler's `Event_OpenChannelRequest` gate.
    */
   trustedLspIds: Set<string>
 }
@@ -727,9 +727,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   let connectionNeededCallback: ConnectionNeededCallback | undefined
   let recoveryNeededCallback: RecoveryNeededCallback | undefined
   // Mutable trust set for 0-conf channel acceptance. Seeded with the
-  // env-var fallback (Megalith) here; LdkProvider adds the
-  // runtime-discovered primary (LQwD) when discovery resolves. The
-  // event handler reads via closure so updates are picked up live.
+  // env-var LSP (Megalith) here. The event handler reads via closure, so
+  // if a runtime discovery step is ever reintroduced its pubkey can be
+  // added live.
   const trustedLspIds = new Set<string>()
   if (LDK_CONFIG.lspNodeId !== '') trustedLspIds.add(LDK_CONFIG.lspNodeId)
   const { handler: eventHandler, cleanup: cleanupEventHandler } = createEventHandler(

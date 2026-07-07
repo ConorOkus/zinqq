@@ -34,7 +34,7 @@ export function createUserConfig(): UserConfig {
 
   // LDK rejects opens whose announce flag differs from our default
   // (`announce_for_forwarding=false`) with "announcement preference is
-  // different from ours". LQwD diverges; turn the check off.
+  // different from ours". Some LSPs diverge; turn the check off.
   handshakeLimits.set_force_announced_channel_preference(false)
 
   // LSPS2: the LSP deducts an opening fee before forwarding, so the HTLC amount

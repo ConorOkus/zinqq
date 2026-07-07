@@ -110,11 +110,11 @@ export function selectCheapestParams(
  * Hard floor (in sats) for a JIT (LSP-channel) receive, enforced in the UI
  * before any quote is requested.
  *
- * Set above the effective minimum of *every* configured LSP — LQwD (~100 sat)
- * and the Megalith fallback (~2,501 sat) — so that whichever LSP ends up
- * serving the buy (including a buy-time fallback) can always service the
- * amount. We can't derive this from a live menu because quotes are never
- * pre-fetched (see the no-prewarm rule), so it is a fixed policy constant.
+ * Set above the effective minimum of the configured LSP (Megalith, ~2,501 sat)
+ * — with headroom for any future LSP — so that whichever LSP ends up serving
+ * the buy can always service the amount. We can't derive this from a live menu
+ * because quotes are never pre-fetched (see the no-prewarm rule), so it is a
+ * fixed policy constant.
  */
 export const MIN_JIT_RECEIVE_SATS = 5_000n
 

@@ -796,16 +796,16 @@ describe('createEventHandler — Event_OpenChannelRequest trust set', () => {
     expect(mockAcceptInboundChannel).not.toHaveBeenCalled()
   })
 
-  it('reflects mutable trust-set updates between calls (LQwD discovery race)', () => {
-    // Initial state: only Megalith trusted (pre-LQwD-discovery).
-    const trusted = new Set<string>(['megalith-pubkey'])
+  it('reflects mutable trust-set updates between calls (runtime-added LSP)', () => {
+    // Initial state: some other LSP trusted; the counterparty is not yet.
+    const trusted = new Set<string>(['other-lsp-pubkey'])
     setup((pubkey) => trusted.has(pubkey))
 
-    // First open from LQwD's pubkey before discovery resolves: rejected.
+    // First open from an untrusted pubkey: rejected.
     handleEvent(new Event_OpenChannelRequest())
     expect(mockAcceptInbound0conf).not.toHaveBeenCalled()
 
-    // Discovery resolves; LdkProvider adds LQwD's pubkey to the set.
+    // The counterparty's pubkey is added to the trust set at runtime.
     trusted.add(COUNTERPARTY_HEX)
 
     // Second open from the same counterparty: accepted via the live
