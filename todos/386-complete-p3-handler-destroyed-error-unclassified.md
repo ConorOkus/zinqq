@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: '386'
 tags: [code-review, lsps2, telemetry, pr-167]
@@ -54,3 +54,6 @@ signal.
 ## Work Log
 
 - 2026-07-07: Filed from `/ce:review` (delta review) of PR #167.
+- 2026-07-07: Fixed (Option A). Added `Lsps2HandlerDestroyedError` →
+  `'lsps2_handler_destroyed'` arm + union member in `classifyJitTrigger`
+  (`context.tsx`). Typecheck + tests pass.

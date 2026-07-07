@@ -34,7 +34,9 @@ export function createUserConfig(): UserConfig {
 
   // LDK rejects opens whose announce flag differs from our default
   // (`announce_for_forwarding=false`) with "announcement preference is
-  // different from ours". Some LSPs diverge; turn the check off.
+  // different from ours". Some LSPs diverge; turn the check off. Originally
+  // added for LQwD (removed); retained defensively — verify against a live
+  // Megalith channel open before tightening, since it's the sole LSP now.
   handshakeLimits.set_force_announced_channel_preference(false)
 
   // LSPS2: the LSP deducts an opening fee before forwarding, so the HTLC amount

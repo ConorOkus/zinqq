@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '383'
 tags: [code-review, lsps2, lsp-failover, telemetry, dead-code, pr-167]
@@ -87,3 +87,9 @@ keeping the failover seam the team deliberately retained.
 ## Work Log
 
 - 2026-07-07: Filed from `/ce:review` (delta review) of PR #167.
+- 2026-07-07: Fixed (Option A). Added `HAS_FALLBACK_LSP` (`contacts.ts`) and gated
+  the buy-phase re-quote in `Receive.tsx` on it — a buy failure with no fallback
+  now goes straight to `jit-error` (no spinner flash, no false "fallback failed"
+  log). Updated the stale `http_preflight` comment in `context.tsx` (branch kept as
+  tested machinery; `fallback!` confirmed safe via the `LSP not configured` guard).
+  Rewrote the Receive test to assert the single-LSP behavior. 461 tests pass.

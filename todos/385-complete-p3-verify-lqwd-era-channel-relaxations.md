@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: '385'
 tags: [code-review, ldk, channel-config, security, tech-debt, pr-167]
@@ -67,3 +67,10 @@ Trivial.
 
 - 2026-07-07: Filed from `/ce:review` (delta review) of PR #167. Requires a live
   Megalith channel open to verify — deferred to when that's observable.
+- 2026-07-07: Resolved via Option B (documented as defensive). Both settings
+  (`user-config.ts` announce-preference, `fee-estimator.ts` 253 sat/kW floor) now
+  carry a comment: "Originally added for LQwD (removed); retained defensively —
+  verify against Megalith before tightening." The tighten path (Option A) remains
+  available if a live Megalith open shows either is unnecessary — reopen this todo
+  if so. Not removing blind: they are permissive relaxations, so stripping them
+  could break Megalith channel opens.

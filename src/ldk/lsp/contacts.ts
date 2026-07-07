@@ -10,11 +10,21 @@
 import { LDK_CONFIG } from '../config'
 
 /**
- * Free-form telemetry / display tag for an LSP. Only `'megalith'` is configured
- * today; the failover orchestration is label-agnostic, so additional LSPs can be
- * added without changing this type.
+ * Telemetry / display tag for an LSP. Only `'megalith'` is configured today;
+ * the `string & {}` arm keeps the known label typo-checked (and autocompleted)
+ * while the orchestration stays label-agnostic, so additional LSPs can be added
+ * without changing this type.
  */
-export type LspLabel = string
+export type LspLabel = 'megalith' | (string & {})
+
+/**
+ * Whether a fallback LSP is configured. `false` today — Megalith is the sole
+ * LSP, so `resolveLspContacts().fallback` is always null. When a second LSP is
+ * re-introduced, flip this alongside populating the `fallback` slot; the
+ * buy-phase re-quote in `Receive.tsx` gates on it to avoid a pointless
+ * re-quote (and a misleading "fallback failed" log) when none exists.
+ */
+export const HAS_FALLBACK_LSP: boolean = false
 
 export interface LspContact {
   nodeId: string

@@ -17,7 +17,7 @@ import {
   MIN_JIT_RECEIVE_SATS,
   type LSPS2OpeningFeeParams,
 } from '../ldk/lsps2/types'
-import type { LspContact } from '../ldk/lsp/contacts'
+import { HAS_FALLBACK_LSP, type LspContact } from '../ldk/lsp/contacts'
 import { LDK_CONFIG } from '../ldk/config'
 import type { ChannelDetails } from 'lightningdevkit'
 
@@ -447,18 +447,19 @@ export function Receive() {
         if (buyControllerRef.current !== ctrl) return
         buyControllerRef.current = null
         captureError('warning', 'Receive', 'JIT buy failed', String(err))
-        // If this quote was from the primary LSP, re-quote the fallback (a
-        // fallback quote has role 'fallback', so a second failure ends in
-        // jit-error rather than looping). We key on the quote's role — set by
-        // runJitQuoteFlow — never on a hardcoded LSP label. If no fallback is
-        // configured, the re-quote throws and reQuoteSkippingPrimary lands on
-        // jit-error.
+        // If this quote was from the primary LSP AND a fallback exists, re-quote
+        // the fallback (a fallback quote has role 'fallback', so a second failure
+        // ends in jit-error rather than looping). We key on the quote's role —
+        // set by runJitQuoteFlow — never on a hardcoded LSP label. With no
+        // fallback configured (`HAS_FALLBACK_LSP` false — the single-LSP case),
+        // go straight to jit-error: re-quoting would only flash a spinner and
+        // log a misleading "fallback failed".
         //
         // Note (todo 373): a buy that times out *after* the request reached the
         // LSP may leave an orphaned primary-side reservation. That's LSP cost,
         // not user funds — no payable primary invoice ever existed — so we
         // accept it here.
-        if (quote.role === 'primary') {
+        if (HAS_FALLBACK_LSP && quote.role === 'primary') {
           reQuoteSkippingPrimary(amountSats)
           return
         }

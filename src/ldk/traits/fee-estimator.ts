@@ -16,7 +16,8 @@ const DEFAULT_FEE_RATES: Record<ConfirmationTarget, number> = {
   [ConfirmationTarget.LDKConfirmationTarget_MinAllowedAnchorChannelRemoteFee]: 253,
   // LDK absolute minimum (1 sat/vB). Trusted LSPS2 LSPs that don't negotiate
   // `option_anchors_zero_fee_htlc_tx` can propose ~253 sat/kW commitment fees
-  // that would otherwise be rejected at channel open.
+  // that would otherwise be rejected at channel open. Originally added for LQwD
+  // (removed); retained defensively — verify against Megalith before tightening.
   [ConfirmationTarget.LDKConfirmationTarget_MinAllowedNonAnchorChannelRemoteFee]: 253,
   [ConfirmationTarget.LDKConfirmationTarget_AnchorChannelFee]: 2_500,
   [ConfirmationTarget.LDKConfirmationTarget_NonAnchorChannelFee]: 5_000,

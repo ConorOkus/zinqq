@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: '384'
 tags: [code-review, lsps2, typescript, pr-167]
@@ -51,3 +51,5 @@ distinct labels), so not viable without reworking those tests. Not recommended.
 ## Work Log
 
 - 2026-07-07: Filed from `/ce:review` (delta review) of PR #167.
+- 2026-07-07: Fixed (Option A). `LspLabel = 'megalith' | (string & {})` in
+  `contacts.ts`. Typecheck + failover tests pass.

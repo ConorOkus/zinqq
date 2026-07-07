@@ -58,6 +58,7 @@ import {
   Lsps2TimeoutError,
   Lsps2PeerDisconnectedError,
   Lsps2BackpressureError,
+  Lsps2HandlerDestroyedError,
 } from './lsps2/errors'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
@@ -112,6 +113,7 @@ type JitTrigger =
   | 'lsps2_timeout'
   | 'lsps2_peer_disconnected'
   | 'lsps2_backpressure'
+  | 'lsps2_handler_destroyed'
   | 'lsps2_rpc'
 
 function classifyJitTrigger(err: unknown): JitTrigger {
@@ -120,11 +122,12 @@ function classifyJitTrigger(err: unknown): JitTrigger {
   if (err instanceof JitQuoteFreshnessError) return 'quote_freshness'
   if (err instanceof DOMException && err.name === 'AbortError') return 'aborted'
   // Typed LSPS2 transport failures — distinguished from generic RPC errors so
-  // incident logs can separate a silent LSP (timeout) from a dropped peer or
-  // client-side backpressure.
+  // incident logs can separate a silent LSP (timeout) from a dropped peer,
+  // client-side backpressure, or a benign shutdown teardown.
   if (err instanceof Lsps2TimeoutError) return 'lsps2_timeout'
   if (err instanceof Lsps2PeerDisconnectedError) return 'lsps2_peer_disconnected'
   if (err instanceof Lsps2BackpressureError) return 'lsps2_backpressure'
+  if (err instanceof Lsps2HandlerDestroyedError) return 'lsps2_handler_destroyed'
   return 'lsps2_rpc'
 }
 
@@ -538,8 +541,13 @@ export async function runJitQuoteFlow(args: {
       )
     }
   } else {
-    // Primary discovery failed (HTTP /get_info preflight error). Skip
-    // straight to fallback; resolveLspContacts already swallowed the error.
+    // Primary unavailable before any attempt (e.g. a future discovery step
+    // returned null for the primary). Skip straight to fallback. Unreachable
+    // today — `resolveLspContacts` always yields a non-null primary (Megalith)
+    // — but retained as tested failover machinery for a re-added 2nd LSP. The
+    // `http_preflight` trigger name is historical (LQwD's removed /get_info
+    // discovery). `contacts.fallback!` is safe: the guard above throws when
+    // both primary and fallback are null.
     captureError(
       'warning',
       'LSP',
