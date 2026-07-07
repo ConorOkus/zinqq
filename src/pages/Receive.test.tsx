@@ -9,7 +9,8 @@ import {
 } from '../onchain/onchain-context'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
 import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
-import type { OpeningFeeParams } from '../ldk/lsps2/types'
+import type { LSPS2OpeningFeeParams } from '../ldk/lsps2/types'
+import { Lsps2TimeoutError } from '../ldk/lsps2/errors'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { Receive } from './Receive'
 
@@ -18,10 +19,10 @@ const TEST_LSP: LspContact = {
   host: 'lsp.test',
   port: 9735,
   token: null,
-  label: 'lqwd',
+  label: 'megalith',
 }
 
-function makeParams(overrides: Partial<OpeningFeeParams> = {}): OpeningFeeParams {
+function makeParams(overrides: Partial<LSPS2OpeningFeeParams> = {}): LSPS2OpeningFeeParams {
   return {
     minFeeMsat: 2_500_000n,
     proportional: 5000,
@@ -461,16 +462,14 @@ describe('Receive', () => {
       await waitFor(() => expect(requestJitQuote).toHaveBeenCalled())
     })
 
-    it('re-quotes the fallback LSP and re-confirms when the primary buy fails', async () => {
+    // With a single LSP (Megalith) and no fallback (HAS_FALLBACK_LSP false), a
+    // failed buy goes straight to jit-error — no fallback re-quote, no spurious
+    // spinner flash, and no misleading "fallback failed" telemetry. (The
+    // buy-phase fallback machinery is retained but gated for a future 2nd LSP.)
+    it('goes straight to jit-error when the buy fails and no fallback is configured', async () => {
       const user = userEvent.setup()
-      // First quote = primary (lqwd). Second quote (skipPrimary) = fallback.
-      const requestJitQuote = vi
-        .fn()
-        // First quote = primary (role 'primary'); its buy fails below.
-        .mockResolvedValueOnce(makeQuote(50_000_000n, 50n))
-        // Re-quote (skipPrimary) returns the fallback's quote (role 'fallback').
-        .mockResolvedValueOnce({ ...makeQuote(50_000_000n, 3_000_000n), role: 'fallback' as const })
-      const executeJitBuy = vi.fn().mockRejectedValue(new Error('LSPS2 request timed out'))
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(50_000_000n, 50n))
+      const executeJitBuy = vi.fn().mockRejectedValue(new Lsps2TimeoutError())
 
       renderReceive(
         undefined,
@@ -488,20 +487,17 @@ describe('Receive', () => {
       await user.click(screen.getByRole('button', { name: '0' }))
       await user.click(screen.getByRole('button', { name: /request/i }))
 
-      // First Review (primary, lqwd) → commit.
+      // Review (primary, megalith) → commit.
       const cta = await screen.findByRole('button', { name: /generate payment request/i })
       await user.click(cta)
 
-      // Primary buy fails → auto re-quote fallback → Review re-appears with the
-      // fallback's (higher) fee and the backup-provider disclosure.
+      // Buy fails → jit-error directly.
       await waitFor(() => {
-        expect(screen.getByText(/backup provider at a higher fee/i)).toBeInTheDocument()
+        expect(screen.getByText(/could not generate payment request/i)).toBeInTheDocument()
       })
-      const reviewRegion = screen.getByRole('region', { name: /review receive/i })
-      expect(reviewRegion).toHaveTextContent('₿3,000') // fallback setup fee
-      // Second quote was requested with skipPrimary.
-      expect(requestJitQuote).toHaveBeenCalledTimes(2)
-      expect(requestJitQuote.mock.calls[1]![2]).toEqual({ skipPrimary: true })
+      // No fallback re-quote was attempted, and no backup-provider banner shown.
+      expect(requestJitQuote).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText(/backup provider at a higher fee/i)).not.toBeInTheDocument()
     })
 
     it('falls back to on-chain only when Phase A fails for non-size reasons', async () => {

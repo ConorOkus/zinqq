@@ -30,7 +30,6 @@ import {
 } from './ldk-context'
 import { LDK_CONFIG } from './config'
 import { resolveLspContacts, type LspContact } from './lsp/contacts'
-import { fetchLqwdContact } from './lsp/lqwd-discovery'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
@@ -52,8 +51,15 @@ import {
   computeMinReceiveSats,
   MIN_JIT_RECEIVE_SATS,
   type JitInvoiceResult,
-  type OpeningFeeParams,
+  type LSPS2OpeningFeeParams,
 } from './lsps2/types'
+import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './lsps2/bolt11-encoder'
+import {
+  Lsps2TimeoutError,
+  Lsps2PeerDisconnectedError,
+  Lsps2BackpressureError,
+  Lsps2HandlerDestroyedError,
+} from './lsps2/errors'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -84,9 +90,9 @@ export class JitPeerConnectError extends Error {
  */
 export class JitPaymentSizeOutOfRangeError extends Error {
   readonly trigger = 'payment_size_filter' as const
-  readonly menu: OpeningFeeParams[]
+  readonly menu: LSPS2OpeningFeeParams[]
   readonly contact: LspContact
-  constructor(message: string, menu: OpeningFeeParams[], contact: LspContact) {
+  constructor(message: string, menu: LSPS2OpeningFeeParams[], contact: LspContact) {
     super(message)
     this.menu = menu
     this.contact = contact
@@ -104,6 +110,10 @@ type JitTrigger =
   | 'payment_size_filter'
   | 'quote_freshness'
   | 'aborted'
+  | 'lsps2_timeout'
+  | 'lsps2_peer_disconnected'
+  | 'lsps2_backpressure'
+  | 'lsps2_handler_destroyed'
   | 'lsps2_rpc'
 
 function classifyJitTrigger(err: unknown): JitTrigger {
@@ -111,6 +121,13 @@ function classifyJitTrigger(err: unknown): JitTrigger {
   if (err instanceof JitPaymentSizeOutOfRangeError) return 'payment_size_filter'
   if (err instanceof JitQuoteFreshnessError) return 'quote_freshness'
   if (err instanceof DOMException && err.name === 'AbortError') return 'aborted'
+  // Typed LSPS2 transport failures — distinguished from generic RPC errors so
+  // incident logs can separate a silent LSP (timeout) from a dropped peer,
+  // client-side backpressure, or a benign shutdown teardown.
+  if (err instanceof Lsps2TimeoutError) return 'lsps2_timeout'
+  if (err instanceof Lsps2PeerDisconnectedError) return 'lsps2_peer_disconnected'
+  if (err instanceof Lsps2BackpressureError) return 'lsps2_backpressure'
+  if (err instanceof Lsps2HandlerDestroyedError) return 'lsps2_handler_destroyed'
   return 'lsps2_rpc'
 }
 
@@ -128,10 +145,10 @@ type ConnectFn = (
  */
 export interface JitQuote {
   contact: LspContact
-  /** The exact `OpeningFeeParams` displayed to the user (signed by the LSP via `promise`). */
-  params: OpeningFeeParams
+  /** The exact `LSPS2OpeningFeeParams` displayed to the user (signed by the LSP via `promise`). */
+  params: LSPS2OpeningFeeParams
   /** The full menu — `selectCheapestParams` already picked `params`, but the menu drives `computeMinReceiveSats` for the below-minimum UI. */
-  menu: OpeningFeeParams[]
+  menu: LSPS2OpeningFeeParams[]
   /** Pre-computed opening fee for `amountMsat` against `params`. */
   openingFeeMsat: bigint
   /** The amount the quote covers, in msat. */
@@ -279,7 +296,7 @@ export async function getJitQuote(
 
   // Step 1: Get opening fee params from LSP.
   const feeMenu = await withAbort(
-    node.lsps2Client.getOpeningFeeParams(contact.nodeId, contact.token),
+    node.lsps2Client.requestOpeningParams(contact.nodeId, contact.token),
     signal
   )
 
@@ -363,10 +380,10 @@ export async function executeJitBuy(
 
   // Step 3: Buy JIT channel. Past this line, abort is ignored — orphaning
   // an LSP commitment is worse than running to completion.
-  const buyResponse = await node.lsps2Client.buyChannel(
+  const buyResponse = await node.lsps2Client.selectOpeningParams(
     quote.contact.nodeId,
-    quote.params,
-    quote.amountMsat
+    quote.amountMsat,
+    quote.params
   )
 
   // Step 4: Register the inbound payment with LDK. We pass `amountMsat -
@@ -387,19 +404,30 @@ export async function executeJitBuy(
   const paymentHash = paymentResult.res.get_a()
   const paymentSecret = paymentResult.res.get_b()
 
-  // Step 5: Build and sign the BOLT11 invoice with JIT route hint.
-  const nodeIdBytes = hexToBytes(node.nodeId)
-  const bolt11 = await node.lsps2Client.createJitInvoice({
-    buyResponse,
-    lspNodeId: quote.contact.nodeId,
-    amountMsat: quote.amountMsat,
-    description,
-    nodeId: nodeIdBytes,
-    nodeSecretKey: node.nodeSecretKey,
-    paymentHash,
-    paymentSecret,
-    minFinalCltvExpiry: 144,
-  })
+  // Step 5: Build and sign the BOLT11 invoice with a route hint through the LSP.
+  // Mirrors LDK: the client returns the invoice params (intercept SCID + CLTV
+  // delta) and the app assembles the invoice from them.
+  const routeHint: RouteHintEntry = {
+    pubkey: hexToBytes(quote.contact.nodeId),
+    shortChannelId: parseLsps2Scid(buyResponse.interceptScid),
+    feeBaseMsat: 0,
+    feeProportionalMillionths: 0,
+    cltvExpiryDelta: buyResponse.cltvExpiryDelta,
+  }
+  const bolt11 = await encodeBolt11Invoice(
+    {
+      amountMsat: quote.amountMsat,
+      paymentHash,
+      paymentSecret,
+      description,
+      expirySecs: 3600, // 1 hour
+      // bLIP-52: add +2 to min_final_cltv_expiry to account for blocks mined during payment
+      minFinalCltvExpiry: 144 + 2,
+      payeeNodeId: hexToBytes(node.nodeId),
+      routeHints: [[routeHint]],
+    },
+    node.nodeSecretKey
+  )
 
   return {
     bolt11,
@@ -505,6 +533,7 @@ export async function runJitQuoteFlow(args: {
         `falling back from ${contacts.primary.label} to ${contacts.fallback.label}`,
         JSON.stringify({
           trigger: classifyJitTrigger(err),
+          error: String(err),
           primary: contacts.primary.label,
           fallback: contacts.fallback.label,
           duration_ms: Math.round(performance.now() - t0),
@@ -512,8 +541,13 @@ export async function runJitQuoteFlow(args: {
       )
     }
   } else {
-    // Primary discovery failed (HTTP /get_info preflight error). Skip
-    // straight to fallback; resolveLspContacts already swallowed the error.
+    // Primary unavailable before any attempt (e.g. a future discovery step
+    // returned null for the primary). Skip straight to fallback. Unreachable
+    // today — `resolveLspContacts` always yields a non-null primary (Megalith)
+    // — but retained as tested failover machinery for a re-added 2nd LSP. The
+    // `http_preflight` trigger name is historical (LQwD's removed /get_info
+    // discovery). `contacts.fallback!` is safe: the guard above throws when
+    // both primary and fallback are null.
     captureError(
       'warning',
       'LSP',
@@ -980,19 +1014,9 @@ export function LdkProvider({
           cmPersistScheduler = persistScheduler
           const schedulePersist = persistScheduler.schedule
 
-          // Eagerly discover LQwD's pubkey and add it to the trust set so
-          // the event handler accepts 0-conf opens from the primary LSP.
-          // Fire-and-forget: if discovery fails, we silently continue with
-          // only Megalith trusted (the receive flow will then fall back).
-          // See todos/291 (P1 from PR #148 review).
-          void fetchLqwdContact()
-            .then((contact) => {
-              if (cancelled) return
-              node.trustedLspIds.add(contact.nodeId)
-            })
-            .catch(() => {
-              // Discovery failure is logged elsewhere; don't double-log.
-            })
+          // Megalith (the sole LSP) is seeded into the trust set at init from
+          // env config (init.ts), so the event handler already accepts its
+          // 0-conf opens — no runtime discovery step is needed.
 
           // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {

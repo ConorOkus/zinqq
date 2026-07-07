@@ -21,6 +21,14 @@ symptoms:
   - "Got non-closing error: Peer's feerate much too low. Actual: 253. Our expected lower limit: 2500"
 ---
 
+> ⚠️ **Partially superseded (2026-07-07, PR #167).** LQwD was removed; Megalith is
+> now the sole LSP. The two accommodations described here —
+> `force_announced_channel_preference(false)` and the 253 sat/kW non-anchor
+> feerate floor — were **retained** (they are global and harmless), but their
+> original LQwD-specific justification no longer applies. Whether Megalith
+> requires them is unverified — tracked as a follow-up todo. See
+> [[reference_megalith_lsp]].
+
 # LQwD JIT channel opens rejected by announcement preference and non-anchor feerate floor
 
 ## Problem

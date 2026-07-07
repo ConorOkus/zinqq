@@ -25,6 +25,13 @@ related:
 commit: db47af4
 ---
 
+> ⚠️ **Superseded (2026-07-07, PR #167).** LQwD was removed as an LSP; Megalith is
+> now the sole provider. The proxy this documents (`api/lqwd-proxy.ts`, the
+> `vercel.json` rewrite, and the `vite.config.ts` dev proxy) and
+> `src/ldk/lsp/lqwd-discovery.ts` were all deleted. Kept for historical reference:
+> the same-origin proxy pattern still applies to other third-party endpoints
+> (Esplora, VSS, LNURL). See [[reference_megalith_lsp]].
+
 # LQwD LSP discovery blocked by CORS from browser, fixed via same-origin Vercel proxy
 
 ## Symptom

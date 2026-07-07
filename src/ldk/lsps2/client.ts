@@ -1,7 +1,11 @@
 /**
  * LSPS2 protocol client.
  *
- * Implements the two-step LSPS2 flow: get_info -> buy.
+ * Mirrors LDK's `LSPS2ClientHandler`: `requestOpeningParams` (lsps2.get_info)
+ * and `selectOpeningParams` (lsps2.buy). It returns the invoice parameters
+ * (intercept SCID + CLTV delta); building the BOLT11 invoice from them is an
+ * app-layer concern (see `executeJitBuy` in context.tsx), matching LDK, where
+ * the handler surfaces `InvoiceParametersReady` and the caller builds the invoice.
  * All protocol logic is async; the sync/async bridge is in message-handler.ts.
  */
 
@@ -9,14 +13,13 @@ import { hexToBytes } from '../utils'
 import { captureError } from '../../storage/error-log'
 import type { JsonRpcResponse } from './types'
 import {
-  type OpeningFeeParams,
-  type BuyResponse,
+  type LSPS2OpeningFeeParams,
+  type LSPS2InvoiceParameters,
   serializeJsonRpcRequest,
   serializeOpeningFeeParams,
   deserializeOpeningFeeParams,
   lsps2ErrorMessage,
 } from './types'
-import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './bolt11-encoder'
 
 type SendRequestFn = (peerPubkey: Uint8Array, payload: string) => Promise<JsonRpcResponse>
 
@@ -27,10 +30,13 @@ export class LSPS2Client {
     this.sendRequest = sendRequest
   }
 
-  async getOpeningFeeParams(lspNodeId: string, token: string | null): Promise<OpeningFeeParams[]> {
+  async requestOpeningParams(
+    counterpartyNodeId: string,
+    token: string | null
+  ): Promise<LSPS2OpeningFeeParams[]> {
     const params: Record<string, unknown> = { token }
 
-    const response = await this.sendLsps2Request(lspNodeId, 'lsps2.get_info', params)
+    const response = await this.sendLsps2Request(counterpartyNodeId, 'lsps2.get_info', params)
 
     if (response.error) {
       captureError('error', 'LSPS2', 'get_info error', JSON.stringify(response.error))
@@ -53,17 +59,17 @@ export class LSPS2Client {
     return feeParamsMenu
   }
 
-  async buyChannel(
-    lspNodeId: string,
-    feeParams: OpeningFeeParams,
-    paymentSizeMsat: bigint
-  ): Promise<BuyResponse> {
+  async selectOpeningParams(
+    counterpartyNodeId: string,
+    paymentSizeMsat: bigint,
+    openingFeeParams: LSPS2OpeningFeeParams
+  ): Promise<LSPS2InvoiceParameters> {
     const params: Record<string, unknown> = {
-      opening_fee_params: serializeOpeningFeeParams(feeParams),
+      opening_fee_params: serializeOpeningFeeParams(openingFeeParams),
       payment_size_msat: paymentSizeMsat.toString(),
     }
 
-    const response = await this.sendLsps2Request(lspNodeId, 'lsps2.buy', params)
+    const response = await this.sendLsps2Request(counterpartyNodeId, 'lsps2.buy', params)
 
     if (response.error) {
       throw new Error(lsps2ErrorMessage(response.error.code))
@@ -84,54 +90,10 @@ export class LSPS2Client {
     }
 
     return {
-      jitChannelScid: scid,
-      lspCltvExpiryDelta: cltvDelta,
+      interceptScid: scid,
+      cltvExpiryDelta: cltvDelta,
       clientTrustsLsp: trustsLsp === true,
     }
-  }
-
-  /**
-   * Create a BOLT11 invoice with a route hint through the LSP for a JIT channel.
-   *
-   * Uses channelManager.create_inbound_payment() to register the payment with LDK,
-   * then builds and signs the BOLT11 invoice manually with custom route hints.
-   */
-  async createJitInvoice(params: {
-    buyResponse: BuyResponse
-    lspNodeId: string
-    amountMsat: bigint
-    description: string
-    nodeId: Uint8Array // 33-byte compressed pubkey
-    nodeSecretKey: Uint8Array // 32-byte secret
-    paymentHash: Uint8Array // 32 bytes from create_inbound_payment
-    paymentSecret: Uint8Array // 32 bytes from create_inbound_payment
-    minFinalCltvExpiry: number
-  }): Promise<string> {
-    const lspPubkey = hexToBytes(params.lspNodeId)
-    const scidU64 = parseLsps2Scid(params.buyResponse.jitChannelScid)
-
-    const routeHint: RouteHintEntry = {
-      pubkey: lspPubkey,
-      shortChannelId: scidU64,
-      feeBaseMsat: 0,
-      feeProportionalMillionths: 0,
-      cltvExpiryDelta: params.buyResponse.lspCltvExpiryDelta,
-    }
-
-    return await encodeBolt11Invoice(
-      {
-        amountMsat: params.amountMsat,
-        paymentHash: params.paymentHash,
-        paymentSecret: params.paymentSecret,
-        description: params.description,
-        expirySecs: 3600, // 1 hour
-        // bLIP-52: add +2 to min_final_cltv_expiry to account for blocks mined during payment
-        minFinalCltvExpiry: params.minFinalCltvExpiry + 2,
-        payeeNodeId: params.nodeId,
-        routeHints: [[routeHint]],
-      },
-      params.nodeSecretKey
-    )
   }
 
   private async sendLsps2Request(

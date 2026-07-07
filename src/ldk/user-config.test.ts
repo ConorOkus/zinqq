@@ -64,10 +64,10 @@ describe('createUserConfig', () => {
     expect(handshakeLimitsSetters.set_trust_own_funding_0conf).toHaveBeenCalledWith(true)
   })
 
-  // Regression guard: LQwD opens channels whose announce flag differs from
+  // Regression guard: some LSPs open channels whose announce flag differs from
   // our default; without this `false`, OpenChannelRequest is rejected with
   // "announcement preference is different from ours".
-  it('disables force-announced-channel-preference (LQwD compatibility)', () => {
+  it('disables force-announced-channel-preference (LSP compatibility)', () => {
     createUserConfig()
     expect(handshakeLimitsSetters.set_force_announced_channel_preference).toHaveBeenCalledWith(
       false

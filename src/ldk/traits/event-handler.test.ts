@@ -217,6 +217,29 @@ vi.mock('lightningdevkit', () => {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
     },
     Result_NoneAPIErrorZ_Err: class {},
+    // JIT 0-conf channel config overrides (Phase 4). Structured so tests can
+    // assert the pinned settings reach the accept call.
+    ChannelConfigOverrides: {
+      constructor_new: vi.fn((handshake: unknown, update: unknown) => ({ handshake, update })),
+    },
+    ChannelConfigUpdate: {
+      constructor_new: vi.fn((...args: unknown[]) => ({ acceptUnderpayingHtlcs: args[5] })),
+    },
+    ChannelHandshakeConfigUpdate: {
+      constructor_new: vi.fn((...args: unknown[]) => ({ maxInboundInflightPercent: args[0] })),
+    },
+    Option_boolZ: {
+      constructor_some: vi.fn((v: boolean) => ({ some: v })),
+      constructor_none: vi.fn(() => null),
+    },
+    Option_u8Z: {
+      constructor_some: vi.fn((v: number) => ({ some: v })),
+      constructor_none: vi.fn(() => null),
+    },
+    Option_u16Z: { constructor_none: vi.fn(() => null) },
+    Option_u32Z: { constructor_none: vi.fn(() => null) },
+    Option_u64Z: { constructor_none: vi.fn(() => null) },
+    Option_MaxDustHTLCExposureZ: { constructor_none: vi.fn(() => null) },
   }
 })
 
@@ -753,6 +776,19 @@ describe('createEventHandler — Event_OpenChannelRequest trust set', () => {
     expect(mockAcceptInboundChannel).not.toHaveBeenCalled()
   })
 
+  it('pins JIT channel config overrides on the 0-conf accept', () => {
+    setup((pubkey) => pubkey === COUNTERPARTY_HEX)
+    handleEvent(new Event_OpenChannelRequest())
+    expect(mockAcceptInbound0conf).toHaveBeenCalledTimes(1)
+    const overrides = (mockAcceptInbound0conf.mock.calls[0] as unknown[])[3] as {
+      handshake: { maxInboundInflightPercent: { some: number } }
+      update: { acceptUnderpayingHtlcs: { some: boolean } }
+    }
+    expect(overrides).not.toBeNull()
+    expect(overrides.update.acceptUnderpayingHtlcs).toEqual({ some: true })
+    expect(overrides.handshake.maxInboundInflightPercent).toEqual({ some: 100 })
+  })
+
   it('rejects 0-conf when predicate returns false', () => {
     setup(() => false)
     handleEvent(new Event_OpenChannelRequest())
@@ -760,16 +796,16 @@ describe('createEventHandler — Event_OpenChannelRequest trust set', () => {
     expect(mockAcceptInboundChannel).not.toHaveBeenCalled()
   })
 
-  it('reflects mutable trust-set updates between calls (LQwD discovery race)', () => {
-    // Initial state: only Megalith trusted (pre-LQwD-discovery).
-    const trusted = new Set<string>(['megalith-pubkey'])
+  it('reflects mutable trust-set updates between calls (runtime-added LSP)', () => {
+    // Initial state: some other LSP trusted; the counterparty is not yet.
+    const trusted = new Set<string>(['other-lsp-pubkey'])
     setup((pubkey) => trusted.has(pubkey))
 
-    // First open from LQwD's pubkey before discovery resolves: rejected.
+    // First open from an untrusted pubkey: rejected.
     handleEvent(new Event_OpenChannelRequest())
     expect(mockAcceptInbound0conf).not.toHaveBeenCalled()
 
-    // Discovery resolves; LdkProvider adds LQwD's pubkey to the set.
+    // The counterparty's pubkey is added to the trust set at runtime.
     trusted.add(COUNTERPARTY_HEX)
 
     // Second open from the same counterparty: accepted via the live
