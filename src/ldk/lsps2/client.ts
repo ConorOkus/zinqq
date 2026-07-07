@@ -1,7 +1,11 @@
 /**
  * LSPS2 protocol client.
  *
- * Implements the two-step LSPS2 flow: get_info -> buy.
+ * Mirrors LDK's `LSPS2ClientHandler`: `requestOpeningParams` (lsps2.get_info)
+ * and `selectOpeningParams` (lsps2.buy). It returns the invoice parameters
+ * (intercept SCID + CLTV delta); building the BOLT11 invoice from them is an
+ * app-layer concern (see `executeJitBuy` in context.tsx), matching LDK, where
+ * the handler surfaces `InvoiceParametersReady` and the caller builds the invoice.
  * All protocol logic is async; the sync/async bridge is in message-handler.ts.
  */
 
@@ -16,7 +20,6 @@ import {
   deserializeOpeningFeeParams,
   lsps2ErrorMessage,
 } from './types'
-import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './bolt11-encoder'
 
 type SendRequestFn = (peerPubkey: Uint8Array, payload: string) => Promise<JsonRpcResponse>
 
@@ -91,50 +94,6 @@ export class LSPS2Client {
       cltvExpiryDelta: cltvDelta,
       clientTrustsLsp: trustsLsp === true,
     }
-  }
-
-  /**
-   * Create a BOLT11 invoice with a route hint through the LSP for a JIT channel.
-   *
-   * Uses channelManager.create_inbound_payment() to register the payment with LDK,
-   * then builds and signs the BOLT11 invoice manually with custom route hints.
-   */
-  async createJitInvoice(params: {
-    buyResponse: LSPS2InvoiceParameters
-    lspNodeId: string
-    amountMsat: bigint
-    description: string
-    nodeId: Uint8Array // 33-byte compressed pubkey
-    nodeSecretKey: Uint8Array // 32-byte secret
-    paymentHash: Uint8Array // 32 bytes from create_inbound_payment
-    paymentSecret: Uint8Array // 32 bytes from create_inbound_payment
-    minFinalCltvExpiry: number
-  }): Promise<string> {
-    const lspPubkey = hexToBytes(params.lspNodeId)
-    const scidU64 = parseLsps2Scid(params.buyResponse.interceptScid)
-
-    const routeHint: RouteHintEntry = {
-      pubkey: lspPubkey,
-      shortChannelId: scidU64,
-      feeBaseMsat: 0,
-      feeProportionalMillionths: 0,
-      cltvExpiryDelta: params.buyResponse.cltvExpiryDelta,
-    }
-
-    return await encodeBolt11Invoice(
-      {
-        amountMsat: params.amountMsat,
-        paymentHash: params.paymentHash,
-        paymentSecret: params.paymentSecret,
-        description: params.description,
-        expirySecs: 3600, // 1 hour
-        // bLIP-52: add +2 to min_final_cltv_expiry to account for blocks mined during payment
-        minFinalCltvExpiry: params.minFinalCltvExpiry + 2,
-        payeeNodeId: params.nodeId,
-        routeHints: [[routeHint]],
-      },
-      params.nodeSecretKey
-    )
   }
 
   private async sendLsps2Request(

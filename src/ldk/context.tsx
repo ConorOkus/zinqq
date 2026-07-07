@@ -54,6 +54,7 @@ import {
   type JitInvoiceResult,
   type LSPS2OpeningFeeParams,
 } from './lsps2/types'
+import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './lsps2/bolt11-encoder'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -387,19 +388,30 @@ export async function executeJitBuy(
   const paymentHash = paymentResult.res.get_a()
   const paymentSecret = paymentResult.res.get_b()
 
-  // Step 5: Build and sign the BOLT11 invoice with JIT route hint.
-  const nodeIdBytes = hexToBytes(node.nodeId)
-  const bolt11 = await node.lsps2Client.createJitInvoice({
-    buyResponse,
-    lspNodeId: quote.contact.nodeId,
-    amountMsat: quote.amountMsat,
-    description,
-    nodeId: nodeIdBytes,
-    nodeSecretKey: node.nodeSecretKey,
-    paymentHash,
-    paymentSecret,
-    minFinalCltvExpiry: 144,
-  })
+  // Step 5: Build and sign the BOLT11 invoice with a route hint through the LSP.
+  // Mirrors LDK: the client returns the invoice params (intercept SCID + CLTV
+  // delta) and the app assembles the invoice from them.
+  const routeHint: RouteHintEntry = {
+    pubkey: hexToBytes(quote.contact.nodeId),
+    shortChannelId: parseLsps2Scid(buyResponse.interceptScid),
+    feeBaseMsat: 0,
+    feeProportionalMillionths: 0,
+    cltvExpiryDelta: buyResponse.cltvExpiryDelta,
+  }
+  const bolt11 = await encodeBolt11Invoice(
+    {
+      amountMsat: quote.amountMsat,
+      paymentHash,
+      paymentSecret,
+      description,
+      expirySecs: 3600, // 1 hour
+      // bLIP-52: add +2 to min_final_cltv_expiry to account for blocks mined during payment
+      minFinalCltvExpiry: 144 + 2,
+      payeeNodeId: hexToBytes(node.nodeId),
+      routeHints: [[routeHint]],
+    },
+    node.nodeSecretKey
+  )
 
   return {
     bolt11,
