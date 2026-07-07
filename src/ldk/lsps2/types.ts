@@ -82,7 +82,10 @@ export function lsps2ErrorMessage(code: number): string {
 
 const U64_MAX = (1n << 64n) - 1n
 
-export function calculateOpeningFee(paymentSizeMsat: bigint, params: LSPS2OpeningFeeParams): bigint {
+export function calculateOpeningFee(
+  paymentSizeMsat: bigint,
+  params: LSPS2OpeningFeeParams
+): bigint {
   const product = paymentSizeMsat * BigInt(params.proportional)
   if (product > U64_MAX) throw new Error('Fee calculation overflow: product exceeds u64')
   const sum = product + 999_999n

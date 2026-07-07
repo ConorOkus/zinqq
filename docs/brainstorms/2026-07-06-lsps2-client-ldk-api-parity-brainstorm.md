@@ -101,9 +101,9 @@ None — all resolved below.
   (handler returns scid + cltv; caller builds the invoice). This supersedes the earlier
   "keep it on the client for now" note in Key Decisions.
 
-- *Is the built-in LSPS2 client available in the WASM bindings?* — **No** (verified three ways;
+- _Is the built-in LSPS2 client available in the WASM bindings?_ — **No** (verified three ways;
   see Context).
-- *Is there any other LSP / liquidity management in the bindings?* — **No high-level LSP/liquidity
+- _Is there any other LSP / liquidity management in the bindings?_ — **No high-level LSP/liquidity
   API**; only low-level JIT primitives (see Context).
-- *Which direction?* — **Harden the hand-rolled client (Approach A)**, chosen over upstream
+- _Which direction?_ — **Harden the hand-rolled client (Approach A)**, chosen over upstream
   bindings, event-model parity, and adapter seam.

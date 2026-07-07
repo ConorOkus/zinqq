@@ -27,11 +27,13 @@ Raised by the TypeScript reviewer (P3) and architecture-strategist (Low, pre-exi
 ## Proposed Solutions
 
 ### Option A: Document intentional non-use
+
 Add a one-line comment on the field explaining the wallet only supports the
 client-trusts-LSP flow (or whichever assumption holds) and ignores this signal. Effort:
 Trivial.
 
 ### Option B: Wire it into the flow
+
 Consult `clientTrustsLsp` where the JIT trust/accept decision is made. Effort: Medium;
 needs a clear behavioral spec — defer unless there's a concrete need.
 

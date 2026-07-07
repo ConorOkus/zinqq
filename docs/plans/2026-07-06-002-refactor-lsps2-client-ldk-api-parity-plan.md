@@ -38,7 +38,7 @@ with only mechanical renames.
   `ChannelConfigOverrides`, letting the JIT channel's requirements be stated
   explicitly at accept time.
 - JIT invoice construction lives inside the client (`createJitInvoice`), which
-  is *not* what LDK's handler does — LDK returns `intercept_scid` + `cltv` and
+  is _not_ what LDK's handler does — LDK returns `intercept_scid` + `cltv` and
   the caller builds the invoice. Moving it out sharpens the seam.
 
 ## Proposed Solution
@@ -51,13 +51,14 @@ brainstorm "Why This Approach").
 
 ### API mapping (adopt LDK's exact names — see brainstorm: Resolved Questions)
 
-| Current (`client.ts`) | LDK `LSPS2ClientHandler` | New name |
-|---|---|---|
-| `getOpeningFeeParams(lspNodeId, token)` → `OpeningFeeParams[]` | `request_opening_params(counterparty_node_id, token)` | `requestOpeningParams(counterpartyNodeId, token)` |
+| Current (`client.ts`)                                               | LDK `LSPS2ClientHandler`                                                             | New name                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `getOpeningFeeParams(lspNodeId, token)` → `OpeningFeeParams[]`      | `request_opening_params(counterparty_node_id, token)`                                | `requestOpeningParams(counterpartyNodeId, token)`                            |
 | `buyChannel(lspNodeId, feeParams, paymentSizeMsat)` → `BuyResponse` | `select_opening_params(counterparty_node_id, payment_size_msat, opening_fee_params)` | `selectOpeningParams(counterpartyNodeId, paymentSizeMsat, openingFeeParams)` |
-| `createJitInvoice(...)` | *(caller builds invoice from `InvoiceParametersReady`)* | **move to app layer** (see Phase 3) |
+| `createJitInvoice(...)`                                             | _(caller builds invoice from `InvoiceParametersReady`)_                              | **move to app layer** (see Phase 3)                                          |
 
 Type renames in `types.ts` (mirror LDK struct/event names):
+
 - `OpeningFeeParams` → `LSPS2OpeningFeeParams` (fields already match LDK's:
   `min_fee_msat`, `proportional`, `valid_until`, `min_lifetime`,
   `max_client_to_self_delay`, `min_payment_size_msat`, `max_payment_size_msat`,
@@ -78,7 +79,7 @@ small typed hierarchy in `src/ldk/lsps2/errors.ts`:
 ```ts
 // src/ldk/lsps2/errors.ts
 export class Lsps2TransportError extends Error {}
-export class Lsps2TimeoutError extends Lsps2TransportError {}      // reaper
+export class Lsps2TimeoutError extends Lsps2TransportError {} // reaper
 export class Lsps2PeerDisconnectedError extends Lsps2TransportError {}
 export class Lsps2HandlerDestroyedError extends Lsps2TransportError {}
 export class Lsps2BackpressureError extends Lsps2TransportError {} // per-peer cap
@@ -89,12 +90,13 @@ which `runJitQuoteFlow` already treats as fallback-eligible — proven by
 `jit-failover.test.ts:226`). Typing them adds telemetry precision and lets the
 buy path surface a specific message without changing failover semantics.
 
-### Timeout: tune the *existing* reaper (do not build a new one)
+### Timeout: tune the _existing_ reaper (do not build a new one)
 
 `message-handler.ts:36-69` already reaps pending requests
 (`REQUEST_TIMEOUT_MS = 30_000`, 5s interval), caps per-peer pending
 (`MAX_PENDING_PER_PEER = 10`), and cleans up on `peer_disconnected` / `destroy`.
 Work here is:
+
 - `REQUEST_TIMEOUT_MS: 30_000 → 15_000` (brainstorm decision: 15s).
 - Reject with `Lsps2TimeoutError` instead of `new Error('LSPS2 request timed out')`.
 
@@ -112,6 +114,7 @@ At `event-handler.ts:618-623`, pass an explicit `ChannelConfigOverrides`
 (now constructible: `ChannelConfigOverrides.constructor_new` +
 `ChannelConfigUpdate.set_accept_underpaying_htlcs` exist in 0.2.4) that pins the
 JIT channel's requirements at accept time:
+
 - `accept_underpaying_htlcs = true`
 - inbound in-flight = 100%
 
@@ -170,6 +173,7 @@ a separate, individually-validated follow-up (out of scope; note in the doc).
 ## Implementation Phases
 
 ### Phase 1 — Type + error scaffolding (no behavior change)
+
 - Add `src/ldk/lsps2/errors.ts` (typed hierarchy above).
 - Rename `OpeningFeeParams` → `LSPS2OpeningFeeParams`, `BuyResponse` →
   `LSPS2InvoiceParameters` in `types.ts` + all imports (`client.ts`,
@@ -179,6 +183,7 @@ a separate, individually-validated follow-up (out of scope; note in the doc).
   `src/ldk/lsps2/client.ts`, `src/ldk/context.tsx`, `src/ldk/lsp/jit-failover.test.ts`.
 
 ### Phase 2 — Method parity + typed timeouts
+
 - Rename `getOpeningFeeParams` → `requestOpeningParams`, `buyChannel` →
   `selectOpeningParams` (signature order to mirror LDK); update call sites in
   `context.tsx:282,366`.
@@ -189,6 +194,7 @@ a separate, individually-validated follow-up (out of scope; note in the doc).
   `src/ldk/context.tsx`.
 
 ### Phase 3 — Move invoice construction to app layer
+
 - Delete `createJitInvoice` from `client.ts`; `selectOpeningParams` returns
   `LSPS2InvoiceParameters`. Move the route-hint BOLT11 assembly into
   `executeJitBuy` (`context.tsx`), reusing `encodeBolt11Invoice` +
@@ -197,6 +203,7 @@ a separate, individually-validated follow-up (out of scope; note in the doc).
   `src/ldk/lsps2/bolt11-encoder.ts` (unchanged; now imported by context).
 
 ### Phase 4 — Explicit `ChannelConfigOverrides` on 0-conf accept
+
 - `event-handler.ts:618-623`: construct `ChannelConfigOverrides` pinning
   `accept_underpaying_htlcs=true` + inbound in-flight 100%; pass as the 4th arg.
   Keep global config as safety net.
@@ -264,12 +271,14 @@ a separate, individually-validated follow-up (out of scope; note in the doc).
 ## Sources & References
 
 ### Origin
+
 - **Brainstorm:** [docs/brainstorms/2026-07-06-lsps2-client-ldk-api-parity-brainstorm.md](../brainstorms/2026-07-06-lsps2-client-ldk-api-parity-brainstorm.md).
   Carried-forward decisions: Approach A (naming+type parity, keep promise
   internals); adopt LDK's exact type names; 15s failover-eligible timeout;
   include the `config_overrides` fix; move invoice construction to app layer.
 
 ### Internal references
+
 - `src/ldk/lsps2/client.ts` — client methods to rename (`:30,56,99`).
 - `src/ldk/lsps2/message-handler.ts:36-69` — existing reaper/timeout to tune;
   `:65,80,158,213` — `new Error` sites to type.
@@ -287,6 +296,7 @@ a separate, individually-validated follow-up (out of scope; note in the doc).
   WASM BOLT11 result-matching gotcha.
 
 ### External references
+
 - `LSPS2ClientHandler` API — https://docs.rs/lightning-liquidity/latest/lightning_liquidity/lsps2/client/struct.LSPS2ClientHandler.html
 - `LSPS2ClientEvent` fields — https://docs.rs/lightning-liquidity/latest/lightning_liquidity/lsps2/event/enum.LSPS2ClientEvent.html
 - `ldk-c-bindings` crate list (proof of missing wrap) —

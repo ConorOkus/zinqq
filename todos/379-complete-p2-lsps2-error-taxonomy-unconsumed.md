@@ -43,6 +43,7 @@ and the code-simplicity reviewer.
 ## Proposed Solutions
 
 ### Option A: Wire the taxonomy into telemetry (fulfill the stated intent)
+
 Extend the `JitTrigger` union and add branches to `classifyJitTrigger`, e.g.
 `if (err instanceof Lsps2TimeoutError) return 'lsps2_timeout'` (+ disconnect/backpressure),
 and add `error: String(err)` to the `captureError` payload at `context.tsx:514-524`.
@@ -50,6 +51,7 @@ Pros: delivers the advertised incident-log discrimination. Cons: touches the tri
 union + any downstream consumers of it. Effort: Small.
 
 ### Option B: Soften the docstring to match reality
+
 Downgrade `errors.ts` docs to "typed for throw-site clarity + `String(err)` telemetry"
 and fix the buy-path wording. Pros: zero behavior change. Cons: leaves the plan's success
 metric unmet. Effort: Small.

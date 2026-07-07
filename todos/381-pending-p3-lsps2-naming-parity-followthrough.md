@@ -18,7 +18,7 @@ names, undercutting the parity story. Cosmetic; no behavior impact.
 - Stale doc comments referencing the removed `buyChannel` method:
   - `src/ldk/context.tsx:331` and `:334`
   - `src/ldk/ldk-context.ts:62-63`
-  The method is now `selectOpeningParams`.
+    The method is now `selectOpeningParams`.
 - The private transport method retains old vocabulary while the public API adopted
   `counterpartyNodeId`: `src/ldk/lsps2/client.ts:99-100` (`sendLsps2Request(lspNodeId, …)`)
   and `:108` (`hexToBytes(lspNodeId)`).
@@ -26,6 +26,7 @@ names, undercutting the parity story. Cosmetic; no behavior impact.
 ## Proposed Solutions
 
 ### Option A: Sweep the remaining names
+
 `s/buyChannel/selectOpeningParams/` in the three comment sites; rename `lspNodeId` →
 `counterpartyNodeId` in `sendLsps2Request`. Effort: Trivial.
 

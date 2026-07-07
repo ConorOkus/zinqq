@@ -30,7 +30,7 @@ behavior they tried to remove. Raised by architecture-strategist (Medium #2).
   `buildJitChannelConfigOverrides`.
 - No test binds the two together, so drift is invisible until it manifests as a JIT-receive
   regression in production.
-- Related (security, Low/informational): the override is applied to *every* trusted-LSP
+- Related (security, Low/informational): the override is applied to _every_ trusted-LSP
   0-conf channel (`event-handler.ts` accept branch), not only JIT-receive channels. Same
   values as global, so no posture change today, but the helper name implies "JIT only."
   Worth a clarifying comment when touching this code.
@@ -38,12 +38,14 @@ behavior they tried to remove. Raised by architecture-strategist (Medium #2).
 ## Proposed Solutions
 
 ### Option A: Extract shared named constants
+
 Define e.g. `JIT_ACCEPT_UNDERPAYING_HTLCS = true` and `JIT_MAX_INBOUND_INFLIGHT_PCT = 100`
 in one module (e.g. `user-config.ts` or a small `ldk/jit-config.ts`) and consume from both
 `user-config.ts` and `event-handler.ts`. Pros: makes the mirror structural, not documentary.
 Cons: one new import each side. Effort: Small.
 
 ### Option B: Leave as-is with a stronger cross-reference comment
+
 Pros: zero code change. Cons: doesn't prevent drift; relies on future maintainers reading
 both comments. Effort: Trivial. Not recommended.
 
