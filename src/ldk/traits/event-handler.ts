@@ -46,6 +46,15 @@ import {
   ClosureReason_FundingBatchClosure,
   ClosureReason_HTLCsTimedOut,
   ClosureReason_PeerFeerateTooLow,
+  ChannelConfigOverrides,
+  ChannelConfigUpdate,
+  ChannelHandshakeConfigUpdate,
+  Option_boolZ,
+  Option_u8Z,
+  Option_u16Z,
+  Option_u32Z,
+  Option_u64Z,
+  Option_MaxDustHTLCExposureZ,
   type ChannelManager,
   type KeysManager,
   type SocketAddress,
@@ -97,6 +106,41 @@ export type RecoveryNeededCallback = (info: RecoveryNeededInfo) => void
  * runtime-discovered LQwD) can be added after handler creation.
  */
 export type IsTrustedLsp = (pubkeyHex: string) => boolean
+
+/**
+ * Per-channel config overrides applied when accepting a JIT (0-conf) channel
+ * from a trusted LSP. These pin the two settings the JIT receive flow depends
+ * on directly on the accepted channel:
+ *   - `accept_underpaying_htlcs = true` — the LSP deducts its opening fee from
+ *     the forwarded HTLC, so the arriving amount is below the invoice amount.
+ *   - inbound in-flight = 100% — otherwise a large forwarded HTLC is silently
+ *     rejected (see docs/solutions: lsps2-jit-receive-channel-config).
+ *
+ * These mirror the wallet-global settings in `user-config.ts` (retained as the
+ * safety net); stating them per-channel makes the JIT channel's requirements
+ * explicit and robust to future changes in the global default. The 0.2 bindings
+ * added the `config_overrides` slot to the 0-conf accept call, which pre-0.2
+ * could only be set globally.
+ */
+function buildJitChannelConfigOverrides(): ChannelConfigOverrides {
+  const updateOverrides = ChannelConfigUpdate.constructor_new(
+    Option_u32Z.constructor_none(), // forwarding_fee_proportional_millionths
+    Option_u32Z.constructor_none(), // forwarding_fee_base_msat
+    Option_u16Z.constructor_none(), // cltv_expiry_delta
+    Option_MaxDustHTLCExposureZ.constructor_none(), // max_dust_htlc_exposure_msat
+    Option_u64Z.constructor_none(), // force_close_avoidance_max_fee_satoshis
+    Option_boolZ.constructor_some(true) // accept_underpaying_htlcs
+  )
+  const handshakeOverrides = ChannelHandshakeConfigUpdate.constructor_new(
+    Option_u8Z.constructor_some(100), // max_inbound_htlc_value_in_flight_percent_of_channel
+    Option_u64Z.constructor_none(), // htlc_minimum_msat
+    Option_u32Z.constructor_none(), // minimum_depth
+    Option_u16Z.constructor_none(), // to_self_delay
+    Option_u16Z.constructor_none(), // max_accepted_htlcs
+    Option_u32Z.constructor_none() // channel_reserve_proportional_millionths
+  )
+  return ChannelConfigOverrides.constructor_new(handshakeOverrides, updateOverrides)
+}
 
 export function createEventHandler(
   channelManager: ChannelManager,
@@ -619,7 +663,7 @@ function handleEvent(
         event.temporary_channel_id,
         event.counterparty_node_id,
         userChannelId,
-        null // no per-channel config overrides
+        buildJitChannelConfigOverrides()
       )
       if (result.is_ok()) {
         console.log(
