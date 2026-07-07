@@ -14,6 +14,7 @@ import type { PeerManager } from 'lightningdevkit'
 import type { LdkNode } from '../init'
 import type { LspContact } from './contacts'
 import type { LSPS2OpeningFeeParams } from '../lsps2/types'
+import { Lsps2TimeoutError } from '../lsps2/errors'
 
 // runJitQuoteFlow's orchestrator only forwards `node` to the injected
 // `attempt`. A bare object suffices.
@@ -205,6 +206,30 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
       async (_node, contact) => {
         if (contact.label === 'lqwd') {
           throw new JitQuoteFreshnessError('Fee parameters expiring too soon, please try again')
+        }
+        return QUOTE_MEGALITH
+      }
+    )
+
+    const result = await runJitQuoteFlow({
+      node: FAKE_NODE,
+      amountMsat: 50_000_000n,
+      connect: FAKE_CONNECT,
+      contacts: { primary: LQWD, fallback: MEGALITH },
+      attempt,
+    })
+
+    expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
+    expect(attempt).toHaveBeenCalledTimes(2)
+  })
+
+  // Scenario: an LSPS2 transport error (timeout/disconnect) on the primary's
+  // quote is failover-eligible — it is not an AbortError, so fallback runs.
+  it('falls back when the primary quote hits an LSPS2 transport error', async () => {
+    const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
+      async (_node, contact) => {
+        if (contact.label === 'lqwd') {
+          throw new Lsps2TimeoutError()
         }
         return QUOTE_MEGALITH
       }

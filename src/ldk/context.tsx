@@ -279,7 +279,7 @@ export async function getJitQuote(
 
   // Step 1: Get opening fee params from LSP.
   const feeMenu = await withAbort(
-    node.lsps2Client.getOpeningFeeParams(contact.nodeId, contact.token),
+    node.lsps2Client.requestOpeningParams(contact.nodeId, contact.token),
     signal
   )
 
@@ -363,10 +363,10 @@ export async function executeJitBuy(
 
   // Step 3: Buy JIT channel. Past this line, abort is ignored — orphaning
   // an LSP commitment is worse than running to completion.
-  const buyResponse = await node.lsps2Client.buyChannel(
+  const buyResponse = await node.lsps2Client.selectOpeningParams(
     quote.contact.nodeId,
-    quote.params,
-    quote.amountMsat
+    quote.amountMsat,
+    quote.params
   )
 
   // Step 4: Register the inbound payment with LDK. We pass `amountMsat -

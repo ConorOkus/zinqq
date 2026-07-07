@@ -10,6 +10,7 @@ import {
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
 import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
 import type { LSPS2OpeningFeeParams } from '../ldk/lsps2/types'
+import { Lsps2TimeoutError } from '../ldk/lsps2/errors'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { Receive } from './Receive'
 
@@ -470,7 +471,7 @@ describe('Receive', () => {
         .mockResolvedValueOnce(makeQuote(50_000_000n, 50n))
         // Re-quote (skipPrimary) returns the fallback's quote (role 'fallback').
         .mockResolvedValueOnce({ ...makeQuote(50_000_000n, 3_000_000n), role: 'fallback' as const })
-      const executeJitBuy = vi.fn().mockRejectedValue(new Error('LSPS2 request timed out'))
+      const executeJitBuy = vi.fn().mockRejectedValue(new Lsps2TimeoutError())
 
       renderReceive(
         undefined,

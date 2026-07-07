@@ -27,10 +27,13 @@ export class LSPS2Client {
     this.sendRequest = sendRequest
   }
 
-  async getOpeningFeeParams(lspNodeId: string, token: string | null): Promise<LSPS2OpeningFeeParams[]> {
+  async requestOpeningParams(
+    counterpartyNodeId: string,
+    token: string | null
+  ): Promise<LSPS2OpeningFeeParams[]> {
     const params: Record<string, unknown> = { token }
 
-    const response = await this.sendLsps2Request(lspNodeId, 'lsps2.get_info', params)
+    const response = await this.sendLsps2Request(counterpartyNodeId, 'lsps2.get_info', params)
 
     if (response.error) {
       captureError('error', 'LSPS2', 'get_info error', JSON.stringify(response.error))
@@ -53,17 +56,17 @@ export class LSPS2Client {
     return feeParamsMenu
   }
 
-  async buyChannel(
-    lspNodeId: string,
-    feeParams: LSPS2OpeningFeeParams,
-    paymentSizeMsat: bigint
+  async selectOpeningParams(
+    counterpartyNodeId: string,
+    paymentSizeMsat: bigint,
+    openingFeeParams: LSPS2OpeningFeeParams
   ): Promise<LSPS2InvoiceParameters> {
     const params: Record<string, unknown> = {
-      opening_fee_params: serializeOpeningFeeParams(feeParams),
+      opening_fee_params: serializeOpeningFeeParams(openingFeeParams),
       payment_size_msat: paymentSizeMsat.toString(),
     }
 
-    const response = await this.sendLsps2Request(lspNodeId, 'lsps2.buy', params)
+    const response = await this.sendLsps2Request(counterpartyNodeId, 'lsps2.buy', params)
 
     if (response.error) {
       throw new Error(lsps2ErrorMessage(response.error.code))

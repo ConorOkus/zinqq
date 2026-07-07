@@ -31,9 +31,19 @@ import {
   deserializeJsonRpcResponse,
   type JsonRpcResponse,
 } from './types'
+import {
+  Lsps2TimeoutError,
+  Lsps2PeerDisconnectedError,
+  Lsps2HandlerDestroyedError,
+  Lsps2BackpressureError,
+} from './errors'
 
 const LSPS_FEATURE_BIT = 729
-const REQUEST_TIMEOUT_MS = 30_000
+// Backstop timeout for a pending request. The quote flow imposes a tighter
+// per-LSP abort budget (~7s) that dominates during quoting; this reaper mainly
+// bounds the buy phase (`executeJitBuy` ignores abort once the buy is issued)
+// and any caller without its own budget, so a pending promise can never leak.
+const REQUEST_TIMEOUT_MS = 15_000
 const REAPER_INTERVAL_MS = 5_000
 const MAX_PENDING_PER_PEER = 10
 
@@ -62,7 +72,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
     const now = Date.now()
     for (const [id, entry] of pending) {
       if (now - entry.createdAt > REQUEST_TIMEOUT_MS) {
-        entry.reject(new Error('LSPS2 request timed out'))
+        entry.reject(new Lsps2TimeoutError())
         pending.delete(id)
       }
     }
@@ -77,7 +87,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
       if (entry.peerHex === peerHex) peerCount++
     }
     if (peerCount >= MAX_PENDING_PER_PEER) {
-      return Promise.reject(new Error('Too many pending LSPS requests for this peer'))
+      return Promise.reject(new Lsps2BackpressureError())
     }
 
     // Extract JSON-RPC ID from the serialized payload
@@ -155,7 +165,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
         const peerHex = bytesToHex(theirNodeId)
         for (const [id, entry] of pending) {
           if (entry.peerHex === peerHex) {
-            entry.reject(new Error('LSP peer disconnected'))
+            entry.reject(new Lsps2PeerDisconnectedError())
             pending.delete(id)
           }
         }
@@ -209,7 +219,7 @@ export function createLspsMessageHandler(): LspsMessageHandlerResult {
     clearInterval(reaperTimer)
     flushCallback = null
     for (const [id, entry] of pending) {
-      entry.reject(new Error('LSPS message handler destroyed'))
+      entry.reject(new Lsps2HandlerDestroyedError())
       pending.delete(id)
     }
   }
