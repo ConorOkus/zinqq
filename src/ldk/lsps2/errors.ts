@@ -7,8 +7,9 @@
  *
  * All of these are non-`AbortError`, so on the quote path they remain
  * failover-eligible (see `runJitQuoteFlow` in `context.tsx`, which only skips
- * fallback on external `AbortError`). On the buy path they surface to the user
- * without triggering failover (a committed buy is not failover-eligible).
+ * fallback on external `AbortError`). On the buy path the *same* buy is never
+ * retried against another LSP (the fee `promise` is LSP-signed); the error
+ * surfaces to `Receive.tsx`, which re-quotes the fallback LSP as a fresh flow.
  */
 
 /** Base class for all LSPS2 peer-transport failures. */

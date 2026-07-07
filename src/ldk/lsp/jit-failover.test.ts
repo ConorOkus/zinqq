@@ -16,6 +16,14 @@ import type { LspContact } from './contacts'
 import type { LSPS2OpeningFeeParams } from '../lsps2/types'
 import { Lsps2TimeoutError } from '../lsps2/errors'
 
+// Spy on the incident log so we can assert failover telemetry classification.
+const captureError = vi.fn()
+vi.mock('../../storage/error-log', () => ({
+  captureError: (...args: unknown[]): void => {
+    captureError(...args)
+  },
+}))
+
 // runJitQuoteFlow's orchestrator only forwards `node` to the injected
 // `attempt`. A bare object suffices.
 const FAKE_NODE = {} as unknown as LdkNode
@@ -224,8 +232,10 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
   })
 
   // Scenario: an LSPS2 transport error (timeout/disconnect) on the primary's
-  // quote is failover-eligible — it is not an AbortError, so fallback runs.
-  it('falls back when the primary quote hits an LSPS2 transport error', async () => {
+  // quote is failover-eligible — it is not an AbortError, so fallback runs —
+  // and it is classified distinctly in telemetry (not the generic lsps2_rpc).
+  it('falls back and classifies an LSPS2 transport error distinctly', async () => {
+    captureError.mockClear()
     const attempt: ReturnType<typeof vi.fn<AttemptFn>> = vi.fn<AttemptFn>(
       async (_node, contact) => {
         if (contact.label === 'lqwd') {
@@ -245,6 +255,12 @@ describe('runJitQuoteFlow — primary/fallback orchestration', () => {
 
     expect(result).toEqual({ ...QUOTE_MEGALITH, role: 'fallback' })
     expect(attempt).toHaveBeenCalledTimes(2)
+    // The primary→fallback warning tags the timeout as its own trigger so
+    // incident logs can separate a silent LSP from a generic RPC failure.
+    const fallbackLog = captureError.mock.calls.find(
+      (c) => typeof c[3] === 'string' && c[3].includes('"trigger":"lsps2_timeout"')
+    )
+    expect(fallbackLog).toBeDefined()
   })
 
   // Scenario 5: both LSPs fail → throws → Receive.tsx degrades to on-chain.

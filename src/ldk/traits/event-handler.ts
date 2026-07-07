@@ -75,6 +75,7 @@ import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG } from '../../onchain/config'
 import { LDK_CONFIG } from '../config'
+import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../jit-channel-config'
 import { sweepSpendableOutputs } from '../sweep'
 import { captureError } from '../../storage/error-log'
 
@@ -116,11 +117,12 @@ export type IsTrustedLsp = (pubkeyHex: string) => boolean
  *   - inbound in-flight = 100% — otherwise a large forwarded HTLC is silently
  *     rejected (see docs/solutions: lsps2-jit-receive-channel-config).
  *
- * These mirror the wallet-global settings in `user-config.ts` (retained as the
- * safety net); stating them per-channel makes the JIT channel's requirements
- * explicit and robust to future changes in the global default. The 0.2 bindings
- * added the `config_overrides` slot to the 0-conf accept call, which pre-0.2
- * could only be set globally.
+ * The values come from `jit-channel-config.ts`, the single source of truth also
+ * consumed by the wallet-global `createUserConfig` (retained as the safety net),
+ * so the per-channel override can never drift from the global default. Stating
+ * them per-channel makes the JIT channel's requirements explicit. The 0.2
+ * bindings added the `config_overrides` slot to the 0-conf accept call, which
+ * pre-0.2 could only be set globally.
  */
 function buildJitChannelConfigOverrides(): ChannelConfigOverrides {
   const updateOverrides = ChannelConfigUpdate.constructor_new(
@@ -129,10 +131,10 @@ function buildJitChannelConfigOverrides(): ChannelConfigOverrides {
     Option_u16Z.constructor_none(), // cltv_expiry_delta
     Option_MaxDustHTLCExposureZ.constructor_none(), // max_dust_htlc_exposure_msat
     Option_u64Z.constructor_none(), // force_close_avoidance_max_fee_satoshis
-    Option_boolZ.constructor_some(true) // accept_underpaying_htlcs
+    Option_boolZ.constructor_some(JIT_ACCEPT_UNDERPAYING_HTLCS) // accept_underpaying_htlcs
   )
   const handshakeOverrides = ChannelHandshakeConfigUpdate.constructor_new(
-    Option_u8Z.constructor_some(100), // max_inbound_htlc_value_in_flight_percent_of_channel
+    Option_u8Z.constructor_some(JIT_MAX_INBOUND_INFLIGHT_PCT), // max_inbound_htlc_value_in_flight_percent_of_channel
     Option_u64Z.constructor_none(), // htlc_minimum_msat
     Option_u32Z.constructor_none(), // minimum_depth
     Option_u16Z.constructor_none(), // to_self_delay

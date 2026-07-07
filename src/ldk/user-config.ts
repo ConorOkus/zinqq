@@ -1,4 +1,5 @@
 import { UserConfig } from 'lightningdevkit'
+import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from './jit-channel-config'
 
 /**
  * Build the LDK `UserConfig` for our wallet.
@@ -23,7 +24,9 @@ export function createUserConfig(): UserConfig {
   // LSPS2: allow the full channel capacity for inbound HTLCs. The default (10%)
   // is too restrictive for JIT channels where the entire payment arrives in a
   // single HTLC that may be close to the channel capacity.
-  handshakeConfig.set_max_inbound_htlc_value_in_flight_percent_of_channel(100)
+  handshakeConfig.set_max_inbound_htlc_value_in_flight_percent_of_channel(
+    JIT_MAX_INBOUND_INFLIGHT_PCT
+  )
 
   // Allow 0-conf inbound channels from trusted peers (the LSP)
   const handshakeLimits = config.get_channel_handshake_limits()
@@ -38,7 +41,7 @@ export function createUserConfig(): UserConfig {
   // will be less than the invoice amount. Allow claiming these underpaying HTLCs —
   // the fee is validated at invoice creation time.
   const channelConfig = config.get_channel_config()
-  channelConfig.set_accept_underpaying_htlcs(true)
+  channelConfig.set_accept_underpaying_htlcs(JIT_ACCEPT_UNDERPAYING_HTLCS)
 
   return config
 }

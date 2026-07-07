@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '380'
 tags: [code-review, lsps2, jit-receive, channel-config, maintainability, pr-167]
@@ -66,3 +66,8 @@ that could silently break JIT receive long after merge.
 ## Work Log
 
 - 2026-07-07: Filed from `/ce:review` of PR #167.
+- 2026-07-07: Fixed (Option A). Added `src/ldk/jit-channel-config.ts` exporting
+  `JIT_ACCEPT_UNDERPAYING_HTLCS` and `JIT_MAX_INBOUND_INFLIGHT_PCT` as the single
+  source of truth; both `user-config.ts` (global) and `event-handler.ts`
+  (`buildJitChannelConfigOverrides`) now consume them. Updated the helper
+  docstring. Full suite green (474), lint clean.

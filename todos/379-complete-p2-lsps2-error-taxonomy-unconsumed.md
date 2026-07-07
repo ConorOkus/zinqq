@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '379'
 tags: [code-review, lsps2, telemetry, error-handling, pr-167]
@@ -75,3 +75,9 @@ added. Fold in the buy-path docstring correction either way.
 ## Work Log
 
 - 2026-07-07: Filed from `/ce:review` of PR #167.
+- 2026-07-07: Fixed (Option A). Extended `JitTrigger` with `lsps2_timeout` /
+  `lsps2_peer_disconnected` / `lsps2_backpressure`; `classifyJitTrigger` now
+  branches on the `Lsps2*` types (`context.tsx`). Added `error: String(err)` to
+  the primary→fallback warning payload. Corrected the buy-path wording in
+  `errors.ts`. Added a failover test asserting the `lsps2_timeout` trigger is
+  emitted. Full suite green (474), lint clean.

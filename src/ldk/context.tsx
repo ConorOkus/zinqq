@@ -55,6 +55,11 @@ import {
   type LSPS2OpeningFeeParams,
 } from './lsps2/types'
 import { encodeBolt11Invoice, parseLsps2Scid, type RouteHintEntry } from './lsps2/bolt11-encoder'
+import {
+  Lsps2TimeoutError,
+  Lsps2PeerDisconnectedError,
+  Lsps2BackpressureError,
+} from './lsps2/errors'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -105,6 +110,9 @@ type JitTrigger =
   | 'payment_size_filter'
   | 'quote_freshness'
   | 'aborted'
+  | 'lsps2_timeout'
+  | 'lsps2_peer_disconnected'
+  | 'lsps2_backpressure'
   | 'lsps2_rpc'
 
 function classifyJitTrigger(err: unknown): JitTrigger {
@@ -112,6 +120,12 @@ function classifyJitTrigger(err: unknown): JitTrigger {
   if (err instanceof JitPaymentSizeOutOfRangeError) return 'payment_size_filter'
   if (err instanceof JitQuoteFreshnessError) return 'quote_freshness'
   if (err instanceof DOMException && err.name === 'AbortError') return 'aborted'
+  // Typed LSPS2 transport failures — distinguished from generic RPC errors so
+  // incident logs can separate a silent LSP (timeout) from a dropped peer or
+  // client-side backpressure.
+  if (err instanceof Lsps2TimeoutError) return 'lsps2_timeout'
+  if (err instanceof Lsps2PeerDisconnectedError) return 'lsps2_peer_disconnected'
+  if (err instanceof Lsps2BackpressureError) return 'lsps2_backpressure'
   return 'lsps2_rpc'
 }
 
@@ -517,6 +531,7 @@ export async function runJitQuoteFlow(args: {
         `falling back from ${contacts.primary.label} to ${contacts.fallback.label}`,
         JSON.stringify({
           trigger: classifyJitTrigger(err),
+          error: String(err),
           primary: contacts.primary.label,
           fallback: contacts.fallback.label,
           duration_ms: Math.round(performance.now() - t0),
