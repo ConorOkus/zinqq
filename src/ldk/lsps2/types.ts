@@ -28,7 +28,7 @@ export interface JsonRpcError {
 
 // --- LSPS2 types ---
 
-export interface OpeningFeeParams {
+export interface LSPS2OpeningFeeParams {
   minFeeMsat: bigint
   proportional: number // u32, safe as JS number
   validUntil: string // ISO 8601
@@ -39,9 +39,9 @@ export interface OpeningFeeParams {
   promise: string
 }
 
-export interface BuyResponse {
-  jitChannelScid: string
-  lspCltvExpiryDelta: number
+export interface LSPS2InvoiceParameters {
+  interceptScid: string
+  cltvExpiryDelta: number
   clientTrustsLsp: boolean
 }
 
@@ -82,7 +82,7 @@ export function lsps2ErrorMessage(code: number): string {
 
 const U64_MAX = (1n << 64n) - 1n
 
-export function calculateOpeningFee(paymentSizeMsat: bigint, params: OpeningFeeParams): bigint {
+export function calculateOpeningFee(paymentSizeMsat: bigint, params: LSPS2OpeningFeeParams): bigint {
   const product = paymentSizeMsat * BigInt(params.proportional)
   if (product > U64_MAX) throw new Error('Fee calculation overflow: product exceeds u64')
   const sum = product + 999_999n
@@ -92,9 +92,9 @@ export function calculateOpeningFee(paymentSizeMsat: bigint, params: OpeningFeeP
 }
 
 export function selectCheapestParams(
-  menu: OpeningFeeParams[],
+  menu: LSPS2OpeningFeeParams[],
   paymentSizeMsat: bigint
-): OpeningFeeParams | null {
+): LSPS2OpeningFeeParams | null {
   for (const params of menu) {
     if (paymentSizeMsat < params.minPaymentSizeMsat) continue
     if (paymentSizeMsat > params.maxPaymentSizeMsat) continue
@@ -129,7 +129,7 @@ export const MIN_JIT_RECEIVE_SATS = 5_000n
  * picks the entry with the smallest such floor (the "easiest" entry to use)
  * and reports that as the minimum.
  */
-export function computeMinReceiveSats(menu: OpeningFeeParams[]): bigint {
+export function computeMinReceiveSats(menu: LSPS2OpeningFeeParams[]): bigint {
   if (menu.length === 0) return 0n
   let minMsat: bigint | null = null
   for (const entry of menu) {
@@ -170,7 +170,7 @@ interface RawOpeningFeeParams {
   [key: string]: unknown
 }
 
-export function deserializeOpeningFeeParams(raw: RawOpeningFeeParams): OpeningFeeParams {
+export function deserializeOpeningFeeParams(raw: RawOpeningFeeParams): LSPS2OpeningFeeParams {
   // bLIP-52: clients MUST fail if opening_fee_params has unrecognized fields
   for (const key of Object.keys(raw)) {
     if (!KNOWN_FEE_PARAM_KEYS.has(key)) {
@@ -189,7 +189,7 @@ export function deserializeOpeningFeeParams(raw: RawOpeningFeeParams): OpeningFe
   }
 }
 
-export function serializeOpeningFeeParams(params: OpeningFeeParams): RawOpeningFeeParams {
+export function serializeOpeningFeeParams(params: LSPS2OpeningFeeParams): RawOpeningFeeParams {
   return {
     min_fee_msat: params.minFeeMsat.toString(),
     proportional: params.proportional,

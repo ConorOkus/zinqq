@@ -52,7 +52,7 @@ import {
   computeMinReceiveSats,
   MIN_JIT_RECEIVE_SATS,
   type JitInvoiceResult,
-  type OpeningFeeParams,
+  type LSPS2OpeningFeeParams,
 } from './lsps2/types'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
@@ -84,9 +84,9 @@ export class JitPeerConnectError extends Error {
  */
 export class JitPaymentSizeOutOfRangeError extends Error {
   readonly trigger = 'payment_size_filter' as const
-  readonly menu: OpeningFeeParams[]
+  readonly menu: LSPS2OpeningFeeParams[]
   readonly contact: LspContact
-  constructor(message: string, menu: OpeningFeeParams[], contact: LspContact) {
+  constructor(message: string, menu: LSPS2OpeningFeeParams[], contact: LspContact) {
     super(message)
     this.menu = menu
     this.contact = contact
@@ -128,10 +128,10 @@ type ConnectFn = (
  */
 export interface JitQuote {
   contact: LspContact
-  /** The exact `OpeningFeeParams` displayed to the user (signed by the LSP via `promise`). */
-  params: OpeningFeeParams
+  /** The exact `LSPS2OpeningFeeParams` displayed to the user (signed by the LSP via `promise`). */
+  params: LSPS2OpeningFeeParams
   /** The full menu — `selectCheapestParams` already picked `params`, but the menu drives `computeMinReceiveSats` for the below-minimum UI. */
-  menu: OpeningFeeParams[]
+  menu: LSPS2OpeningFeeParams[]
   /** Pre-computed opening fee for `amountMsat` against `params`. */
   openingFeeMsat: bigint
   /** The amount the quote covers, in msat. */

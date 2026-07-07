@@ -9,7 +9,7 @@ import {
 } from '../onchain/onchain-context'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
 import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
-import type { OpeningFeeParams } from '../ldk/lsps2/types'
+import type { LSPS2OpeningFeeParams } from '../ldk/lsps2/types'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { Receive } from './Receive'
 
@@ -21,7 +21,7 @@ const TEST_LSP: LspContact = {
   label: 'lqwd',
 }
 
-function makeParams(overrides: Partial<OpeningFeeParams> = {}): OpeningFeeParams {
+function makeParams(overrides: Partial<LSPS2OpeningFeeParams> = {}): LSPS2OpeningFeeParams {
   return {
     minFeeMsat: 2_500_000n,
     proportional: 5000,

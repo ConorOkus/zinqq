@@ -9,8 +9,8 @@ import { hexToBytes } from '../utils'
 import { captureError } from '../../storage/error-log'
 import type { JsonRpcResponse } from './types'
 import {
-  type OpeningFeeParams,
-  type BuyResponse,
+  type LSPS2OpeningFeeParams,
+  type LSPS2InvoiceParameters,
   serializeJsonRpcRequest,
   serializeOpeningFeeParams,
   deserializeOpeningFeeParams,
@@ -27,7 +27,7 @@ export class LSPS2Client {
     this.sendRequest = sendRequest
   }
 
-  async getOpeningFeeParams(lspNodeId: string, token: string | null): Promise<OpeningFeeParams[]> {
+  async getOpeningFeeParams(lspNodeId: string, token: string | null): Promise<LSPS2OpeningFeeParams[]> {
     const params: Record<string, unknown> = { token }
 
     const response = await this.sendLsps2Request(lspNodeId, 'lsps2.get_info', params)
@@ -55,9 +55,9 @@ export class LSPS2Client {
 
   async buyChannel(
     lspNodeId: string,
-    feeParams: OpeningFeeParams,
+    feeParams: LSPS2OpeningFeeParams,
     paymentSizeMsat: bigint
-  ): Promise<BuyResponse> {
+  ): Promise<LSPS2InvoiceParameters> {
     const params: Record<string, unknown> = {
       opening_fee_params: serializeOpeningFeeParams(feeParams),
       payment_size_msat: paymentSizeMsat.toString(),
@@ -84,8 +84,8 @@ export class LSPS2Client {
     }
 
     return {
-      jitChannelScid: scid,
-      lspCltvExpiryDelta: cltvDelta,
+      interceptScid: scid,
+      cltvExpiryDelta: cltvDelta,
       clientTrustsLsp: trustsLsp === true,
     }
   }
@@ -97,7 +97,7 @@ export class LSPS2Client {
    * then builds and signs the BOLT11 invoice manually with custom route hints.
    */
   async createJitInvoice(params: {
-    buyResponse: BuyResponse
+    buyResponse: LSPS2InvoiceParameters
     lspNodeId: string
     amountMsat: bigint
     description: string
@@ -108,14 +108,14 @@ export class LSPS2Client {
     minFinalCltvExpiry: number
   }): Promise<string> {
     const lspPubkey = hexToBytes(params.lspNodeId)
-    const scidU64 = parseLsps2Scid(params.buyResponse.jitChannelScid)
+    const scidU64 = parseLsps2Scid(params.buyResponse.interceptScid)
 
     const routeHint: RouteHintEntry = {
       pubkey: lspPubkey,
       shortChannelId: scidU64,
       feeBaseMsat: 0,
       feeProportionalMillionths: 0,
-      cltvExpiryDelta: params.buyResponse.lspCltvExpiryDelta,
+      cltvExpiryDelta: params.buyResponse.cltvExpiryDelta,
     }
 
     return await encodeBolt11Invoice(

@@ -8,10 +8,10 @@ import {
   serializeJsonRpcRequest,
   deserializeJsonRpcResponse,
   lsps2ErrorMessage,
-  type OpeningFeeParams,
+  type LSPS2OpeningFeeParams,
 } from './types'
 
-function makeParams(overrides: Partial<OpeningFeeParams> = {}): OpeningFeeParams {
+function makeParams(overrides: Partial<LSPS2OpeningFeeParams> = {}): LSPS2OpeningFeeParams {
   return {
     minFeeMsat: 546_000n,
     proportional: 1200,

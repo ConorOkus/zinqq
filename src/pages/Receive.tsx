@@ -15,7 +15,7 @@ import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
 import {
   computeMinReceiveSats,
   MIN_JIT_RECEIVE_SATS,
-  type OpeningFeeParams,
+  type LSPS2OpeningFeeParams,
 } from '../ldk/lsps2/types'
 import type { LspContact } from '../ldk/lsp/contacts'
 import { LDK_CONFIG } from '../ldk/config'
@@ -51,7 +51,7 @@ type ReceiveState =
       step: 'jit-review'
       kind: 'below-minimum'
       amountSats: bigint
-      menu: OpeningFeeParams[]
+      menu: LSPS2OpeningFeeParams[]
       lspContact: LspContact
       displayMinSats: bigint
     }

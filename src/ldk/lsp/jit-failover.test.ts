@@ -13,7 +13,7 @@ import {
 import type { PeerManager } from 'lightningdevkit'
 import type { LdkNode } from '../init'
 import type { LspContact } from './contacts'
-import type { OpeningFeeParams } from '../lsps2/types'
+import type { LSPS2OpeningFeeParams } from '../lsps2/types'
 
 // runJitQuoteFlow's orchestrator only forwards `node` to the injected
 // `attempt`. A bare object suffices.
@@ -59,7 +59,7 @@ const MEGALITH: LspContact = {
   label: 'megalith',
 }
 
-function makeParams(overrides: Partial<OpeningFeeParams> = {}): OpeningFeeParams {
+function makeParams(overrides: Partial<LSPS2OpeningFeeParams> = {}): LSPS2OpeningFeeParams {
   return {
     minFeeMsat: 1_000_000n,
     proportional: 5000,
