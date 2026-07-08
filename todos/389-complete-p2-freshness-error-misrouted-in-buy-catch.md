@@ -10,7 +10,7 @@ dependencies: []
 
 ## Problem Statement
 
-PR #168 introduces the first buy-path throw that fires *before any network activity*
+PR #168 introduces the first buy-path throw that fires _before any network activity_
 (quote went stale while the user idled on Review). `handleGenerateInvoice`'s catch treats
 every rejection as "primary LSP unhealthy": today that shows the scary generic
 "Could not generate payment request" for a routine staleness event; if a fallback LSP is

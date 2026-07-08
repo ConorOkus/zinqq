@@ -21,7 +21,7 @@ committable window.
 
 - Phase A gate: `src/ldk/context.tsx:337` — magic `30_000`.
 - Phase B gate: `src/ldk/context.tsx:373-376` — `JIT_INVOICE_MIN_EXPIRY_SECS (60) +
-  JIT_INVOICE_FLIGHT_MARGIN_SECS (30)` effective threshold.
+JIT_INVOICE_FLIGHT_MARGIN_SECS (30)` effective threshold.
 - The updated comment at `:333-336` cross-references the stricter downstream check but does
   not align the upstream one.
 

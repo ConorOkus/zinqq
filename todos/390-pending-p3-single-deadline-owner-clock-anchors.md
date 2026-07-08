@@ -10,8 +10,8 @@ dependencies: []
 
 ## Problem Statement
 
-`expirySecs`/`expiresAtMs` are anchored to a *pre-buy* `Date.now()`, but the BOLT11
-timestamp defaults to a *post-buy* `Date.now()` (after the `selectOpeningParams` RPC), and
+`expirySecs`/`expiresAtMs` are anchored to a _pre-buy_ `Date.now()`, but the BOLT11
+timestamp defaults to a _post-buy_ `Date.now()` (after the `selectOpeningParams` RPC), and
 `create_inbound_payment` anchors LDK's expiry to a third instant. The payer-visible encoded
 expiry can outlive `valid_until − 30s` by up to ~15s (the RPC timeout), eating half the
 flight margin. The invariant "JIT_INVOICE_FLIGHT_MARGIN_SECS (30) > REQUEST_TIMEOUT_MS
