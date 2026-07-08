@@ -57,6 +57,8 @@ type ReceiveState =
     }
   | { step: 'jit-buying' }
   | { step: 'jit-error'; retryStep: 'jit-quoting' }
+  /** A JIT invoice was rendered but outlived its quote's `valid_until` — the LSP would fail any HTLC now, so offer a fresh request instead of a dead QR. */
+  | { step: 'jit-expired' }
   | { step: 'success'; amountSats: bigint }
 
 export function Receive() {
@@ -67,6 +69,8 @@ export function Receive() {
   const [invoice, setInvoice] = useState<string | null>(null)
   const [paymentHash, setPaymentHash] = useState<string | null>(null)
   const [openingFeeSats, setOpeningFeeSats] = useState<bigint | null>(null)
+  /** Epoch ms when the displayed JIT invoice stops being payable (quote `valid_until` clamp). */
+  const [invoiceExpiresAt, setInvoiceExpiresAt] = useState<number | null>(null)
   const [addressError, setAddressError] = useState<string | null>(null)
   const [invoiceError, setInvoiceError] = useState<string | null>(null)
   const [receiveState, setReceiveState] = useState<ReceiveState>({
@@ -162,6 +166,7 @@ export function Receive() {
       setInvoice(null)
       setPaymentHash(null)
       setOpeningFeeSats(null)
+      setInvoiceExpiresAt(null)
       setInvoiceError(null)
       setReceiveState({ step: 'ready', invoicePath: 'none' })
       return
@@ -175,6 +180,7 @@ export function Receive() {
       setInvoice(null)
       setPaymentHash(null)
       setOpeningFeeSats(null)
+      setInvoiceExpiresAt(null)
       setInvoiceError(null)
       setReceiveState({ step: 'jit-quoting' })
 
@@ -225,6 +231,7 @@ export function Receive() {
       setInvoice(result.bolt11)
       setPaymentHash(result.paymentHash)
       setOpeningFeeSats(null)
+      setInvoiceExpiresAt(null)
       setInvoiceError(null)
       setReceiveState({ step: 'ready', invoicePath: 'standard' })
     } catch (err) {
@@ -256,6 +263,23 @@ export function Receive() {
       document.head.removeChild(link)
     }
   }, [])
+
+  // Flip a displayed JIT invoice to the expired state once its quote-clamped
+  // expiry passes. The transition only fires from the JIT QR screen (functional
+  // update guard) — a payment mid-flight can still land afterwards and the
+  // payment-history watcher below supersedes the expired screen with success.
+  useEffect(() => {
+    if (invoiceExpiresAt === null) return
+    const id = setTimeout(
+      () => {
+        setReceiveState((prev) =>
+          prev.step === 'ready' && prev.invoicePath === 'jit' ? { step: 'jit-expired' } : prev
+        )
+      },
+      Math.max(0, invoiceExpiresAt - Date.now())
+    )
+    return () => clearTimeout(id)
+  }, [invoiceExpiresAt])
 
   // Watch payment history for success
   useEffect(() => {
@@ -441,6 +465,7 @@ export function Receive() {
         setInvoice(result.bolt11)
         setPaymentHash(result.paymentHash)
         setOpeningFeeSats((result.openingFeeMsat + 999n) / 1000n)
+        setInvoiceExpiresAt(result.expiresAtMs)
         setReceiveState({ step: 'ready', invoicePath: 'jit' })
       })
       .catch((err: unknown) => {
@@ -555,7 +580,8 @@ export function Receive() {
     receiveState.step !== 'jit-quoting' &&
     receiveState.step !== 'jit-review' &&
     receiveState.step !== 'jit-buying' &&
-    receiveState.step !== 'jit-error'
+    receiveState.step !== 'jit-error' &&
+    receiveState.step !== 'jit-expired'
 
   return (
     <div
@@ -718,6 +744,44 @@ export function Receive() {
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
             <p className="text-sm text-[var(--color-on-dark-muted)]">Generating payment request…</p>
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          </div>
+        </div>
+      ) : receiveState.step === 'jit-expired' ? (
+        <div className="flex flex-1 flex-col">
+          <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/20">
+              <svg
+                className="h-8 w-8 text-amber-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <p className="text-base font-semibold text-on-dark">Payment request expired</p>
+            <p className="px-4 text-center text-sm text-[var(--color-on-dark-muted)]">
+              This request is no longer payable. Generate a new one to keep receiving.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
+            <button
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+              onClick={handleErrorRetry}
+            >
+              Generate new request
+            </button>
+            <button
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+              onClick={handleReviewBack}
+            >
+              Back
+            </button>
           </div>
         </div>
       ) : receiveState.step === 'jit-error' ? (

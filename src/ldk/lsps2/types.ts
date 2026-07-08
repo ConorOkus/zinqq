@@ -49,6 +49,12 @@ export interface JitInvoiceResult {
   bolt11: string
   openingFeeMsat: bigint
   paymentHash: string
+  /**
+   * Epoch ms after which the invoice should be treated as unpayable. Clamped
+   * to the quote's `valid_until` (minus a flight margin) — the LSP fails HTLCs
+   * arriving after that, regardless of the BOLT11 expiry field.
+   */
+  expiresAtMs: number
 }
 
 // --- LSPS2 error codes ---

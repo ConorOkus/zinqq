@@ -343,6 +343,7 @@ describe('Receive', () => {
         bolt11: 'lnbc1jitinvoice',
         openingFeeMsat: 2_500_000n,
         paymentHash: 'jithash',
+        expiresAtMs: Date.now() + 600_000,
       })
 
       renderReceive(
@@ -371,6 +372,51 @@ describe('Receive', () => {
       await waitFor(() => {
         expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
       })
+    })
+
+    it('replaces a JIT QR whose quote validity has passed with the expired screen', async () => {
+      const user = userEvent.setup()
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(10_000_000n, 2_500_000n))
+      // Already-past expiry: the expiry timer fires immediately after the QR
+      // renders, exercising the ready→jit-expired transition without fake timers.
+      const executeJitBuy = vi.fn().mockResolvedValue({
+        bolt11: 'lnbc1jitinvoice',
+        openingFeeMsat: 2_500_000n,
+        paymentHash: 'jithash',
+        expiresAtMs: Date.now() - 1,
+      })
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote,
+          executeJitBuy,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
+
+      const cta = await screen.findByRole('button', { name: /generate payment request/i })
+      await user.click(cta)
+
+      // Expired screen replaces the QR.
+      await waitFor(() => {
+        expect(screen.getByText(/payment request expired/i)).toBeInTheDocument()
+      })
+      expect(screen.queryByLabelText(/qr code for bitcoin address/i)).not.toBeInTheDocument()
+
+      // "Generate new request" re-runs Phase A with the same amount.
+      await user.click(screen.getByRole('button', { name: /generate new request/i }))
+      await waitFor(() => {
+        expect(requestJitQuote).toHaveBeenCalledTimes(2)
+      })
+      expect(await screen.findByRole('button', { name: /generate payment request/i })).toBeEnabled()
     })
 
     it('shows quoting skeleton during Phase A', async () => {
