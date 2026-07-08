@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   runJitQuoteFlow,
+  computeJitInvoiceExpirySecs,
   JitPeerConnectError,
   JitPaymentSizeOutOfRangeError,
   JitQuoteFreshnessError,
@@ -406,5 +407,38 @@ describe('runJitQuoteFlow — cancellation and timeouts', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('computeJitInvoiceExpirySecs — invoice expiry clamped to quote validity', () => {
+  const NOW = Date.parse('2026-07-08T12:00:00.000Z')
+  const validUntil = (secsFromNow: number) => new Date(NOW + secsFromNow * 1000).toISOString()
+
+  it('caps at 3600s when the quote is valid well past an hour', () => {
+    expect(computeJitInvoiceExpirySecs(validUntil(2 * 3600), NOW)).toBe(3600)
+  })
+
+  it('clamps to the quote headroom minus the 30s flight margin', () => {
+    // 10-minute quote validity (observed Megalith behavior) → 570s invoice.
+    expect(computeJitInvoiceExpirySecs(validUntil(600), NOW)).toBe(570)
+  })
+
+  it('returns the 60s minimum at exactly 90s of quote validity', () => {
+    expect(computeJitInvoiceExpirySecs(validUntil(90), NOW)).toBe(60)
+  })
+
+  it('throws JitQuoteFreshnessError below 90s of quote validity', () => {
+    expect(() => computeJitInvoiceExpirySecs(validUntil(89), NOW)).toThrow(JitQuoteFreshnessError)
+  })
+
+  it('throws JitQuoteFreshnessError for an already-expired quote', () => {
+    expect(() => computeJitInvoiceExpirySecs(validUntil(-10), NOW)).toThrow(JitQuoteFreshnessError)
+  })
+
+  // Date.parse('garbage') === NaN, and NaN fails every comparison — a plain
+  // `<` gate would return Math.min(3600, NaN) = NaN instead of throwing,
+  // sending NaN into the buy, the u32 WASM boundary, and the BOLT11 encoder.
+  it('throws JitQuoteFreshnessError for an unparseable valid_until (fails closed on NaN)', () => {
+    expect(() => computeJitInvoiceExpirySecs('not-a-date', NOW)).toThrow(JitQuoteFreshnessError)
   })
 })

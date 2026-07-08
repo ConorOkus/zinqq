@@ -330,16 +330,57 @@ export async function getJitQuote(
     )
   }
 
-  // Internal sanity gate: reject quotes with <30s remaining. The Receive
-  // page applies a separate, looser 60s on-tap freshness check before
-  // committing (Phase 4) so that a fresh-enough-to-display quote isn't
-  // re-fetched on every Generate tap.
-  if (new Date(params.validUntil).getTime() < Date.now() + 30_000) {
+  // Internal sanity gate: reject quotes with <30s remaining. A stricter
+  // check runs again at buy time (`computeJitInvoiceExpirySecs` in
+  // `executeJitBuy`) which also clamps the invoice expiry to the quote's
+  // remaining validity. Inverted comparison so an unparseable valid_until
+  // (NaN — every comparison false) fails closed rather than passing.
+  if (!(new Date(params.validUntil).getTime() >= Date.now() + 30_000)) {
     throw new JitQuoteFreshnessError('Fee parameters expiring too soon, please try again')
   }
 
   const openingFeeMsat = calculateOpeningFee(amountMsat, params)
   return { contact, params, menu: feeMenu, openingFeeMsat, amountMsat }
+}
+
+/** Upper bound on JIT invoice expiry — the pre-clamp default. */
+const JIT_INVOICE_MAX_EXPIRY_SECS = 3600
+/**
+ * Subtracted from the quote's `valid_until` headroom: the HTLC must *arrive*
+ * at the LSP before `valid_until`, so leave room for scan + payer wallet
+ * pathfinding + HTLC flight.
+ */
+const JIT_INVOICE_FLIGHT_MARGIN_SECS = 30
+/**
+ * Minimum useful invoice life. If the quote leaves less than this after the
+ * flight margin, minting the invoice would hand the user a QR that dies in
+ * their hand — fail the buy up front (before any LSP-side reservation) so the
+ * UI re-quotes instead.
+ */
+const JIT_INVOICE_MIN_EXPIRY_SECS = 60
+
+/**
+ * Clamp a JIT invoice's expiry to the quote's `valid_until`. The LSP fails
+ * HTLCs arriving after `valid_until` (observed live with Megalith: ~10–15 min
+ * quote validity vs. our previous fixed 3600s invoice expiry — an invoice that
+ * outlives its quote looks payable but every attempt exhausts at the LSP).
+ *
+ * Returns the invoice expiry in seconds, or throws `JitQuoteFreshnessError`
+ * if less than `JIT_INVOICE_MIN_EXPIRY_SECS` of payable life remains.
+ */
+export function computeJitInvoiceExpirySecs(validUntil: string, nowMs: number): number {
+  const validUntilMs = Date.parse(validUntil)
+  // Fail closed on unparseable dates: NaN makes every comparison false, so a
+  // plain `<` gate would silently wave garbage through into the buy, the
+  // u32 WASM boundary, and the BOLT11 encoder (todo 387).
+  if (!Number.isFinite(validUntilMs)) {
+    throw new JitQuoteFreshnessError('Fee quote has an invalid expiry, please try again')
+  }
+  const headroomSecs = Math.floor((validUntilMs - nowMs) / 1000) - JIT_INVOICE_FLIGHT_MARGIN_SECS
+  if (headroomSecs < JIT_INVOICE_MIN_EXPIRY_SECS) {
+    throw new JitQuoteFreshnessError('Fee quote expired, please try again')
+  }
+  return Math.min(JIT_INVOICE_MAX_EXPIRY_SECS, headroomSecs)
 }
 
 /**
@@ -360,6 +401,12 @@ export async function executeJitBuy(
   if (signal.aborted) {
     throw abortError()
   }
+
+  // Clamp the invoice expiry to the quote's remaining validity BEFORE issuing
+  // the buy — throwing here costs nothing (no reservation exists yet), while a
+  // full-length invoice against a stale quote is guaranteed-unpayable.
+  const expirySecs = computeJitInvoiceExpirySecs(quote.params.validUntil, Date.now())
+  const expiresAtMs = Date.now() + expirySecs * 1000
 
   // Surface the open `accept_underpaying_htlcs` gap in the incident log so
   // any "I asked for X, got Y" report can be correlated to the buy event.
@@ -395,7 +442,7 @@ export async function executeJitBuy(
   const expectedReceiveMsat = quote.amountMsat - quote.openingFeeMsat
   const paymentResult = node.channelManager.create_inbound_payment(
     Option_u64Z.constructor_some(expectedReceiveMsat),
-    3600, // 1 hour expiry
+    expirySecs, // clamped to the quote's valid_until (max 1 hour)
     Option_u16Z_None.constructor_none()
   )
   if (!(paymentResult instanceof Result_C2Tuple_ThirtyTwoBytesThirtyTwoBytesZNoneZ_OK)) {
@@ -420,7 +467,7 @@ export async function executeJitBuy(
       paymentHash,
       paymentSecret,
       description,
-      expirySecs: 3600, // 1 hour
+      expirySecs, // clamped to the quote's valid_until (max 1 hour)
       // bLIP-52: add +2 to min_final_cltv_expiry to account for blocks mined during payment
       minFinalCltvExpiry: 144 + 2,
       payeeNodeId: hexToBytes(node.nodeId),
@@ -433,6 +480,7 @@ export async function executeJitBuy(
     bolt11,
     openingFeeMsat: quote.openingFeeMsat,
     paymentHash: bytesToHex(paymentHash),
+    expiresAtMs,
   }
 }
 

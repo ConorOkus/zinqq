@@ -49,6 +49,12 @@ export interface JitInvoiceResult {
   bolt11: string
   openingFeeMsat: bigint
   paymentHash: string
+  /**
+   * Epoch ms after which the invoice should be treated as unpayable. Clamped
+   * to the quote's `valid_until` (minus a flight margin) — the LSP fails HTLCs
+   * arriving after that, regardless of the BOLT11 expiry field.
+   */
+  expiresAtMs: number
 }
 
 // --- LSPS2 error codes ---
@@ -179,6 +185,12 @@ export function deserializeOpeningFeeParams(raw: RawOpeningFeeParams): LSPS2Open
     if (!KNOWN_FEE_PARAM_KEYS.has(key)) {
       throw new Error(`Unrecognized field in opening_fee_params: ${key}`)
     }
+  }
+  // Reject unparseable valid_until at the trust boundary. Downstream freshness
+  // gates compare against Date.parse(validUntil); NaN makes every comparison
+  // false, which would silently defeat them (todo 387).
+  if (typeof raw.valid_until !== 'string' || !Number.isFinite(Date.parse(raw.valid_until))) {
+    throw new Error(`Invalid valid_until in opening_fee_params: ${String(raw.valid_until)}`)
   }
   return {
     minFeeMsat: BigInt(raw.min_fee_msat),

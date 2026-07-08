@@ -11,7 +11,11 @@ import { formatBtc } from '../utils/format-btc'
 import { buildBip321Uri } from '../onchain/bip321'
 import { CopyIcon } from '../components/icons'
 import { captureError } from '../storage/error-log'
-import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
+import {
+  JitPaymentSizeOutOfRangeError,
+  JitQuoteFreshnessError,
+  type JitQuote,
+} from '../ldk/context'
 import {
   computeMinReceiveSats,
   MIN_JIT_RECEIVE_SATS,
@@ -57,6 +61,8 @@ type ReceiveState =
     }
   | { step: 'jit-buying' }
   | { step: 'jit-error'; retryStep: 'jit-quoting' }
+  /** A JIT invoice was rendered but outlived its quote's `valid_until` — the LSP would fail any HTLC now, so offer a fresh request instead of a dead QR. */
+  | { step: 'jit-expired' }
   | { step: 'success'; amountSats: bigint }
 
 export function Receive() {
@@ -67,6 +73,8 @@ export function Receive() {
   const [invoice, setInvoice] = useState<string | null>(null)
   const [paymentHash, setPaymentHash] = useState<string | null>(null)
   const [openingFeeSats, setOpeningFeeSats] = useState<bigint | null>(null)
+  /** Epoch ms when the displayed JIT invoice stops being payable (quote `valid_until` clamp). */
+  const [invoiceExpiresAt, setInvoiceExpiresAt] = useState<number | null>(null)
   const [addressError, setAddressError] = useState<string | null>(null)
   const [invoiceError, setInvoiceError] = useState<string | null>(null)
   const [receiveState, setReceiveState] = useState<ReceiveState>({
@@ -162,6 +170,7 @@ export function Receive() {
       setInvoice(null)
       setPaymentHash(null)
       setOpeningFeeSats(null)
+      setInvoiceExpiresAt(null)
       setInvoiceError(null)
       setReceiveState({ step: 'ready', invoicePath: 'none' })
       return
@@ -175,6 +184,7 @@ export function Receive() {
       setInvoice(null)
       setPaymentHash(null)
       setOpeningFeeSats(null)
+      setInvoiceExpiresAt(null)
       setInvoiceError(null)
       setReceiveState({ step: 'jit-quoting' })
 
@@ -225,6 +235,7 @@ export function Receive() {
       setInvoice(result.bolt11)
       setPaymentHash(result.paymentHash)
       setOpeningFeeSats(null)
+      setInvoiceExpiresAt(null)
       setInvoiceError(null)
       setReceiveState({ step: 'ready', invoicePath: 'standard' })
     } catch (err) {
@@ -256,6 +267,23 @@ export function Receive() {
       document.head.removeChild(link)
     }
   }, [])
+
+  // Flip a displayed JIT invoice to the expired state once its quote-clamped
+  // expiry passes. The transition only fires from the JIT QR screen (functional
+  // update guard) — a payment mid-flight can still land afterwards and the
+  // payment-history watcher below supersedes the expired screen with success.
+  useEffect(() => {
+    if (invoiceExpiresAt === null) return
+    const id = setTimeout(
+      () => {
+        setReceiveState((prev) =>
+          prev.step === 'ready' && prev.invoicePath === 'jit' ? { step: 'jit-expired' } : prev
+        )
+      },
+      Math.max(0, invoiceExpiresAt - Date.now())
+    )
+    return () => clearTimeout(id)
+  }, [invoiceExpiresAt])
 
   // Watch payment history for success
   useEffect(() => {
@@ -389,12 +417,17 @@ export function Receive() {
     setEditingAmount(true)
   }, [confirmedAmountDigits])
 
-  // Buy-phase fallback. A buy commits to one LSP's quote and can't be retried
-  // against another (the fee `promise` is LSP-signed), so when the primary's
-  // buy fails we re-quote the fallback and return to Review for re-confirmation
-  // at its (higher) fee — honest disclosure rather than a silent fee swap.
-  const reQuoteSkippingPrimary = useCallback(
-    (amountSats: bigint) => {
+  // Buy-phase re-quote, used for two distinct failures (see handleGenerateInvoice):
+  //   - skipPrimary: the primary's buy failed after reaching the LSP — re-quote
+  //     the fallback and return to Review for re-confirmation at its (higher)
+  //     fee — honest disclosure rather than a silent fee swap. (A buy commits
+  //     to one LSP's quote and can't be retried against another; the fee
+  //     `promise` is LSP-signed.)
+  //   - plain: the quote went stale client-side before the buy was issued
+  //     (JitQuoteFreshnessError) — says nothing about LSP health, so re-quote
+  //     the same LSP set including the primary.
+  const reQuote = useCallback(
+    (amountSats: bigint, opts?: { skipPrimary: boolean }) => {
       if (!requestJitQuote) {
         setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
         return
@@ -402,7 +435,7 @@ export function Receive() {
       const thisRequest = ++requestCounterRef.current
       setReceiveState({ step: 'jit-quoting' })
       const ctrl = new AbortController()
-      requestJitQuote(amountSats * 1000n, ctrl.signal, { skipPrimary: true })
+      requestJitQuote(amountSats * 1000n, ctrl.signal, opts)
         .then((quote) => {
           if (requestCounterRef.current !== thisRequest) return
           setReceiveState({
@@ -416,7 +449,7 @@ export function Receive() {
         })
         .catch((err: unknown) => {
           if (requestCounterRef.current !== thisRequest) return
-          captureError('warning', 'Receive', 'JIT fallback quote failed', String(err))
+          captureError('warning', 'Receive', 'JIT re-quote failed', String(err))
           setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
         })
     },
@@ -441,11 +474,24 @@ export function Receive() {
         setInvoice(result.bolt11)
         setPaymentHash(result.paymentHash)
         setOpeningFeeSats((result.openingFeeMsat + 999n) / 1000n)
+        setInvoiceExpiresAt(result.expiresAtMs)
         setReceiveState({ step: 'ready', invoicePath: 'jit' })
       })
       .catch((err: unknown) => {
         if (buyControllerRef.current !== ctrl) return
         buyControllerRef.current = null
+        // Quote went stale while the user sat on Review. executeJitBuy throws
+        // this BEFORE issuing the buy (no LSP-side reservation exists), and
+        // it's a purely client-local timing condition — not LSP health — so
+        // re-quote the same LSP set including the primary. Without this
+        // discrimination the generic path below would misattribute staleness
+        // as a primary failure and (with a fallback configured) demote the
+        // user to the fallback's higher fee for no reason.
+        if (err instanceof JitQuoteFreshnessError) {
+          captureError('warning', 'Receive', 'JIT quote stale at buy; re-quoting', String(err))
+          reQuote(amountSats)
+          return
+        }
         captureError('warning', 'Receive', 'JIT buy failed', String(err))
         // If this quote was from the primary LSP AND a fallback exists, re-quote
         // the fallback (a fallback quote has role 'fallback', so a second failure
@@ -460,12 +506,12 @@ export function Receive() {
         // not user funds — no payable primary invoice ever existed — so we
         // accept it here.
         if (HAS_FALLBACK_LSP && quote.role === 'primary') {
-          reQuoteSkippingPrimary(amountSats)
+          reQuote(amountSats, { skipPrimary: true })
           return
         }
         setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
       })
-  }, [executeJitBuy, receiveState, reQuoteSkippingPrimary])
+  }, [executeJitBuy, receiveState, reQuote])
 
   const handleReviewBack = useCallback(() => {
     // Cancel any in-flight quote so its resolution can't race the numpad.
@@ -555,7 +601,8 @@ export function Receive() {
     receiveState.step !== 'jit-quoting' &&
     receiveState.step !== 'jit-review' &&
     receiveState.step !== 'jit-buying' &&
-    receiveState.step !== 'jit-error'
+    receiveState.step !== 'jit-error' &&
+    receiveState.step !== 'jit-expired'
 
   return (
     <div
@@ -718,6 +765,48 @@ export function Receive() {
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
             <p className="text-sm text-[var(--color-on-dark-muted)]">Generating payment request…</p>
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          </div>
+        </div>
+      ) : receiveState.step === 'jit-expired' && !editingAmount ? (
+        // `!editingAmount`: if the expiry passes while the user is mid-edit on
+        // the numpad (the only state that can coexist with jit-expired), don't
+        // yank the numpad away — they've already abandoned that invoice. On
+        // Cancel they land here instead of on a dead QR.
+        <div className="flex flex-1 flex-col">
+          <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/20">
+              <svg
+                className="h-8 w-8 text-amber-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <p className="text-base font-semibold text-on-dark">Payment request expired</p>
+            <p className="px-4 text-center text-sm text-[var(--color-on-dark-muted)]">
+              This request is no longer payable. Generate a new one to keep receiving.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
+            <button
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+              onClick={handleErrorRetry}
+            >
+              Generate new request
+            </button>
+            <button
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+              onClick={handleReviewBack}
+            >
+              Back
+            </button>
           </div>
         </div>
       ) : receiveState.step === 'jit-error' ? (
