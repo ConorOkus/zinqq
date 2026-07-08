@@ -186,6 +186,12 @@ export function deserializeOpeningFeeParams(raw: RawOpeningFeeParams): LSPS2Open
       throw new Error(`Unrecognized field in opening_fee_params: ${key}`)
     }
   }
+  // Reject unparseable valid_until at the trust boundary. Downstream freshness
+  // gates compare against Date.parse(validUntil); NaN makes every comparison
+  // false, which would silently defeat them (todo 387).
+  if (typeof raw.valid_until !== 'string' || !Number.isFinite(Date.parse(raw.valid_until))) {
+    throw new Error(`Invalid valid_until in opening_fee_params: ${String(raw.valid_until)}`)
+  }
   return {
     minFeeMsat: BigInt(raw.min_fee_msat),
     proportional: raw.proportional,

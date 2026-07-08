@@ -8,7 +8,11 @@ import {
   defaultOnchainContextValue,
 } from '../onchain/onchain-context'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
-import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
+import {
+  JitPaymentSizeOutOfRangeError,
+  JitQuoteFreshnessError,
+  type JitQuote,
+} from '../ldk/context'
 import type { LSPS2OpeningFeeParams } from '../ldk/lsps2/types'
 import { Lsps2TimeoutError } from '../ldk/lsps2/errors'
 import type { LspContact } from '../ldk/lsp/contacts'
@@ -417,6 +421,92 @@ describe('Receive', () => {
         expect(requestJitQuote).toHaveBeenCalledTimes(2)
       })
       expect(await screen.findByRole('button', { name: /generate payment request/i })).toBeEnabled()
+    })
+
+    it('does not replace the numpad when expiry passes mid-edit; Cancel lands on expired', async () => {
+      const user = userEvent.setup()
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(10_000_000n, 2_500_000n))
+      // Expiry ~800ms out: long enough to open the numpad first, short enough
+      // for the timer to fire during the test's explicit wait below.
+      const executeJitBuy = vi.fn().mockResolvedValue({
+        bolt11: 'lnbc1jitinvoice',
+        openingFeeMsat: 2_500_000n,
+        paymentHash: 'jithash',
+        expiresAtMs: Date.now() + 800,
+      })
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote,
+          executeJitBuy,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
+      const cta = await screen.findByRole('button', { name: /generate payment request/i })
+      await user.click(cta)
+      await waitFor(() => {
+        expect(screen.getByLabelText(/qr code for bitcoin address/i)).toBeInTheDocument()
+      })
+
+      // Open the numpad before the expiry fires.
+      await user.click(screen.getByRole('button', { name: /edit amount/i }))
+      expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument()
+
+      // Let the expiry timer fire while editing — numpad must survive.
+      await new Promise((r) => setTimeout(r, 1000))
+      expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument()
+      expect(screen.queryByText(/payment request expired/i)).not.toBeInTheDocument()
+
+      // Cancelling the edit lands on the expired screen, not a dead QR.
+      await user.click(screen.getByRole('button', { name: /cancel/i }))
+      expect(await screen.findByText(/payment request expired/i)).toBeInTheDocument()
+      expect(screen.queryByLabelText(/qr code for bitcoin address/i)).not.toBeInTheDocument()
+    })
+
+    it('re-quotes without skipPrimary when the buy fails on quote staleness', async () => {
+      const user = userEvent.setup()
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(10_000_000n, 2_500_000n))
+      const executeJitBuy = vi
+        .fn()
+        .mockRejectedValue(new JitQuoteFreshnessError('Fee quote expired, please try again'))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote,
+          executeJitBuy,
+        })
+      )
+
+      await user.click(screen.getByRole('button', { name: '1' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: /request/i }))
+      const cta = await screen.findByRole('button', { name: /generate payment request/i })
+      await user.click(cta)
+
+      // Staleness is a client-local condition: a fresh quote is fetched WITHOUT
+      // skipping the primary, and we land back on Review — not the error screen.
+      await waitFor(() => {
+        expect(requestJitQuote).toHaveBeenCalledTimes(2)
+      })
+      const secondCallOpts = requestJitQuote.mock.calls[1]![2] as
+        | { skipPrimary?: boolean }
+        | undefined
+      expect(secondCallOpts?.skipPrimary).toBeFalsy()
+      expect(await screen.findByRole('button', { name: /generate payment request/i })).toBeEnabled()
+      expect(screen.queryByText(/could not generate payment request/i)).not.toBeInTheDocument()
     })
 
     it('shows quoting skeleton during Phase A', async () => {

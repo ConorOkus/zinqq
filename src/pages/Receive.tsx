@@ -11,7 +11,11 @@ import { formatBtc } from '../utils/format-btc'
 import { buildBip321Uri } from '../onchain/bip321'
 import { CopyIcon } from '../components/icons'
 import { captureError } from '../storage/error-log'
-import { JitPaymentSizeOutOfRangeError, type JitQuote } from '../ldk/context'
+import {
+  JitPaymentSizeOutOfRangeError,
+  JitQuoteFreshnessError,
+  type JitQuote,
+} from '../ldk/context'
 import {
   computeMinReceiveSats,
   MIN_JIT_RECEIVE_SATS,
@@ -413,12 +417,17 @@ export function Receive() {
     setEditingAmount(true)
   }, [confirmedAmountDigits])
 
-  // Buy-phase fallback. A buy commits to one LSP's quote and can't be retried
-  // against another (the fee `promise` is LSP-signed), so when the primary's
-  // buy fails we re-quote the fallback and return to Review for re-confirmation
-  // at its (higher) fee — honest disclosure rather than a silent fee swap.
-  const reQuoteSkippingPrimary = useCallback(
-    (amountSats: bigint) => {
+  // Buy-phase re-quote, used for two distinct failures (see handleGenerateInvoice):
+  //   - skipPrimary: the primary's buy failed after reaching the LSP — re-quote
+  //     the fallback and return to Review for re-confirmation at its (higher)
+  //     fee — honest disclosure rather than a silent fee swap. (A buy commits
+  //     to one LSP's quote and can't be retried against another; the fee
+  //     `promise` is LSP-signed.)
+  //   - plain: the quote went stale client-side before the buy was issued
+  //     (JitQuoteFreshnessError) — says nothing about LSP health, so re-quote
+  //     the same LSP set including the primary.
+  const reQuote = useCallback(
+    (amountSats: bigint, opts?: { skipPrimary: boolean }) => {
       if (!requestJitQuote) {
         setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
         return
@@ -426,7 +435,7 @@ export function Receive() {
       const thisRequest = ++requestCounterRef.current
       setReceiveState({ step: 'jit-quoting' })
       const ctrl = new AbortController()
-      requestJitQuote(amountSats * 1000n, ctrl.signal, { skipPrimary: true })
+      requestJitQuote(amountSats * 1000n, ctrl.signal, opts)
         .then((quote) => {
           if (requestCounterRef.current !== thisRequest) return
           setReceiveState({
@@ -440,7 +449,7 @@ export function Receive() {
         })
         .catch((err: unknown) => {
           if (requestCounterRef.current !== thisRequest) return
-          captureError('warning', 'Receive', 'JIT fallback quote failed', String(err))
+          captureError('warning', 'Receive', 'JIT re-quote failed', String(err))
           setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
         })
     },
@@ -471,6 +480,18 @@ export function Receive() {
       .catch((err: unknown) => {
         if (buyControllerRef.current !== ctrl) return
         buyControllerRef.current = null
+        // Quote went stale while the user sat on Review. executeJitBuy throws
+        // this BEFORE issuing the buy (no LSP-side reservation exists), and
+        // it's a purely client-local timing condition — not LSP health — so
+        // re-quote the same LSP set including the primary. Without this
+        // discrimination the generic path below would misattribute staleness
+        // as a primary failure and (with a fallback configured) demote the
+        // user to the fallback's higher fee for no reason.
+        if (err instanceof JitQuoteFreshnessError) {
+          captureError('warning', 'Receive', 'JIT quote stale at buy; re-quoting', String(err))
+          reQuote(amountSats)
+          return
+        }
         captureError('warning', 'Receive', 'JIT buy failed', String(err))
         // If this quote was from the primary LSP AND a fallback exists, re-quote
         // the fallback (a fallback quote has role 'fallback', so a second failure
@@ -485,12 +506,12 @@ export function Receive() {
         // not user funds — no payable primary invoice ever existed — so we
         // accept it here.
         if (HAS_FALLBACK_LSP && quote.role === 'primary') {
-          reQuoteSkippingPrimary(amountSats)
+          reQuote(amountSats, { skipPrimary: true })
           return
         }
         setReceiveState({ step: 'jit-error', retryStep: 'jit-quoting' })
       })
-  }, [executeJitBuy, receiveState, reQuoteSkippingPrimary])
+  }, [executeJitBuy, receiveState, reQuote])
 
   const handleReviewBack = useCallback(() => {
     // Cancel any in-flight quote so its resolution can't race the numpad.
@@ -746,7 +767,11 @@ export function Receive() {
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
           </div>
         </div>
-      ) : receiveState.step === 'jit-expired' ? (
+      ) : receiveState.step === 'jit-expired' && !editingAmount ? (
+        // `!editingAmount`: if the expiry passes while the user is mid-edit on
+        // the numpad (the only state that can coexist with jit-expired), don't
+        // yank the numpad away — they've already abandoned that invoice. On
+        // Cancel they land here instead of on a dead QR.
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/20">

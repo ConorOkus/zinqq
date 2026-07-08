@@ -333,8 +333,9 @@ export async function getJitQuote(
   // Internal sanity gate: reject quotes with <30s remaining. A stricter
   // check runs again at buy time (`computeJitInvoiceExpirySecs` in
   // `executeJitBuy`) which also clamps the invoice expiry to the quote's
-  // remaining validity.
-  if (new Date(params.validUntil).getTime() < Date.now() + 30_000) {
+  // remaining validity. Inverted comparison so an unparseable valid_until
+  // (NaN — every comparison false) fails closed rather than passing.
+  if (!(new Date(params.validUntil).getTime() >= Date.now() + 30_000)) {
     throw new JitQuoteFreshnessError('Fee parameters expiring too soon, please try again')
   }
 
@@ -368,8 +369,14 @@ const JIT_INVOICE_MIN_EXPIRY_SECS = 60
  * if less than `JIT_INVOICE_MIN_EXPIRY_SECS` of payable life remains.
  */
 export function computeJitInvoiceExpirySecs(validUntil: string, nowMs: number): number {
-  const headroomSecs =
-    Math.floor((Date.parse(validUntil) - nowMs) / 1000) - JIT_INVOICE_FLIGHT_MARGIN_SECS
+  const validUntilMs = Date.parse(validUntil)
+  // Fail closed on unparseable dates: NaN makes every comparison false, so a
+  // plain `<` gate would silently wave garbage through into the buy, the
+  // u32 WASM boundary, and the BOLT11 encoder (todo 387).
+  if (!Number.isFinite(validUntilMs)) {
+    throw new JitQuoteFreshnessError('Fee quote has an invalid expiry, please try again')
+  }
+  const headroomSecs = Math.floor((validUntilMs - nowMs) / 1000) - JIT_INVOICE_FLIGHT_MARGIN_SECS
   if (headroomSecs < JIT_INVOICE_MIN_EXPIRY_SECS) {
     throw new JitQuoteFreshnessError('Fee quote expired, please try again')
   }

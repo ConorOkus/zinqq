@@ -434,4 +434,11 @@ describe('computeJitInvoiceExpirySecs — invoice expiry clamped to quote validi
   it('throws JitQuoteFreshnessError for an already-expired quote', () => {
     expect(() => computeJitInvoiceExpirySecs(validUntil(-10), NOW)).toThrow(JitQuoteFreshnessError)
   })
+
+  // Date.parse('garbage') === NaN, and NaN fails every comparison — a plain
+  // `<` gate would return Math.min(3600, NaN) = NaN instead of throwing,
+  // sending NaN into the buy, the u32 WASM boundary, and the BOLT11 encoder.
+  it('throws JitQuoteFreshnessError for an unparseable valid_until (fails closed on NaN)', () => {
+    expect(() => computeJitInvoiceExpirySecs('not-a-date', NOW)).toThrow(JitQuoteFreshnessError)
+  })
 })

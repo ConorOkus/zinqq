@@ -173,6 +173,38 @@ describe('deserializeOpeningFeeParams', () => {
       })
     ).toThrow('Unrecognized field')
   })
+
+  // NaN from Date.parse makes every downstream freshness comparison false,
+  // which would silently defeat the expiry gates (todo 387).
+  it('rejects an unparseable valid_until', () => {
+    expect(() =>
+      deserializeOpeningFeeParams({
+        min_fee_msat: '546000',
+        proportional: 1200,
+        valid_until: 'not-a-date',
+        min_lifetime: 1008,
+        max_client_to_self_delay: 2016,
+        min_payment_size_msat: '10000',
+        max_payment_size_msat: '1000000000',
+        promise: 'abc',
+      })
+    ).toThrow('Invalid valid_until')
+  })
+
+  it('rejects a non-string valid_until', () => {
+    expect(() =>
+      deserializeOpeningFeeParams({
+        min_fee_msat: '546000',
+        proportional: 1200,
+        valid_until: null as unknown as string,
+        min_lifetime: 1008,
+        max_client_to_self_delay: 2016,
+        min_payment_size_msat: '10000',
+        max_payment_size_msat: '1000000000',
+        promise: 'abc',
+      })
+    ).toThrow('Invalid valid_until')
+  })
 })
 
 describe('serializeOpeningFeeParams', () => {
