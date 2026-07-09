@@ -2,6 +2,8 @@ import type { PeerManager, ChannelManager } from 'lightningdevkit'
 import { connectToPeer, type PeerConnection } from './peer-connection'
 import { getKnownPeers } from '../storage/known-peers'
 import { bytesToHex } from '../utils'
+import { LDK_CONFIG } from '../config'
+import { captureError } from '../../storage/error-log'
 
 /**
  * Reconnect channel peers that have dropped. Compares the set of peers
@@ -38,6 +40,32 @@ export async function reconnectDisconnectedPeers(
   console.log(`[ldk] ${disconnected.length} channel peer(s) disconnected, attempting reconnect`)
 
   const known = await getKnownPeers()
+  // The configured LSP connects at startup and via the JIT flow WITHOUT being
+  // persisted to known-peers (only the manual Peers-page path persists), so a
+  // dropped LSP channel peer would otherwise be filtered out below and never
+  // reconnected — silently, since the empty attempt list logs nothing. Its
+  // address lives in config, which also stays correct if the LSP endpoint
+  // changes between sessions.
+  if (
+    LDK_CONFIG.lspNodeId !== '' &&
+    LDK_CONFIG.lspHost !== '' &&
+    !known.has(LDK_CONFIG.lspNodeId)
+  ) {
+    known.set(LDK_CONFIG.lspNodeId, { host: LDK_CONFIG.lspHost, port: LDK_CONFIG.lspPort })
+  }
+
+  // Surface channel peers we have no address for — without this, a peer that
+  // is neither known nor the configured LSP stays disconnected with no signal.
+  for (const pk of disconnected) {
+    if (!known.has(pk)) {
+      captureError(
+        'warning',
+        'LDK',
+        `No known address for disconnected channel peer ${pk.slice(0, 16)}… — cannot reconnect`
+      )
+    }
+  }
+
   const results = await Promise.allSettled(
     disconnected
       .filter((pk) => known.has(pk))
