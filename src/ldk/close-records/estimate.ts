@@ -61,7 +61,7 @@ export function humanizeBlocks(blocks: number): string {
   const minutes = blocks * 10
   if (minutes < 60) return `~${String(minutes)} minutes`
   const hours = Math.round(minutes / 60)
-  if (hours < 48) return `~${String(hours)} hours`
+  if (hours < 48) return `~${String(hours)} ${hours === 1 ? 'hour' : 'hours'}`
   return `~${String(Math.round(hours / 24))} days`
 }
 
@@ -188,7 +188,14 @@ export async function estimateClose(
     )
     estimate.coopCloseFeeSats = BigInt(Math.round((coopSatKw * COOP_CLOSE_WEIGHT_WU) / 1000))
     estimate.sweepFeeSats = satsFromVbytes(sweepRate, SWEEP_VBYTES)
-    estimate.cpfpFeeSats = estimate.isAnchor ? satsFromVbytes(urgentRate, CPFP_VBYTES) : 0n
+    // Unknown anchor support must stay unknown — zeroing it would make the
+    // force-close total look cheaper than it may be.
+    estimate.cpfpFeeSats =
+      estimate.isAnchor === null
+        ? null
+        : estimate.isAnchor
+          ? satsFromVbytes(urgentRate, CPFP_VBYTES)
+          : 0n
   } catch (err: unknown) {
     captureError('warning', 'CloseEstimate', 'fee rate fetch failed', String(err))
   }

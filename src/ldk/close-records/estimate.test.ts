@@ -243,6 +243,25 @@ describe('estimateClose', () => {
     expect(est?.expectedBackSats).toBe(480_000n)
   })
 
+  it('unknown anchor support keeps CPFP and force total unknown, never zero', async () => {
+    const deps = makeDeps(
+      [
+        fakeChannel({
+          get_channel_type: () => {
+            throw new Error('channel_type read failed')
+          },
+        }),
+      ],
+      [onCloseBalance(480_000n, 2_000n)]
+    )
+    const est = await estimateClose(deps, CHANNEL_ID_HEX)
+
+    expect(est?.isAnchor).toBeNull()
+    expect(est?.cpfpFeeSats).toBeNull()
+    expect(est?.forceTotalYouPaySats).toBeNull()
+    expect(est?.sweepFeeSats).toBe(700n)
+  })
+
   it('handles a None force_close_spend_delay', async () => {
     const deps = makeDeps(
       [fakeChannel({ get_force_close_spend_delay: () => new U16NoneCtor() })],
@@ -256,6 +275,9 @@ describe('estimateClose', () => {
 describe('humanizeBlocks', () => {
   it('renders minutes under an hour', () => {
     expect(humanizeBlocks(3)).toBe('~30 minutes')
+  })
+  it('renders a singular hour', () => {
+    expect(humanizeBlocks(6)).toBe('~1 hour')
   })
   it('renders hours under two days', () => {
     expect(humanizeBlocks(144)).toBe('~24 hours')

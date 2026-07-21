@@ -270,8 +270,11 @@ export function CloseChannel() {
       ? `up to ${humanizeBlocks(estimate.timelockBlocks)}`
       : 'up to ~14 days'
     : '~minutes once confirmed'
-  const expectedBackLabel =
-    estimate?.expectedBackSats != null ? `~${formatBtc(estimate.expectedBackSats)}` : '—'
+  const expectedBackLabel = estimateLoading
+    ? 'Estimating…'
+    : estimate?.expectedBackSats != null
+      ? `~${formatBtc(estimate.expectedBackSats)}`
+      : '—'
   const lspPaysCloseFee = !isForce && estimate?.feePayer === 'counterparty'
   const pendingHtlcs = estimate?.pendingHtlcCount ?? 0
 
@@ -398,7 +401,7 @@ export function CloseChannel() {
 
       <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
         <button
-          className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] disabled:opacity-50 ${
+          className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] disabled:opacity-30 ${
             isForce ? 'bg-red-500 text-white' : 'bg-accent text-white'
           }`}
           onClick={handleConfirm}
