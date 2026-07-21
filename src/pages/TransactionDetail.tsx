@@ -1,4 +1,4 @@
-import { useParams, useLocation } from 'react-router'
+import { useParams, useLocation, Navigate } from 'react-router'
 import { useTransactionHistory, type UnifiedTransaction } from '../hooks/use-transaction-history'
 import { formatBtc } from '../utils/format-btc'
 import { ScreenHeader } from '../components/ScreenHeader'
@@ -76,6 +76,12 @@ export function TransactionDetail() {
         </div>
       </div>
     )
+  }
+
+  // Channel closes have their own live-updating detail page (a close spans
+  // ~14 days; this page's route-state snapshot pattern is wrong for it).
+  if (tx.layer === 'channel-close') {
+    return <Navigate to={`/activity/close/${tx.channelId}`} replace />
   }
 
   const isSent = tx.direction === 'sent'

@@ -217,6 +217,19 @@ export function removeFundingTxo(channelId: string): Promise<void> {
   })
 }
 
+// Ephemeral last-seen tip height (set by reconciliation) — lets the UI derive
+// live confirmation counts and timelock countdowns without extra requests.
+let lastKnownTipHeight: number | null = null
+
+export function setLastKnownTipHeight(height: number): void {
+  lastKnownTipHeight = height
+  notifyChanged()
+}
+
+export function getLastKnownTipHeight(): number | null {
+  return lastKnownTipHeight
+}
+
 /** Test-only: reset module state between tests. */
 export function resetCloseRecordsForTest(): void {
   records = new Map()
@@ -226,4 +239,5 @@ export function resetCloseRecordsForTest(): void {
   vssVersionRef.current = 0
   writeChain = Promise.resolve()
   initialized = false
+  lastKnownTipHeight = null
 }

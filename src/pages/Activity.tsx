@@ -2,6 +2,15 @@ import { Link } from 'react-router'
 import { useTransactionHistory } from '../hooks/use-transaction-history'
 import { formatBtc } from '../utils/format-btc'
 import { ArrowUpRight, ArrowDownLeft } from '../components/icons'
+import type { CloseStatus } from '../ldk/close-records/close-record'
+
+const CLOSE_BADGES: Record<CloseStatus, string> = {
+  closing: 'Closing',
+  waiting_timelock: 'Waiting timelock',
+  returning: 'Returning to wallet',
+  complete: '',
+  resolved_unverified: 'Resolved',
+}
 
 function formatRelativeTime(timestamp: number): string {
   if (timestamp === 0) return ''
@@ -36,44 +45,81 @@ export function Activity() {
         </div>
       ) : (
         <div className="-mx-6 flex-1 overflow-y-auto">
-          {transactions.map((tx) => (
-            <Link
-              key={tx.id}
-              to={`/activity/${tx.id}`}
-              state={{ tx }}
-              className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-white/5"
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-accent">
-                {tx.direction === 'sent' ? (
-                  <ArrowUpRight className="h-5 w-5" />
-                ) : (
+          {transactions.map((tx) =>
+            tx.layer === 'channel-close' ? (
+              <Link
+                key={tx.id}
+                to={`/activity/close/${tx.channelId}`}
+                className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-white/5"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-accent">
                   <ArrowDownLeft className="h-5 w-5" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold text-on-accent">
-                  {tx.direction === 'sent' ? 'Sent' : 'Received'}
-                  {tx.status === 'pending' && (
-                    <span className="ml-2 text-xs font-normal text-[var(--color-on-accent-muted)]">
-                      Pending
-                    </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-on-accent">
+                    Channel close
+                    {CLOSE_BADGES[tx.closeStatus] !== '' && (
+                      <span className="ml-2 text-xs font-normal text-[var(--color-on-accent-muted)]">
+                        {CLOSE_BADGES[tx.closeStatus]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-xs text-[var(--color-on-accent-muted)]">
+                    {'\u26A1 '}
+                    {formatRelativeTime(tx.timestamp)}
+                  </div>
+                </div>
+                <div
+                  className={`shrink-0 font-display font-bold ${
+                    tx.status === 'pending'
+                      ? 'text-[var(--color-on-accent-muted)]'
+                      : 'text-on-accent'
+                  }`}
+                >
+                  {tx.amountSats !== null ? `+${formatBtc(tx.amountSats)}` : '\u2014'}
+                </div>
+              </Link>
+            ) : (
+              <Link
+                key={tx.id}
+                to={`/activity/${tx.id}`}
+                state={{ tx }}
+                className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-white/5"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-accent">
+                  {tx.direction === 'sent' ? (
+                    <ArrowUpRight className="h-5 w-5" />
+                  ) : (
+                    <ArrowDownLeft className="h-5 w-5" />
                   )}
                 </div>
-                <div className="mt-0.5 text-xs text-[var(--color-on-accent-muted)]">
-                  {tx.layer === 'lightning' && '\u26A1 '}
-                  {formatRelativeTime(tx.timestamp)}
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-on-accent">
+                    {tx.direction === 'sent' ? 'Sent' : 'Received'}
+                    {tx.status === 'pending' && (
+                      <span className="ml-2 text-xs font-normal text-[var(--color-on-accent-muted)]">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-xs text-[var(--color-on-accent-muted)]">
+                    {tx.layer === 'lightning' && '\u26A1 '}
+                    {formatRelativeTime(tx.timestamp)}
+                  </div>
                 </div>
-              </div>
-              <div
-                className={`shrink-0 font-display font-bold ${
-                  tx.status === 'pending' ? 'text-[var(--color-on-accent-muted)]' : 'text-on-accent'
-                }`}
-              >
-                {tx.direction === 'sent' ? '-' : '+'}
-                {formatBtc(tx.amountSats)}
-              </div>
-            </Link>
-          ))}
+                <div
+                  className={`shrink-0 font-display font-bold ${
+                    tx.status === 'pending'
+                      ? 'text-[var(--color-on-accent-muted)]'
+                      : 'text-on-accent'
+                  }`}
+                >
+                  {tx.direction === 'sent' ? '-' : '+'}
+                  {formatBtc(tx.amountSats)}
+                </div>
+              </Link>
+            )
+          )}
         </div>
       )}
     </div>

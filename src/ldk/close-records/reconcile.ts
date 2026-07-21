@@ -34,6 +34,7 @@ import {
   getCloseRecordsSnapshot,
   getFundingTxoMap,
   removeFundingTxo,
+  setLastKnownTipHeight,
   upsertCloseRecord,
 } from './store'
 
@@ -136,6 +137,7 @@ export async function reconcileCloseRecords(
     if (toProcess.length === 0) return
 
     const tipHeight = await deps.esplora.getBlockHeight(info.tipHash)
+    setLastKnownTipHeight(tipHeight)
     const pendingSpendables = info.tipChanged ? await pendingSpendableChannels() : new Set<string>()
 
     for (const record of toProcess) {
