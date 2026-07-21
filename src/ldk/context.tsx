@@ -62,6 +62,7 @@ import {
 } from './lsps2/errors'
 import { estimateClose, type CloseEstimate } from './close-records/estimate'
 import { recordSweepResult } from './close-records/signals'
+import { reconcileCloseRecords } from './close-records/reconcile'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -1198,6 +1199,15 @@ export function LdkProvider({
               setState((prev) => (prev.status === 'ready' ? { ...prev, syncStatus } : prev))
             },
             schedulePersist,
+            // Close-record healing. Uses the primary proxy Esplora client
+            // only (never the mempool.space fallback — recurring outspend
+            // polling there would leak IP + channel set). Gated internally:
+            // zero cost when no close is pending.
+            onSynced: (info) =>
+              reconcileCloseRecords(
+                { channelManager: node.channelManager, esplora, bdkWallet },
+                info
+              ),
           })
 
           // Periodic reconnection: check every 3rd tick (~30s) for channel

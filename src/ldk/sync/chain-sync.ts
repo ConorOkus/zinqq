@@ -173,6 +173,13 @@ export interface SyncLoopConfig {
    * is cheap when nothing is dirty.
    */
   schedulePersist: () => Promise<void>
+  /**
+   * Feature extension point, called after each successful sync pass and
+   * OUTSIDE the sync timeout/abort budget. Keeps chain-sync free of feature
+   * imports (same layering as onStatusChange). Errors are logged, never
+   * counted as sync failures.
+   */
+  onSynced?: (info: { tipChanged: boolean; tipHash: string }) => Promise<void> | void
 }
 
 const MAX_BACKOFF_MS = 5 * 60 * 1_000 // 5 minutes
@@ -207,6 +214,7 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       // Initialize RGS concurrently — don't block chain sync on gossip fetch
       void ensureRgs()
 
+      const prevTipHash = lastTipHash
       const controller = new AbortController()
       const syncTimeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS)
       try {
@@ -227,6 +235,14 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
 
       config.channelManager.timer_tick_occurred()
       config.chainMonitor.rebroadcast_pending_claims()
+
+      if (config.onSynced && lastTipHash) {
+        try {
+          await config.onSynced({ tipChanged: lastTipHash !== prevTipHash, tipHash: lastTipHash })
+        } catch (err) {
+          captureError('warning', 'LDK Sync', 'onSynced hook failed', String(err))
+        }
+      }
 
       // Scheduler owns LDK's dirty bit + must-retry latch. Cheap no-op when
       // nothing is dirty. Throws are caught by the outer tick try/catch and
