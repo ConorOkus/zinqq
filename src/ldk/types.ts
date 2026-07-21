@@ -12,6 +12,13 @@ export interface ChannelInfo {
   inboundCapacityMsat: bigint
   isUsable: boolean
   isReady: boolean
+  /**
+   * True when a cooperative close was initiated but hasn't completed
+   * (shutdown state ≠ NotShuttingDown). LDK never auto-falls-back to a
+   * force close, so a stalled coop close sits here indefinitely — the UI
+   * surfaces it and offers "Force close instead".
+   */
+  isShuttingDown: boolean
 }
 
 /**

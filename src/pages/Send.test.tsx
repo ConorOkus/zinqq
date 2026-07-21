@@ -88,6 +88,7 @@ function readyLdkContext(
 
     closeChannel: vi.fn(),
     forceCloseChannel: vi.fn(),
+    estimateClose: vi.fn(() => Promise.resolve(null)),
     listChannels: vi.fn(() => []),
     abandonPayment: vi.fn(),
     getPaymentResult: vi.fn(() => null),
