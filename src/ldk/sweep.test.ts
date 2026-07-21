@@ -229,6 +229,35 @@ describe('sweepSpendableOutputs', () => {
     expect(result.swept).toBe(1)
     expect(result.skipped).toBe(1)
     expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['good'])
+    // The undecodable entry is still stuck in IDB — the pending state must
+    // stay flagged so the banner doesn't hide it after the partial success.
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([['bad', entry([0xff])]])
+    )
+    expect((await getPendingSweepInfo())?.lastAttemptFailed).toBe(true)
+  })
+
+  it('flags failed pending state when every entry is undecodable', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([
+        ['bad-1', entry([0xff])],
+        ['bad-2', entry([0xff])],
+      ])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const stateEvents = vi.fn()
+    window.addEventListener(SWEEP_STATE_EVENT, stateEvents)
+    const result = await runSweep(keysManager)
+    window.removeEventListener(SWEEP_STATE_EVENT, stateEvents)
+
+    expect(spendCalls).toEqual([])
+    expect(result.swept).toBe(0)
+    expect(result.skipped).toBe(2)
+    expect(broadcastWithRetry).not.toHaveBeenCalled()
+    expect(idbDeleteBatch).not.toHaveBeenCalled()
+    expect(stateEvents).toHaveBeenCalledTimes(1)
+    expect((await getPendingSweepInfo())?.lastAttemptFailed).toBe(true)
   })
 })
 
@@ -255,6 +284,19 @@ describe('getPendingSweepInfo', () => {
     expect(pending?.entryCount).toBe(2)
     expect(pending?.descriptorCount).toBe(2)
     expect(pending?.pendingSats).toBe(2000n)
+    expect(pending?.hasUnknownValue).toBe(true)
+  })
+
+  it('treats malformed valueSats as unknown value instead of throwing', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([
+        ['a', entry([GOOD_MARKER], 'chan-a', ['not-a-number', '1500'])],
+      ])
+    )
+
+    const pending = await getPendingSweepInfo()
+
+    expect(pending?.pendingSats).toBe(1500n)
     expect(pending?.hasUnknownValue).toBe(true)
   })
 })

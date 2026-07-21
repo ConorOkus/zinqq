@@ -50,7 +50,10 @@ export interface PendingSweepInfo {
   descriptorCount: number
   /** Total known value across pending outputs (sats). Legacy entries contribute 0. */
   pendingSats: bigint
-  /** True when at least one entry predates outpoint tracking, so pendingSats undercounts. */
+  /**
+   * True when at least one entry predates outpoint tracking or carries
+   * unreadable value data, so pendingSats undercounts the real total.
+   */
   hasUnknownValue: boolean
   /** True when the most recent sweep attempt failed (dust, timelock, fees, broadcast). */
   lastAttemptFailed: boolean
@@ -89,7 +92,14 @@ export async function getPendingSweepInfo(): Promise<PendingSweepInfo | null> {
     }
     descriptorCount += entry.descriptors.length
     if (entry.outpoints.length === 0) hasUnknownValue = true
-    for (const outpoint of entry.outpoints) pendingSats += BigInt(outpoint.valueSats)
+    for (const outpoint of entry.outpoints) {
+      try {
+        pendingSats += BigInt(outpoint.valueSats)
+      } catch {
+        // Unreadable value data must never gate the sweep or the banner.
+        hasUnknownValue = true
+      }
+    }
   }
 
   return {
@@ -170,6 +180,10 @@ export async function sweepSpendableOutputs(
     }
 
     if (allDescriptors.length === 0) {
+      // Entries exist but none decoded — funds are stuck; surface it like the
+      // other failure paths so the pending banner appears.
+      lastAttemptFailed = true
+      notifySweepStateChanged()
       return { swept: 0, skipped, txs: [] }
     }
 
@@ -227,9 +241,11 @@ export async function sweepSpendableOutputs(
       return { swept: 0, skipped: skipped + allDescriptors.length, txs: [] }
     }
 
-    // Clean up IDB entries atomically after successful broadcast
+    // Clean up IDB entries atomically after successful broadcast. Entries
+    // skipped this pass (e.g. undecodable) are still stuck — keep the
+    // pending state flagged so the banner doesn't hide them.
     await idbDeleteBatch('ldk_spendable_outputs', idbKeys)
-    lastAttemptFailed = false
+    lastAttemptFailed = skipped > 0
     notifySweepStateChanged()
 
     console.log('[Sweep] Successfully swept', allDescriptors.length, 'output(s), txid:', txid)
