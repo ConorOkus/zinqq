@@ -166,7 +166,10 @@ export function ChannelCloseDetail() {
               ? 'This channel was closed by the network. Your funds are safe and return to your wallet automatically.'
               : 'Your funds return to your wallet automatically.'}
             {blocksRemaining !== null && blocksRemaining > 0 && (
-              <> Accessible in {humanizeBlocks(blocksRemaining)} ({String(blocksRemaining)} blocks).</>
+              <>
+                {' '}
+                Accessible in {humanizeBlocks(blocksRemaining)} ({String(blocksRemaining)} blocks).
+              </>
             )}
           </p>
         )}

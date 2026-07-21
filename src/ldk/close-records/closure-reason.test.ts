@@ -2,9 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 // Raw source imports: the installed bindings' declaration file is the ground
 // truth for which ClosureReason variants exist; the classifier source is
 // scanned for instanceof coverage of each.
-// eslint-disable-next-line import/no-unresolved
 import bindingsSource from 'lightningdevkit/structs/ClosureReason.d.mts?raw'
-// eslint-disable-next-line import/no-unresolved
 import classifierSource from './closure-reason.ts?raw'
 
 vi.mock('lightningdevkit', () => {

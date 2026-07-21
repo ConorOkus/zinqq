@@ -38,10 +38,20 @@ export interface ClosureClassification {
  */
 export function classifyClosureReason(reason: ClosureReason): ClosureClassification {
   if (reason instanceof ClosureReason_LegacyCooperativeClosure) {
-    return { description: 'Cooperative close', closeType: 'coop', initiator: 'unknown', hasOnchainTx: true }
+    return {
+      description: 'Cooperative close',
+      closeType: 'coop',
+      initiator: 'unknown',
+      hasOnchainTx: true,
+    }
   }
   if (reason instanceof ClosureReason_LocallyInitiatedCooperativeClosure) {
-    return { description: 'Cooperative close', closeType: 'coop', initiator: 'local', hasOnchainTx: true }
+    return {
+      description: 'Cooperative close',
+      closeType: 'coop',
+      initiator: 'local',
+      hasOnchainTx: true,
+    }
   }
   if (reason instanceof ClosureReason_CounterpartyInitiatedCooperativeClosure) {
     return {
@@ -52,7 +62,12 @@ export function classifyClosureReason(reason: ClosureReason): ClosureClassificat
     }
   }
   if (reason instanceof ClosureReason_HolderForceClosed) {
-    return { description: 'Force closed by you', closeType: 'force', initiator: 'local', hasOnchainTx: true }
+    return {
+      description: 'Force closed by you',
+      closeType: 'force',
+      initiator: 'local',
+      hasOnchainTx: true,
+    }
   }
   if (reason instanceof ClosureReason_CounterpartyForceClosed) {
     return {
@@ -79,7 +94,12 @@ export function classifyClosureReason(reason: ClosureReason): ClosureClassificat
     }
   }
   if (reason instanceof ClosureReason_ProcessingError) {
-    return { description: 'Processing error', closeType: 'force', initiator: 'local', hasOnchainTx: true }
+    return {
+      description: 'Processing error',
+      closeType: 'force',
+      initiator: 'local',
+      hasOnchainTx: true,
+    }
   }
   if (reason instanceof ClosureReason_OutdatedChannelManager) {
     return {
@@ -90,14 +110,29 @@ export function classifyClosureReason(reason: ClosureReason): ClosureClassificat
     }
   }
   if (reason instanceof ClosureReason_PeerFeerateTooLow) {
-    return { description: 'Peer feerate too low', closeType: 'force', initiator: 'local', hasOnchainTx: true }
+    return {
+      description: 'Peer feerate too low',
+      closeType: 'force',
+      initiator: 'local',
+      hasOnchainTx: true,
+    }
   }
   // No on-chain close tx — channel was never funded or abandoned pre-funding.
   if (reason instanceof ClosureReason_DisconnectedPeer) {
-    return { description: 'Peer disconnected', closeType: 'unknown', initiator: 'unknown', hasOnchainTx: false }
+    return {
+      description: 'Peer disconnected',
+      closeType: 'unknown',
+      initiator: 'unknown',
+      hasOnchainTx: false,
+    }
   }
   if (reason instanceof ClosureReason_FundingTimedOut) {
-    return { description: 'Funding timed out', closeType: 'unknown', initiator: 'unknown', hasOnchainTx: false }
+    return {
+      description: 'Funding timed out',
+      closeType: 'unknown',
+      initiator: 'unknown',
+      hasOnchainTx: false,
+    }
   }
   if (reason instanceof ClosureReason_CounterpartyCoopClosedUnfundedChannel) {
     return {
@@ -124,5 +159,10 @@ export function classifyClosureReason(reason: ClosureReason): ClosureClassificat
     }
   }
   // Unknown future variant: safe default is to track when a funding txo exists.
-  return { description: 'Channel closed', closeType: 'unknown', initiator: 'unknown', hasOnchainTx: true }
+  return {
+    description: 'Channel closed',
+    closeType: 'unknown',
+    initiator: 'unknown',
+    hasOnchainTx: true,
+  }
 }

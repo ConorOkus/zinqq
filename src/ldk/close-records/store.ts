@@ -46,9 +46,7 @@ let writeChain: Promise<void> = Promise.resolve()
 let initialized = false
 
 function refreshSnapshot(): void {
-  snapshot = Object.freeze(
-    Array.from(records.values()).sort((a, b) => b.createdAt - a.createdAt)
-  )
+  snapshot = Object.freeze(Array.from(records.values()).sort((a, b) => b.createdAt - a.createdAt))
 }
 
 function notifyChanged(): void {
@@ -106,11 +104,7 @@ async function persistLocked(): Promise<void> {
         notifyChanged()
       }
       const mergedBytes = new TextEncoder().encode(JSON.stringify(encodeRecordsMap(records)))
-      vssVersionRef.current = await vssClient.putObject(
-        VSS_KEY,
-        mergedBytes,
-        vssVersionRef.current
-      )
+      vssVersionRef.current = await vssClient.putObject(VSS_KEY, mergedBytes, vssVersionRef.current)
       await idbPut(IDB_STORE, RECORDS_KEY, encodeRecordsMap(records))
     }
   } catch (err: unknown) {

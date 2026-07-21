@@ -58,10 +58,7 @@ export type CloseStatus =
   | 'complete'
   | 'resolved_unverified'
 
-export function deriveCloseStatus(
-  record: CloseRecord,
-  currentHeight: number | null
-): CloseStatus {
+export function deriveCloseStatus(record: CloseRecord, currentHeight: number | null): CloseStatus {
   if (record.completedAt !== undefined) {
     return record.resolution === 'unverified' ? 'resolved_unverified' : 'complete'
   }
@@ -121,9 +118,7 @@ export function mergeCloseRecords(base: CloseRecord, incoming: CloseRecord): Clo
     createdAt: Math.min(base.createdAt, incoming.createdAt),
     ...(completedAt !== undefined ? { completedAt } : {}),
     ...(resolution !== undefined ? { resolution } : {}),
-    ...(base.extras || incoming.extras
-      ? { extras: { ...incoming.extras, ...base.extras } }
-      : {}),
+    ...(base.extras || incoming.extras ? { extras: { ...incoming.extras, ...base.extras } } : {}),
   }
 }
 
@@ -206,8 +201,10 @@ export function deserializeCloseRecord(raw: unknown): CloseRecord | null {
     typeof obj.fundingTxo === 'object' && obj.fundingTxo !== null
       ? (obj.fundingTxo as { txid?: unknown; vout?: unknown })
       : null
-  const closeType = obj.closeType === 'coop' || obj.closeType === 'force' ? obj.closeType : 'unknown'
-  const initiator = obj.initiator === 'local' || obj.initiator === 'remote' ? obj.initiator : 'unknown'
+  const closeType =
+    obj.closeType === 'coop' || obj.closeType === 'force' ? obj.closeType : 'unknown'
+  const initiator =
+    obj.initiator === 'local' || obj.initiator === 'remote' ? obj.initiator : 'unknown'
   const expectedAmountSats = toBigIntOrUndefined(obj.expectedAmountSats)
 
   return {

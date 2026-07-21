@@ -63,6 +63,8 @@ import {
 import { estimateClose, type CloseEstimate } from './close-records/estimate'
 import { recordSweepResult } from './close-records/signals'
 import { reconcileCloseRecords } from './close-records/reconcile'
+import { getCloseRecordsSnapshot, getLastKnownTipHeight } from './close-records/store'
+import { deriveCloseStatus } from './close-records/close-record'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -778,6 +780,25 @@ export function LdkProvider({
     []
   )
 
+  // Hex-addressed close for the agent surface (window.__closeRecords) —
+  // resolves the channel the same way the CloseChannel page does, so
+  // agent-initiated closes are first-class (same LDK path, same records).
+  const closeChannelByHex = useCallback(
+    (channelIdHex: string, force: boolean): boolean => {
+      const node = nodeRef.current
+      if (!node) throw new Error('Node not initialized')
+      const match = node.channelManager
+        .list_channels()
+        .find((ch) => bytesToHex(ch.get_channel_id().write()) === channelIdHex)
+      if (!match) throw new Error(`Channel not found: ${channelIdHex.slice(0, 16)}…`)
+      const counterpartyNodeId = new Uint8Array(match.get_counterparty().get_node_id())
+      return force
+        ? forceCloseChannel(match.get_channel_id(), counterpartyNodeId)
+        : closeChannel(match.get_channel_id(), counterpartyNodeId)
+    },
+    [closeChannel, forceCloseChannel]
+  )
+
   const forgetPeer = useCallback(async (pubkey: string): Promise<void> => {
     const node = nodeRef.current
     if (!node) throw new Error('Node not initialized')
@@ -1109,11 +1130,22 @@ export function LdkProvider({
             createInvoice,
           }
 
-          // Expose the close flow for agent/programmatic access. `estimate`
-          // is safe and idempotent (never throws, never gates closing).
-          // Phase 2 of the close-transparency plan adds getAll/close/forceClose.
+          // Expose the close flow for agent/programmatic access, mirroring
+          // the human flow. `getAll`/`estimate` are safe and idempotent.
+          // `close` initiates a cooperative close; `forceClose` is
+          // IRREVERSIBLE — funds lock for the timelock (~days) — and MUST
+          // NOT be called casually (documented like `__receive.commit`).
+          // Agents may listen for `zinqq:close-records-changed`.
           ;(window as unknown as Record<string, unknown>).__closeRecords = {
+            getAll: () =>
+              getCloseRecordsSnapshot().map((record) => ({
+                ...structuredClone(record),
+                status: deriveCloseStatus(record, getLastKnownTipHeight()),
+                detailUrl: `/activity/close/${record.channelId}`,
+              })),
             estimate: estimateCloseForChannel,
+            close: (channelIdHex: string) => closeChannelByHex(channelIdHex, false),
+            forceClose: (channelIdHex: string) => closeChannelByHex(channelIdHex, true),
           }
 
           // Zero secret keys on page unload to limit memory exposure

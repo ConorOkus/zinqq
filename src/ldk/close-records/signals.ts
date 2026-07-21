@@ -6,17 +6,8 @@
  */
 
 import { captureError } from '../../storage/error-log'
-import {
-  CLOSE_RECORD_SCHEMA_VERSION,
-  type CloseRecord,
-  type Outpoint,
-} from './close-record'
-import {
-  getCloseRecordSync,
-  getFundingTxoMap,
-  removeFundingTxo,
-  upsertCloseRecord,
-} from './store'
+import { CLOSE_RECORD_SCHEMA_VERSION, type CloseRecord, type Outpoint } from './close-record'
+import { getCloseRecordSync, getFundingTxoMap, removeFundingTxo, upsertCloseRecord } from './store'
 import type { SweepResult } from '../sweep'
 
 export type CloseSignal =

@@ -72,7 +72,9 @@ describe('close-records store', () => {
 
   it('merges rather than replaces on repeated upserts', async () => {
     await upsertCloseRecord(record('ab', { txs: [{ txid: 't1', role: 'commitment' }] }))
-    await upsertCloseRecord(record('ab', { closeType: 'unknown', txs: [{ txid: 't2', role: 'sweep' }] }))
+    await upsertCloseRecord(
+      record('ab', { closeType: 'unknown', txs: [{ txid: 't2', role: 'sweep' }] })
+    )
     const merged = getCloseRecordSync('ab')
     expect(merged?.txs).toHaveLength(2)
     expect(merged?.closeType).toBe('force') // never downgraded by the 'unknown' upsert

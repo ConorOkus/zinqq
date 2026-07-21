@@ -45,12 +45,12 @@ describe('mergeCloseRecords', () => {
   })
 
   it('takes min createdAt (stable history sort key)', () => {
-    expect(mergeCloseRecords(record({ createdAt: 500 }), record({ createdAt: 900 })).createdAt).toBe(
-      500
-    )
-    expect(mergeCloseRecords(record({ createdAt: 900 }), record({ createdAt: 500 })).createdAt).toBe(
-      500
-    )
+    expect(
+      mergeCloseRecords(record({ createdAt: 500 }), record({ createdAt: 900 })).createdAt
+    ).toBe(500)
+    expect(
+      mergeCloseRecords(record({ createdAt: 900 }), record({ createdAt: 500 })).createdAt
+    ).toBe(500)
   })
 
   it('completedAt is set-once and verified resolution absorbs unverified', () => {
@@ -157,7 +157,10 @@ describe('deriveCloseStatus', () => {
   it('confirmed sweep, not yet complete → returning', () => {
     expect(
       deriveCloseStatus(
-        record({ claimableAtHeight: 50, txs: [{ txid: 's', role: 'sweep', confirmedAtHeight: 90 }] }),
+        record({
+          claimableAtHeight: 50,
+          txs: [{ txid: 's', role: 'sweep', confirmedAtHeight: 90 }],
+        }),
         100
       )
     ).toBe('returning')

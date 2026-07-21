@@ -197,9 +197,7 @@ export async function reconcileCloseRecords(
 
         const deepConf = (h: number | undefined): boolean =>
           h !== undefined && confirmations(tipHeight, h) >= FINALITY_CONFS
-        const closeTx = current.txs.find(
-          (tx) => tx.role === 'closing' || tx.role === 'commitment'
-        )
+        const closeTx = current.txs.find((tx) => tx.role === 'closing' || tx.role === 'commitment')
         const closeFinal = deepConf(closeTx?.confirmedAtHeight)
         const receiptTx = current.txs.find(
           (tx) =>

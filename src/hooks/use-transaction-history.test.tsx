@@ -16,10 +16,7 @@ vi.mock('../storage/error-log', () => ({ captureError: vi.fn() }))
 import { LdkContext, type LdkContextValue } from '../ldk/ldk-context'
 import { OnchainContext, type OnchainContextValue } from '../onchain/onchain-context'
 import { useTransactionHistory } from './use-transaction-history'
-import {
-  resetCloseRecordsForTest,
-  upsertCloseRecord,
-} from '../ldk/close-records/store'
+import { resetCloseRecordsForTest, upsertCloseRecord } from '../ldk/close-records/store'
 import { CLOSE_RECORD_SCHEMA_VERSION, type CloseRecord } from '../ldk/close-records/close-record'
 
 interface OnchainTx {
