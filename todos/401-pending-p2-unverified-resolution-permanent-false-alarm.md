@@ -53,3 +53,23 @@ Risk: slightly delayed terminal state.
 ## Work Log
 
 - 2026-07-21: Filed from /ce:review of PR #172 (security-sentinel).
+
+## Additional evidence (2026-07-21 verification pass)
+
+security-sentinel's fund-safety verification of de9ccc57 found two more concrete windows
+where terminal-unverified is wrong and never heals:
+
+1. **Sweep-in-flight at the dwell boundary**: the `ldk_spendable_outputs` entry is deleted
+   at BROADCAST (`sweep.ts:163`), so an unconfirmed sweep defeats both the
+   pendingSpendables gate and the receipt check; it confirms one block later into a record
+   already frozen unverified.
+2. **Monitor-replay race on reopen**: after a long-offline reopen, a reconcile tick can run
+   before monitors finish replaying `SpendableOutputs`, so pendingSpendables is empty and
+   the dwell branch fires; the sweep lands afterward.
+3. **LDK monitor claim txs** (justice/HTLC claims paying `get_destination_script` directly)
+   are wallet-received but never enter `record.txs` — those records can only end
+   unverified despite verifiable receipt.
+
+Natural fix shape: let `recordSweepResult` and/or reconcile upgrade a completed-unverified
+record to verified when a confirmed wallet receipt is later attributable (the merge rule
+"verified absorbs unverified" already supports it).

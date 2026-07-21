@@ -253,6 +253,37 @@ describe('reconcileCloseRecords', () => {
     expect(r?.resolution).toBe('unverified')
   })
 
+  it('wallet receipt beats a phantom derived timelock (offline coop close with captured to_self_delay)', async () => {
+    // Safety-net records for offline COOP closes carry timelockBlocks too, so
+    // (b2) derives a phantom claimableAtHeight. The receipt check must run
+    // before the timelock gate or the record stays wrongly gated for weeks.
+    await upsertCloseRecord(
+      record('ab', {
+        closeType: 'unknown',
+        expectedAmountSats: 5000n,
+        timelockBlocks: 144,
+        txs: [{ txid: 'close-tx', role: 'commitment', confirmedAtHeight: TIP_HEIGHT - 10 }],
+      })
+    )
+    await reconcileCloseRecords(makeDeps({ walletTxids: ['close-tx'] }), TIP)
+    const r = getCloseRecordSync('ab')
+    expect(r?.completedAt).toBeDefined()
+    expect(r?.resolution).toBe('verified')
+  })
+
+  it('remote-initiated force closes get no derived timelock (counterparty close leaves our funds unencumbered)', async () => {
+    await upsertCloseRecord(
+      record('ab', {
+        initiator: 'remote',
+        expectedAmountSats: 5000n,
+        timelockBlocks: 144,
+        txs: [{ txid: 'commit-tx', role: 'commitment', confirmedAtHeight: TIP_HEIGHT - 10 }],
+      })
+    )
+    await reconcileCloseRecords(makeDeps(), TIP)
+    expect(getCloseRecordSync('ab')?.claimableAtHeight).toBeUndefined()
+  })
+
   it('force closes stay pending inside the max-timelock dwell window', async () => {
     await upsertCloseRecord(
       record('ab', {

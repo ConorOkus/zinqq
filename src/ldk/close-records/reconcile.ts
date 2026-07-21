@@ -41,9 +41,11 @@ import {
 /** LDK's ANTI_REORG_DELAY: a tx is final for our purposes at 6 confirmations. */
 const FINALITY_CONFS = 6
 /**
- * Upper bound on to_self_delay (matches LSPS2 max_client_to_self_delay, ~14
- * days). Terminal-state fallback for force closes whose actual timelock was
- * never captured — every record must reach a terminal state in bounded time.
+ * Upper bound on to_self_delay (~14 days). This is LDK's hard cap: at channel
+ * accept, a counterparty-demanded to_self_delay is rejected above
+ * MAX_LOCAL_BREAKDOWN_TIMEOUT = 2016 (min()'d with config, so no override can
+ * exceed it). Terminal-state fallback for force closes whose actual timelock
+ * was never captured — every record must reach a terminal state in bounded time.
  */
 const MAX_TIMELOCK_BLOCKS = 2016
 /** Esplora shares a 2-slot semaphore with LDK-critical sync — stay polite. */
@@ -196,11 +198,16 @@ export async function reconcileCloseRecords(
         // (b2) Derive the timelock expiry height once the close tx confirms.
         // to_self_delay was captured while the channel was open (safety-net
         // map → record fact); the close tx's confirm height may have been
-        // discovered in this very pass, so check both fact sets.
+        // discovered in this very pass, so check both fact sets. Skipped for
+        // coop closes AND remote-initiated closes: to_self_delay encumbers
+        // only the BROADCASTER's to_local output — when the counterparty
+        // force-closes, our funds have no such wait (per LDK's
+        // force_close_spend_delay docs).
         if (
           record.claimableAtHeight === undefined &&
           record.timelockBlocks !== undefined &&
-          record.closeType !== 'coop'
+          record.closeType !== 'coop' &&
+          record.initiator !== 'remote'
         ) {
           const closeConfirmedAt = [...facts.txs, ...record.txs].find(
             (tx) =>
@@ -218,9 +225,9 @@ export async function reconcileCloseRecords(
         // (c) Positive-evidence completion (new-tip only).
         if (!info.tipChanged) continue
         const current = getCloseRecordSync(record.channelId) ?? record
-        const claimGate =
-          current.claimableAtHeight === undefined || current.claimableAtHeight <= tipHeight
-        if (!claimGate || pendingSpendables.has(current.channelId)) continue
+        // Un-swept outputs pending for this channel always block completion —
+        // a partial sweep's receipt must not complete the record early.
+        if (pendingSpendables.has(current.channelId)) continue
 
         const deepConf = (h: number | undefined): boolean =>
           h !== undefined && confirmations(tipHeight, h) >= FINALITY_CONFS
@@ -230,7 +237,10 @@ export async function reconcileCloseRecords(
         // 'unknown') label the discovered close tx 'commitment' even when it
         // was actually a coop close paying this wallet directly. The wallet
         // check is the real gate — a force-close commitment never pays the
-        // BDK wallet, so it can't false-positive.
+        // BDK wallet, so it can't false-positive. This invariant relies on
+        // BDK's graph containing only SPK-tracked txs (nothing insert_tx's
+        // broadcast transactions into BDK; the commitment's sole input spends
+        // the untracked 2-of-2 funding output).
         const receiptTx = current.txs.find(
           (tx) =>
             (tx.role === 'sweep' || tx.role === 'closing' || tx.role === 'commitment') &&
@@ -238,6 +248,10 @@ export async function reconcileCloseRecords(
             txConfirmedInWallet(deps.bdkWallet, tx.txid)
         )
 
+        // Receipt evidence is checked BEFORE the timelock gate: funds deeply
+        // confirmed in our own wallet are positive proof regardless of any
+        // (possibly phantom) derived timelock — e.g. an offline coop close
+        // whose safety-net record wrongly carries timelockBlocks.
         if (receiptTx) {
           void upsertCloseRecord({
             ...facts,
@@ -245,7 +259,15 @@ export async function reconcileCloseRecords(
             completedAt: Date.now(),
             resolution: 'verified',
           })
-        } else if (current.expectedAmountSats === 0n && closeFinal) {
+          continue
+        }
+
+        // Remaining (receipt-less) outcomes must respect the timelock.
+        const claimGate =
+          current.claimableAtHeight === undefined || current.claimableAtHeight <= tipHeight
+        if (!claimGate) continue
+
+        if (current.expectedAmountSats === 0n && closeFinal) {
           // Nothing to receive — the deeply-confirmed close is the whole story.
           void upsertCloseRecord({
             ...facts,
