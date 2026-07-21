@@ -35,8 +35,12 @@ export type CloseLifecycleCallback = (signal: CloseSignal) => void
 export function handleCloseSignal(signal: CloseSignal): void {
   try {
     if (signal.type === 'channel_closed') {
+      const mapEntry = getFundingTxoMap().get(signal.channelIdHex)
       const fundingTxo =
-        signal.fundingTxo ?? getFundingTxoMap().get(signal.channelIdHex) ?? undefined
+        signal.fundingTxo ?? (mapEntry ? { txid: mapEntry.txid, vout: mapEntry.vout } : undefined)
+      // to_self_delay is unreadable once the channel is gone — the safety-net
+      // map (captured at ChannelPending) is the only source at close time.
+      const timelockBlocks = mapEntry?.timelockBlocks
 
       // No on-chain close tx and nothing to watch → no record. Also drop the
       // funding-txo safety-net entry so reconciliation doesn't resurrect it.
@@ -56,6 +60,7 @@ export function handleCloseSignal(signal: CloseSignal): void {
         ...(signal.lastLocalBalanceSats !== null
           ? { expectedAmountSats: signal.lastLocalBalanceSats }
           : {}),
+        ...(timelockBlocks !== undefined ? { timelockBlocks } : {}),
         createdAt: Date.now(),
       }
       void upsertCloseRecord(record)

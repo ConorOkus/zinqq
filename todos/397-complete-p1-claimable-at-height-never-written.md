@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '397'
 tags: [code-review, close-records, reconcile, correctness, pr-172]
@@ -45,7 +45,7 @@ timelock UI stays dead (remove or comment those paths). Effort: Small. Risk: low
 
 ## Recommended Action
 
-(Triage)
+Fixed: Option A + Option B dwell fallback (capture to_self_delay at ChannelPending into the safety-net map → record fact; reconcile derives claimableAtHeight from close confirm height + timelock; max-timelock dwell terminal for records without a captured timelock).
 
 ## Technical Details
 
@@ -54,11 +54,12 @@ timelock UI stays dead (remove or comment those paths). Effort: Small. Risk: low
 
 ## Acceptance Criteria
 
-- [ ] A force close with no wallet receipt reaches a terminal state in bounded time
-- [ ] Either `waiting_timelock`/countdown render with real data, or their dead code paths
+- [x] A force close with no wallet receipt reaches a terminal state in bounded time
+- [x] Either `waiting_timelock`/countdown render with real data, or their dead code paths
       are removed/annotated
-- [ ] Reconcile test covering the force-close unverified path with the new gate
+- [x] Reconcile test covering the force-close unverified path with the new gate
 
 ## Work Log
 
 - 2026-07-21: Filed from /ce:review of PR #172 (3 agents converged).
+- 2026-07-21: Fixed on feat/close-records-engine; tests added (580 total passing).

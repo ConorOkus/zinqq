@@ -37,9 +37,15 @@ const VSS_KEY = 'close_records'
 /** Payload-less by design: listeners re-read the snapshot (a stale payload resolving late would show yesterday's state). */
 export const CLOSE_RECORDS_CHANGED_EVENT = 'zinqq:close-records-changed'
 
+/** Safety-net map entry: funding outpoint + the channel's to_self_delay,
+ * both captured while the channel was open (unreadable after close). */
+export interface FundingTxoEntry extends Outpoint {
+  timelockBlocks?: number
+}
+
 let records = new Map<string, CloseRecord>()
 let snapshot: readonly CloseRecord[] = []
-let fundingTxos = new Map<string, Outpoint>()
+let fundingTxos = new Map<string, FundingTxoEntry>()
 let vssClientRef: VssClient | null = null
 const vssVersionRef = { current: 0 }
 let writeChain: Promise<void> = Promise.resolve()
@@ -132,7 +138,7 @@ export async function initCloseRecords(vssClient: VssClient | null): Promise<voi
     try {
       const rawLocal = await idbGet<Record<string, unknown>>(IDB_STORE, RECORDS_KEY)
       records = decodeRecordsMap(rawLocal)
-      const rawTxos = await idbGet<Record<string, Outpoint>>(IDB_STORE, FUNDING_TXOS_KEY)
+      const rawTxos = await idbGet<Record<string, FundingTxoEntry>>(IDB_STORE, FUNDING_TXOS_KEY)
       fundingTxos = new Map(Object.entries(rawTxos ?? {}))
     } catch (err: unknown) {
       captureError('error', 'CloseRecords', 'IDB load failed', String(err))
@@ -190,17 +196,24 @@ export function upsertCloseRecord(incoming: CloseRecord): Promise<void> {
   return enqueue(() => persistLocked())
 }
 
-/** Persist the channelId → funding outpoint safety net while channels are open. */
-export function recordFundingTxo(channelId: string, outpoint: Outpoint): Promise<void> {
+/** Persist the channelId → funding outpoint (+ timelock) safety net while channels are open. */
+export function recordFundingTxo(channelId: string, entry: FundingTxoEntry): Promise<void> {
   return enqueue(async () => {
     const existing = fundingTxos.get(channelId)
-    if (existing && existing.txid === outpoint.txid && existing.vout === outpoint.vout) return
-    fundingTxos.set(channelId, outpoint)
+    if (
+      existing &&
+      existing.txid === entry.txid &&
+      existing.vout === entry.vout &&
+      existing.timelockBlocks === entry.timelockBlocks
+    ) {
+      return
+    }
+    fundingTxos.set(channelId, entry)
     await idbPut(IDB_STORE, FUNDING_TXOS_KEY, Object.fromEntries(fundingTxos))
   })
 }
 
-export function getFundingTxoMap(): ReadonlyMap<string, Outpoint> {
+export function getFundingTxoMap(): ReadonlyMap<string, FundingTxoEntry> {
   return fundingTxos
 }
 

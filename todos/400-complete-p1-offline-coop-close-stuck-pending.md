@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '400'
 tags: [code-review, close-records, reconcile, correctness, pr-172]
@@ -40,7 +40,7 @@ Effort: Trivial. Risk: mislabeling.
 
 ## Recommended Action
 
-(Triage — Option A.)
+Fixed: Option A — 'commitment' added to receipt-candidate roles; wallet check remains the gate.
 
 ## Technical Details
 
@@ -48,10 +48,11 @@ Effort: Trivial. Risk: mislabeling.
 
 ## Acceptance Criteria
 
-- [ ] Offline coop close (safety-net record) completes verified once the closing tx is
+- [x] Offline coop close (safety-net record) completes verified once the closing tx is
       wallet-confirmed ≥6 confs
-- [ ] Force-close commitment txs (not paying the wallet) still never count as receipts
+- [x] Force-close commitment txs (not paying the wallet) still never count as receipts
 
 ## Work Log
 
 - 2026-07-21: Filed from /ce:review of PR #172 (kieran-typescript-reviewer).
+- 2026-07-21: Fixed on feat/close-records-engine; tests added (580 total passing).

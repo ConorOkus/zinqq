@@ -34,9 +34,11 @@ export interface CloseRecord {
   closureReason?: string
   /** Union by txid; one batched sweep txid may appear in N records. */
   txs: CloseRecordTx[]
-  /** Estimate until complete; measured from wallet receipt at completion. */
+  /** LDK's last-known local balance at close — an estimate (pre-close-fee), never measured. */
   expectedAmountSats?: bigint
-  /** Height at which timelocked funds become claimable. */
+  /** to_self_delay in blocks, captured while the channel was open. */
+  timelockBlocks?: number
+  /** Height at which timelocked funds become claimable (close confirm height + timelockBlocks). */
   claimableAtHeight?: number
   /** Stable history sort key; set at event time. */
   createdAt: number
@@ -114,6 +116,7 @@ export function mergeCloseRecords(base: CloseRecord, incoming: CloseRecord): Clo
     closureReason: base.closureReason ?? incoming.closureReason,
     txs: Array.from(txByTxid.values()),
     expectedAmountSats: incoming.expectedAmountSats ?? base.expectedAmountSats,
+    timelockBlocks: base.timelockBlocks ?? incoming.timelockBlocks,
     claimableAtHeight: incoming.claimableAtHeight ?? base.claimableAtHeight,
     createdAt: Math.min(base.createdAt, incoming.createdAt),
     ...(completedAt !== undefined ? { completedAt } : {}),
@@ -135,6 +138,7 @@ const KNOWN_RECORD_KEYS = new Set([
   'closureReason',
   'txs',
   'expectedAmountSats',
+  'timelockBlocks',
   'claimableAtHeight',
   'createdAt',
   'completedAt',
@@ -219,6 +223,7 @@ export function deserializeCloseRecord(raw: unknown): CloseRecord | null {
     ...(typeof obj.closureReason === 'string' ? { closureReason: obj.closureReason } : {}),
     txs,
     ...(expectedAmountSats !== undefined ? { expectedAmountSats } : {}),
+    ...(typeof obj.timelockBlocks === 'number' ? { timelockBlocks: obj.timelockBlocks } : {}),
     ...(typeof obj.claimableAtHeight === 'number'
       ? { claimableAtHeight: obj.claimableAtHeight }
       : {}),

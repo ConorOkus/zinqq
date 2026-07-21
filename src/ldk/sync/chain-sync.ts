@@ -236,6 +236,16 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       config.channelManager.timer_tick_occurred()
       config.chainMonitor.rebroadcast_pending_claims()
 
+      // Scheduler owns LDK's dirty bit + must-retry latch. Cheap no-op when
+      // nothing is dirty. Throws are caught by the outer tick try/catch and
+      // counted as sync errors, which is correct: the scheduler will retry
+      // on next tick via its internal mustRetry flag.
+      await config.schedulePersist()
+
+      // Feature hook runs AFTER the fund-critical persist scheduling — its
+      // Esplora queries (worst case ~10 × 10s timeouts in an outage) must
+      // never delay LDK persistence. Still awaited so a slow pass can't
+      // overlap the next tick's Esplora work.
       if (config.onSynced && lastTipHash) {
         try {
           await config.onSynced({ tipChanged: lastTipHash !== prevTipHash, tipHash: lastTipHash })
@@ -243,12 +253,6 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
           captureError('warning', 'LDK Sync', 'onSynced hook failed', String(err))
         }
       }
-
-      // Scheduler owns LDK's dirty bit + must-retry latch. Cheap no-op when
-      // nothing is dirty. Throws are caught by the outer tick try/catch and
-      // counted as sync errors, which is correct: the scheduler will retry
-      // on next tick via its internal mustRetry flag.
-      await config.schedulePersist()
 
       // Persist NetworkGraph + Scorer every ~10 ticks (~10 min at 60s interval)
       if ((tickCount + 1) % 10 === 0) {

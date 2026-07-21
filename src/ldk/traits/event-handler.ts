@@ -34,6 +34,7 @@ import {
   SpendableOutputDescriptor_StaticOutput,
   SpendableOutputDescriptor_DelayedPaymentOutput,
   SpendableOutputDescriptor_StaticPaymentOutput,
+  Option_u16Z_Some,
   ChannelConfigOverrides,
   ChannelConfigUpdate,
   ChannelHandshakeConfigUpdate,
@@ -338,12 +339,25 @@ function handleEvent(
     )
     // Safety net for close records: if this channel later closes while the
     // tab is dying (crash between ok() and the record persist), reconciliation
-    // recreates the record from this funding outpoint.
+    // recreates the record from this funding outpoint. to_self_delay is
+    // captured here too — it becomes unreadable once the channel closes, and
+    // reconciliation needs it to derive the timelock expiry height.
+    let timelockBlocks: number | undefined
+    try {
+      const delay = channelManager
+        .list_channels()
+        .find((ch) => bytesToHex(ch.get_channel_id().write()) === channelIdHex)
+        ?.get_force_close_spend_delay()
+      if (delay instanceof Option_u16Z_Some) timelockBlocks = delay.some
+    } catch {
+      // best-effort — the funding txo below must still be recorded
+    }
     try {
       const txo = event.funding_txo
       recordFundingTxo(channelIdHex, {
         txid: txidBytesToHex(txo.get_txid()),
         vout: txo.get_index(),
+        ...(timelockBlocks !== undefined ? { timelockBlocks } : {}),
       }).catch(() => {})
     } catch (err: unknown) {
       console.warn('[LDK Event] Failed to record funding txo:', err)
@@ -427,17 +441,28 @@ function handleEvent(
     // value. Sweep attribution is by these facts, never by causality
     // (batching + the sweep-in-progress guard make "the sweep my event
     // triggered" nondeterministic).
-    const entry: SpendableOutputsEntry = {
-      descriptors: event.outputs.map((o) => o.write()),
-      channelIdHex: readOptionalChannelIdHex(event.channel_id),
-      outpoints: event.outputs.map((o) => {
+    // Attribution extraction is guarded PER OUTPUT: a throwing binding
+    // accessor here must never abort this block — handle_event's top-level
+    // catch would return ok() and LDK would never replay the event, so the
+    // descriptors (the fund-safety payload) would be lost unswept forever.
+    // Attribution is cosmetic; it degrades to empty.
+    const outpoints: SpendableOutputsEntry['outpoints'] = []
+    for (const o of event.outputs) {
+      try {
         const outpoint = o.spendable_outpoint()
-        return {
+        outpoints.push({
           txid: txidBytesToHex(outpoint.get_txid()),
           vout: outpoint.get_index(),
           valueSats: readDescriptorValueSats(o).toString(),
-        }
-      }),
+        })
+      } catch (err: unknown) {
+        console.warn('[LDK Event] SpendableOutputs: outpoint extraction failed:', err)
+      }
+    }
+    const entry: SpendableOutputsEntry = {
+      descriptors: event.outputs.map((o) => o.write()),
+      channelIdHex: readOptionalChannelIdHex(event.channel_id),
+      outpoints,
     }
     void idbPut('ldk_spendable_outputs', key, entry)
       .then(() => {

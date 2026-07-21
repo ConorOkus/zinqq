@@ -53,6 +53,7 @@ interface DepsOptions {
   txStatuses?: Record<string, { confirmed: boolean; block_height?: number }>
   walletTxids?: string[]
   esploraFails?: boolean
+  tipHeight?: number
 }
 
 function makeDeps(opts: DepsOptions = {}): ReconcileDeps {
@@ -67,7 +68,9 @@ function makeDeps(opts: DepsOptions = {}): ReconcileDeps {
         })),
     } as never,
     esplora: {
-      getBlockHeight: opts.esploraFails ? fail : () => Promise.resolve(TIP_HEIGHT),
+      getBlockHeight: opts.esploraFails
+        ? fail
+        : () => Promise.resolve(opts.tipHeight ?? TIP_HEIGHT),
       getOutspend: opts.esploraFails
         ? fail
         : (txid: string, vout: number) =>
@@ -199,6 +202,65 @@ describe('reconcileCloseRecords', () => {
       })
     )
     await reconcileCloseRecords(makeDeps({ esploraFails: true }), TIP)
+    expect(getCloseRecordSync('ab')?.completedAt).toBeUndefined()
+  })
+
+  it('safety-net records complete verified via a wallet-confirmed commitment-role tx (offline coop close)', async () => {
+    // A close discovered offline gets role 'commitment' even when it was a
+    // coop close paying this wallet — the wallet check is the real gate.
+    await upsertCloseRecord(
+      record('ab', {
+        closeType: 'unknown',
+        expectedAmountSats: 5000n,
+        txs: [{ txid: 'close-tx', role: 'commitment', confirmedAtHeight: TIP_HEIGHT - 10 }],
+      })
+    )
+    await reconcileCloseRecords(makeDeps({ walletTxids: ['close-tx'] }), TIP)
+    const r = getCloseRecordSync('ab')
+    expect(r?.completedAt).toBeDefined()
+    expect(r?.resolution).toBe('verified')
+  })
+
+  it('derives claimableAtHeight from the confirmed close tx + captured timelock', async () => {
+    await upsertCloseRecord(
+      record('ab', {
+        expectedAmountSats: 5000n,
+        timelockBlocks: 144,
+        txs: [{ txid: 'commit-tx', role: 'commitment', confirmedAtHeight: TIP_HEIGHT - 10 }],
+      })
+    )
+    await reconcileCloseRecords(makeDeps(), TIP)
+    const r = getCloseRecordSync('ab')
+    expect(r?.claimableAtHeight).toBe(TIP_HEIGHT - 10 + 144)
+    // Timelock still pending → not complete
+    expect(r?.completedAt).toBeUndefined()
+  })
+
+  it('force closes without a captured timelock reach resolved-unverified after the max-timelock dwell', async () => {
+    const tip = 10_000
+    await upsertCloseRecord(
+      record('ab', {
+        expectedAmountSats: 5000n,
+        txs: [{ txid: 'commit-tx', role: 'commitment', confirmedAtHeight: tip - 2100 }],
+      })
+    )
+    await reconcileCloseRecords(makeDeps({ tipHeight: tip }), {
+      tipChanged: true,
+      tipHash: 'tiphash',
+    })
+    const r = getCloseRecordSync('ab')
+    expect(r?.completedAt).toBeDefined()
+    expect(r?.resolution).toBe('unverified')
+  })
+
+  it('force closes stay pending inside the max-timelock dwell window', async () => {
+    await upsertCloseRecord(
+      record('ab', {
+        expectedAmountSats: 5000n,
+        txs: [{ txid: 'commit-tx', role: 'commitment', confirmedAtHeight: TIP_HEIGHT - 50 }],
+      })
+    )
+    await reconcileCloseRecords(makeDeps(), TIP)
     expect(getCloseRecordSync('ab')?.completedAt).toBeUndefined()
   })
 

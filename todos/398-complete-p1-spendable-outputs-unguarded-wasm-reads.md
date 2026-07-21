@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '398'
 tags: [code-review, fund-safety, event-handler, sweep, pr-172]
@@ -41,7 +41,7 @@ guarded step. Effort: Small-Medium. Risk: two writes.
 
 ## Recommended Action
 
-(Triage — Option A is the obvious fix.)
+Fixed: Option A — per-output try/catch; descriptors always persist, attribution degrades to empty.
 
 ## Technical Details
 
@@ -49,10 +49,11 @@ guarded step. Effort: Small-Medium. Risk: two writes.
 
 ## Acceptance Criteria
 
-- [ ] A throwing `spendable_outpoint()` on one descriptor still persists ALL descriptors
+- [x] A throwing `spendable_outpoint()` on one descriptor still persists ALL descriptors
       (unit test with a poisoned mock output)
-- [ ] Attribution degrades to empty, never blocks the IDB write
+- [x] Attribution degrades to empty, never blocks the IDB write
 
 ## Work Log
 
 - 2026-07-21: Filed from /ce:review of PR #172 (security-sentinel #1).
+- 2026-07-21: Fixed on feat/close-records-engine; tests added (580 total passing).

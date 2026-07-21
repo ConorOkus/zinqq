@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: '399'
 tags: [code-review, chain-sync, performance, fund-safety, pr-172]
@@ -39,7 +39,7 @@ Trivial. Risk: none.
 
 ## Recommended Action
 
-(Triage)
+Fixed: Option A — onSynced moved after schedulePersist (still awaited for tick politeness).
 
 ## Technical Details
 
@@ -47,9 +47,10 @@ Trivial. Risk: none.
 
 ## Acceptance Criteria
 
-- [ ] `schedulePersist()` is never delayed by close-record Esplora queries
-- [ ] Reconciliation still runs at most once concurrently
+- [x] `schedulePersist()` is never delayed by close-record Esplora queries
+- [x] Reconciliation still runs at most once concurrently
 
 ## Work Log
 
 - 2026-07-21: Filed from /ce:review of PR #172 (3 agents converged).
+- 2026-07-21: Fixed on feat/close-records-engine; tests added (580 total passing).

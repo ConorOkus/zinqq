@@ -40,6 +40,12 @@ import {
 
 /** LDK's ANTI_REORG_DELAY: a tx is final for our purposes at 6 confirmations. */
 const FINALITY_CONFS = 6
+/**
+ * Upper bound on to_self_delay (matches LSPS2 max_client_to_self_delay, ~14
+ * days). Terminal-state fallback for force closes whose actual timelock was
+ * never captured — every record must reach a terminal state in bounded time.
+ */
+const MAX_TIMELOCK_BLOCKS = 2016
 /** Esplora shares a 2-slot semaphore with LDK-critical sync — stay polite. */
 const MAX_QUERIES_PER_PASS = 8
 
@@ -121,11 +127,12 @@ export async function reconcileCloseRecords(
         const record: CloseRecord = {
           schemaVersion: CLOSE_RECORD_SCHEMA_VERSION,
           channelId,
-          fundingTxo: txo,
+          fundingTxo: { txid: txo.txid, vout: txo.vout },
           closeType: 'unknown',
           initiator: 'unknown',
           closureReason: 'Channel closed while the app was offline',
           txs: [],
+          ...(txo.timelockBlocks !== undefined ? { timelockBlocks: txo.timelockBlocks } : {}),
           createdAt: Date.now(),
         }
         void upsertCloseRecord(record)
@@ -186,6 +193,26 @@ export async function reconcileCloseRecords(
           }
         }
 
+        // (b2) Derive the timelock expiry height once the close tx confirms.
+        // to_self_delay was captured while the channel was open (safety-net
+        // map → record fact); the close tx's confirm height may have been
+        // discovered in this very pass, so check both fact sets.
+        if (
+          record.claimableAtHeight === undefined &&
+          record.timelockBlocks !== undefined &&
+          record.closeType !== 'coop'
+        ) {
+          const closeConfirmedAt = [...facts.txs, ...record.txs].find(
+            (tx) =>
+              (tx.role === 'commitment' || tx.role === 'closing') &&
+              tx.confirmedAtHeight !== undefined
+          )?.confirmedAtHeight
+          if (closeConfirmedAt !== undefined) {
+            facts.claimableAtHeight = closeConfirmedAt + record.timelockBlocks
+            changed = true
+          }
+        }
+
         if (changed) void upsertCloseRecord(facts)
 
         // (c) Positive-evidence completion (new-tip only).
@@ -199,9 +226,14 @@ export async function reconcileCloseRecords(
           h !== undefined && confirmations(tipHeight, h) >= FINALITY_CONFS
         const closeTx = current.txs.find((tx) => tx.role === 'closing' || tx.role === 'commitment')
         const closeFinal = deepConf(closeTx?.confirmedAtHeight)
+        // 'commitment' is a valid receipt role: safety-net records (closeType
+        // 'unknown') label the discovered close tx 'commitment' even when it
+        // was actually a coop close paying this wallet directly. The wallet
+        // check is the real gate — a force-close commitment never pays the
+        // BDK wallet, so it can't false-positive.
         const receiptTx = current.txs.find(
           (tx) =>
-            (tx.role === 'sweep' || tx.role === 'closing') &&
+            (tx.role === 'sweep' || tx.role === 'closing' || tx.role === 'commitment') &&
             deepConf(tx.confirmedAtHeight) &&
             txConfirmedInWallet(deps.bdkWallet, tx.txid)
         )
@@ -225,7 +257,12 @@ export async function reconcileCloseRecords(
           closeFinal &&
           (current.closeType === 'coop' ||
             (current.claimableAtHeight !== undefined &&
-              current.claimableAtHeight + FINALITY_CONFS <= tipHeight))
+              current.claimableAtHeight + FINALITY_CONFS <= tipHeight) ||
+            // Timelock never captured (pre-feature channel): fall back to the
+            // maximum possible to_self_delay so force closes still reach a
+            // terminal state in bounded time instead of pending forever.
+            (closeTx?.confirmedAtHeight !== undefined &&
+              closeTx.confirmedAtHeight + MAX_TIMELOCK_BLOCKS + FINALITY_CONFS <= tipHeight))
         ) {
           // Close resolved on-chain but our wallet never saw the funds arrive
           // (e.g. swept on a device we can't see). Terminal, rendered

@@ -157,6 +157,13 @@ vi.mock('lightningdevkit', () => {
     }
   }
 
+  class Option_u16Z_Some {
+    some: number
+    constructor(s: number) {
+      this.some = s
+    }
+  }
+
   class Option_PaymentFailureReasonZ_Some {
     some: number
     constructor(s: number) {
@@ -207,6 +214,7 @@ vi.mock('lightningdevkit', () => {
     Option_ThirtyTwoBytesZ_Some,
     Option_ThirtyTwoBytesZ_None,
     Option_u64Z_Some,
+    Option_u16Z_Some,
     Option_PaymentFailureReasonZ_Some,
     PaymentFailureReason,
     ClosureReason_CounterpartyForceClosed,
@@ -490,6 +498,25 @@ describe('createEventHandler', () => {
         channelIdHex: '0708',
         outpoints: [expect.objectContaining({ vout: 0, valueSats: '0' })],
       })
+    )
+  })
+
+  it('persists descriptors even when outpoint extraction throws (fund-safety)', () => {
+    const evt = new Event_SpendableOutputs() as unknown as {
+      outputs: { spendable_outpoint: () => unknown }[]
+    }
+    const first = evt.outputs[0]
+    if (!first) throw new Error('mock output missing')
+    first.spendable_outpoint = () => {
+      throw new Error('binding edge case')
+    }
+    handleEvent(evt as never)
+    // The descriptors write is the fund-safety payload — it must survive a
+    // throwing attribution accessor; attribution degrades to empty.
+    expect(idbPut).toHaveBeenCalledWith(
+      'ldk_spendable_outputs',
+      expect.any(String),
+      expect.objectContaining({ descriptors: [expect.any(Uint8Array)], outpoints: [] })
     )
   })
 

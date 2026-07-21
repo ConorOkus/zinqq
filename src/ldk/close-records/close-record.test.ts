@@ -98,6 +98,7 @@ describe('serialization', () => {
       fundingTxo: { txid: 'f0', vout: 1 },
       txs: [{ txid: 't1', role: 'sweep', feeSats: 123n, confirmedAtHeight: 7 }],
       expectedAmountSats: 480_000n,
+      timelockBlocks: 144,
       claimableAtHeight: 900_000,
       completedAt: 5000,
       resolution: 'verified',
