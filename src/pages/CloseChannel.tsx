@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router'
+import { Option_ChannelShutdownStateZ_Some, ChannelShutdownState } from 'lightningdevkit'
 import { useLdk } from '../ldk/use-ldk'
 import { bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
@@ -15,6 +16,8 @@ const HEX_RE = /^[0-9a-f]+$/
 interface RouteState {
   channelIdHex?: string
   counterpartyPubkey?: string
+  /** Preselect force close (used for channels stuck in a stalled cooperative close). */
+  closeType?: string
 }
 
 type CloseChannelStep =
@@ -37,6 +40,7 @@ export function CloseChannel() {
     PUBKEY_HEX_RE.test(routeState.counterpartyPubkey)
       ? routeState.counterpartyPubkey
       : undefined
+  const initialCloseType = routeState.closeType === 'force' ? 'force' : 'cooperative'
 
   const [currentStep, setCurrentStep] = useState<CloseChannelStep | null>(null)
   const [isClosing, setIsClosing] = useState(false)
@@ -67,6 +71,7 @@ export function CloseChannel() {
     }
 
     const counterparty = match.get_counterparty()
+    const shutdownState = match.get_channel_shutdown_state()
     const channel: ChannelInfoWithId = {
       channelId: match.get_channel_id(),
       channelIdHex,
@@ -77,10 +82,13 @@ export function CloseChannel() {
       inboundCapacityMsat: match.get_inbound_capacity_msat(),
       isUsable: match.get_is_usable(),
       isReady: match.get_is_channel_ready(),
+      isShuttingDown:
+        shutdownState instanceof Option_ChannelShutdownStateZ_Some &&
+        shutdownState.some !== ChannelShutdownState.LDKChannelShutdownState_NotShuttingDown,
     }
 
-    setCurrentStep({ step: 'confirm', channel, closeType: 'cooperative' })
-  }, [ldk.status, channelIdHex, counterpartyPubkey, navigate]) // eslint-disable-line react-hooks/exhaustive-deps
+    setCurrentStep({ step: 'confirm', channel, closeType: initialCloseType })
+  }, [ldk.status, channelIdHex, counterpartyPubkey, initialCloseType, navigate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch the pre-close estimate once the node is ready. Best-effort only.
   // Granular dep: the context value changes identity on every balance tick,

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router'
+import { Option_ChannelShutdownStateZ_Some, ChannelShutdownState } from 'lightningdevkit'
 import { useLdk } from '../ldk/use-ldk'
 import { parsePeerAddress } from '../ldk/peers/peer-connection'
 import { getKnownPeers, type KnownPeer } from '../ldk/storage/known-peers'
@@ -48,6 +49,7 @@ export function Peers() {
     for (const ch of channels) {
       const counterparty = ch.get_counterparty()
       const peerPubkey = bytesToHex(counterparty.get_node_id())
+      const shutdownState = ch.get_channel_shutdown_state()
       const info: ChannelInfo = {
         channelIdHex: bytesToHex(ch.get_channel_id().write()),
         counterpartyPubkey: peerPubkey,
@@ -56,6 +58,9 @@ export function Peers() {
         inboundCapacityMsat: ch.get_inbound_capacity_msat(),
         isUsable: ch.get_is_usable(),
         isReady: ch.get_is_channel_ready(),
+        isShuttingDown:
+          shutdownState instanceof Option_ChannelShutdownStateZ_Some &&
+          shutdownState.some !== ChannelShutdownState.LDKChannelShutdownState_NotShuttingDown,
       }
       const existing = channelsByPeer.get(peerPubkey)
       if (existing) {
@@ -242,13 +247,31 @@ export function Peers() {
                       className="ml-5 flex flex-col gap-1 border-l border-dark-border pl-3"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-[var(--color-on-dark-muted)]">
-                          {ch.isUsable ? 'Active' : ch.isReady ? 'Ready' : 'Pending'}
+                        <span
+                          className={`text-xs ${
+                            ch.isShuttingDown
+                              ? 'font-semibold text-amber-400'
+                              : 'text-[var(--color-on-dark-muted)]'
+                          }`}
+                        >
+                          {ch.isShuttingDown
+                            ? 'Closing…'
+                            : ch.isUsable
+                              ? 'Active'
+                              : ch.isReady
+                                ? 'Ready'
+                                : 'Pending'}
                         </span>
                         <span className="text-xs font-semibold">
                           {formatBtc(ch.capacitySats)} capacity
                         </span>
                       </div>
+                      {ch.isShuttingDown && (
+                        <p className="text-xs text-[var(--color-on-dark-muted)]">
+                          Cooperative close in progress. If it doesn&apos;t complete (LSP offline),
+                          you can force close instead.
+                        </p>
+                      )}
                       <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-on-dark-muted)]">
                         <div className="flex gap-3">
                           <span>Send: {formatBtc(ch.outboundCapacityMsat / 1000n)}</span>
@@ -261,11 +284,12 @@ export function Peers() {
                               state: {
                                 channelIdHex: ch.channelIdHex,
                                 counterpartyPubkey: ch.counterpartyPubkey,
+                                ...(ch.isShuttingDown ? { closeType: 'force' } : {}),
                               },
                             })
                           }
                         >
-                          Close
+                          {ch.isShuttingDown ? 'Force Close' : 'Close'}
                         </button>
                       </div>
                     </div>
