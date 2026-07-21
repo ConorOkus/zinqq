@@ -45,6 +45,7 @@ function readyLdk(
     createChannel: () => true,
     closeChannel: () => true,
     forceCloseChannel: () => true,
+    estimateClose: () => Promise.resolve(null),
     listChannels: () => [],
     bdkWallet: {} as never,
     bdkEsploraClient: {} as never,

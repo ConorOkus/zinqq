@@ -9,6 +9,7 @@ import type {
   ChannelId,
 } from 'lightningdevkit'
 import type { LdkNode } from './init'
+import type { CloseEstimate } from './close-records/estimate'
 import type { PersistedPayment } from './storage/payment-history'
 import type { JitInvoiceResult } from './lsps2/types'
 import type { JitQuote } from './context'
@@ -37,6 +38,13 @@ export type LdkContextValue =
       closeChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
       forceCloseChannel: (channelId: ChannelId, counterpartyNodeId: Uint8Array) => boolean
       listChannels: () => ChannelDetails[]
+      /**
+       * Pre-close fee/timeline estimate for the close confirm screen.
+       * Never throws and must never gate closing — every field is
+       * independently nullable ("estimate unavailable"). Null result means
+       * the channel was not found.
+       */
+      estimateClose: (channelIdHex: string) => Promise<CloseEstimate | null>
       bdkWallet: Wallet
       bdkEsploraClient: EsploraClient
       setSyncNeeded: (cb: (() => void) | undefined) => void

@@ -6,6 +6,7 @@ import { formatBtc } from '../utils/format-btc'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { Check, XClose } from '../components/icons'
 import type { ChannelInfoWithId } from '../ldk/types'
+import { humanizeBlocks, type CloseEstimate } from '../ldk/close-records/estimate'
 import { captureError } from '../storage/error-log'
 
 const PUBKEY_HEX_RE = /^[0-9a-f]{66}$/
@@ -38,6 +39,11 @@ export function CloseChannel() {
       : undefined
 
   const [currentStep, setCurrentStep] = useState<CloseChannelStep | null>(null)
+  const [isClosing, setIsClosing] = useState(false)
+  // Pre-close estimate. Purely informational: fetch failure leaves it null
+  // and the screen renders placeholders — closing must never be blocked.
+  const [estimate, setEstimate] = useState<CloseEstimate | null>(null)
+  const [estimateLoading, setEstimateLoading] = useState(true)
   const closingRef = useRef(false)
 
   // Redirect if missing route state
@@ -76,11 +82,34 @@ export function CloseChannel() {
     setCurrentStep({ step: 'confirm', channel, closeType: 'cooperative' })
   }, [ldk.status, channelIdHex, counterpartyPubkey, navigate]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch the pre-close estimate once the node is ready. Best-effort only.
+  // Granular dep: the context value changes identity on every balance tick,
+  // but estimateClose is a stable callback — depend on it, not on `ldk`.
+  const estimateCloseFn = ldk.status === 'ready' ? ldk.estimateClose : null
+  useEffect(() => {
+    if (!estimateCloseFn || !channelIdHex) return
+    let cancelled = false
+    estimateCloseFn(channelIdHex)
+      .then((result) => {
+        if (!cancelled) setEstimate(result)
+      })
+      .catch(() => {
+        // estimateClose never throws by contract; belt-and-suspenders only
+      })
+      .finally(() => {
+        if (!cancelled) setEstimateLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [estimateCloseFn, channelIdHex])
+
   const handleConfirm = useCallback(() => {
     if (closingRef.current) return
     if (ldk.status !== 'ready' || !currentStep || currentStep.step !== 'confirm') return
 
     closingRef.current = true
+    setIsClosing(true)
     const { channel, closeType } = currentStep
 
     try {
@@ -113,6 +142,7 @@ export function CloseChannel() {
       })
     } finally {
       closingRef.current = false
+      setIsClosing(false)
     }
   }, [ldk, currentStep])
 
@@ -146,6 +176,8 @@ export function CloseChannel() {
   // --- Success screen ---
   if (currentStep.step === 'success') {
     const isForce = currentStep.closeType === 'force'
+    const forceTimeline =
+      estimate?.timelockBlocks != null ? humanizeBlocks(estimate.timelockBlocks) : '~14 days'
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent">
@@ -155,8 +187,8 @@ export function CloseChannel() {
           <div className="font-display text-2xl font-bold text-on-dark">Channel Closing</div>
           <div className="mt-2 text-sm text-[var(--color-on-dark-muted)]">
             {isForce
-              ? 'Force close initiated. Your funds will be available after the timelock expires (may take several hours).'
-              : 'Your channel is closing. Funds will return to your wallet once the closing transaction confirms on-chain.'}
+              ? `Force close initiated. Your funds will be accessible in ${forceTimeline} — they return to your wallet automatically once the timelock expires.`
+              : 'Your channel is closing. Funds return to your wallet once the closing transaction confirms on-chain — keep the app open until the close completes.'}
           </div>
         </div>
         <button
@@ -219,6 +251,22 @@ export function CloseChannel() {
   const remoteSats = channel.inboundCapacityMsat / 1000n
   const isForce = closeType === 'force'
 
+  const costSats = isForce ? estimate?.forceTotalYouPaySats : estimate?.coopTotalYouPaySats
+  const costLabel = estimateLoading
+    ? 'Estimating…'
+    : costSats != null
+      ? `~${formatBtc(costSats)}`
+      : 'Estimate unavailable'
+  const timelineLabel = isForce
+    ? estimate?.timelockBlocks != null
+      ? `up to ${humanizeBlocks(estimate.timelockBlocks)}`
+      : 'up to ~14 days'
+    : '~minutes once confirmed'
+  const expectedBackLabel =
+    estimate?.expectedBackSats != null ? `~${formatBtc(estimate.expectedBackSats)}` : '—'
+  const lspPaysCloseFee = !isForce && estimate?.feePayer === 'counterparty'
+  const pendingHtlcs = estimate?.pendingHtlcCount ?? 0
+
   return (
     <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
       <ScreenHeader title="Close Channel" backTo="/settings/advanced/peers" />
@@ -246,6 +294,37 @@ export function CloseChannel() {
             Remote Balance
           </span>
           <span className="font-semibold">{formatBtc(remoteSats)}</span>
+        </div>
+
+        <hr className="border-dark-border" />
+
+        <div className="flex justify-between">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+            You Get Back
+          </span>
+          <span className="font-semibold">{expectedBackLabel}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <div className="flex justify-between">
+            <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+              Estimated Cost to You
+            </span>
+            <span className="font-semibold">{costLabel}</span>
+          </div>
+          {lspPaysCloseFee && (
+            <span className="text-xs text-[var(--color-on-dark-muted)]">
+              The closing fee is paid by the LSP — this close costs you nothing.
+            </span>
+          )}
+          <span className="text-xs text-[var(--color-on-dark-muted)]">
+            Estimate at current network fees; the final cost varies with network conditions.
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+            Funds Available
+          </span>
+          <span className="font-semibold">{timelineLabel}</span>
         </div>
 
         <hr className="border-dark-border" />
@@ -279,22 +358,43 @@ export function CloseChannel() {
           </div>
         </div>
 
-        {isForce && (
+        {isForce ? (
           <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
-            Force close broadcasts your latest commitment transaction. Funds will be locked for a
-            timelock period (may take several hours) before they can be swept to your wallet.
+            Force closing moves your balance on-chain without the LSP&apos;s cooperation. It may
+            cost more, and your funds are locked for {timelineLabel} while the network verifies the
+            close. You wait; the other side doesn&apos;t.
+          </div>
+        ) : (
+          <div className="rounded-lg bg-dark-elevated p-3 text-sm text-[var(--color-on-dark-muted)]">
+            Closing this channel moves your balance back to your on-chain wallet and incurs an
+            on-chain fee. The LSP must be online — keep the app open until the close completes.
+          </div>
+        )}
+
+        {isForce && estimate?.isAnchor === false && (
+          <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
+            This channel doesn&apos;t support anchor outputs, so the force-close transaction
+            can&apos;t be fee-bumped. If network fees spike, confirmation may take much longer.
+          </div>
+        )}
+
+        {pendingHtlcs > 0 && (
+          <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
+            {pendingHtlcs === 1 ? '1 in-flight payment' : `${String(pendingHtlcs)} in-flight payments`}{' '}
+            must settle before the close completes — the amount returned may change.
           </div>
         )}
       </div>
 
       <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
         <button
-          className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] ${
+          className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] disabled:opacity-50 ${
             isForce ? 'bg-red-500 text-white' : 'bg-accent text-white'
           }`}
           onClick={handleConfirm}
+          disabled={isClosing}
         >
-          {isForce ? 'Force Close Channel' : 'Close Channel'}
+          {isClosing ? 'Closing…' : isForce ? 'Force Close Channel' : 'Close Channel'}
         </button>
       </div>
     </div>

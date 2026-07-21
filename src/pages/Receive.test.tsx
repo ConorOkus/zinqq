@@ -107,6 +107,7 @@ function readyLdkContext(
     sendBolt12Payment: vi.fn(),
     closeChannel: vi.fn(),
     forceCloseChannel: vi.fn(),
+    estimateClose: vi.fn(() => Promise.resolve(null)),
     listChannels: vi.fn(() => [mockChannel(1_000_000_000n)]),
     abandonPayment: vi.fn(),
     getPaymentResult: vi.fn(() => null),

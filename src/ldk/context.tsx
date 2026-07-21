@@ -60,6 +60,7 @@ import {
   Lsps2BackpressureError,
   Lsps2HandlerDestroyedError,
 } from './lsps2/errors'
+import { estimateClose, type CloseEstimate } from './close-records/estimate'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -763,6 +764,18 @@ export function LdkProvider({
     return node.channelManager.list_channels()
   }, [])
 
+  const estimateCloseForChannel = useCallback(
+    (channelIdHex: string): Promise<CloseEstimate | null> => {
+      const node = nodeRef.current
+      if (!node) return Promise.resolve(null)
+      return estimateClose(
+        { channelManager: node.channelManager, chainMonitor: node.chainMonitor },
+        channelIdHex
+      )
+    },
+    []
+  )
+
   const forgetPeer = useCallback(async (pubkey: string): Promise<void> => {
     const node = nodeRef.current
     if (!node) throw new Error('Node not initialized')
@@ -1094,6 +1107,13 @@ export function LdkProvider({
             createInvoice,
           }
 
+          // Expose the close flow for agent/programmatic access. `estimate`
+          // is safe and idempotent (never throws, never gates closing).
+          // Phase 2 of the close-transparency plan adds getAll/close/forceClose.
+          ;(window as unknown as Record<string, unknown>).__closeRecords = {
+            estimate: estimateCloseForChannel,
+          }
+
           // Zero secret keys on page unload to limit memory exposure
           const zeroSecretOnUnload = () => {
             node.nodeSecretKey.fill(0)
@@ -1358,6 +1378,7 @@ export function LdkProvider({
             closeChannel,
             forceCloseChannel,
             listChannels,
+            estimateClose: estimateCloseForChannel,
             bdkWallet,
             bdkEsploraClient,
             setSyncNeeded: setSyncNeededCallback,
@@ -1601,6 +1622,7 @@ export function LdkProvider({
     closeChannel,
     forceCloseChannel,
     listChannels,
+    estimateCloseForChannel,
     createInvoice,
     requestJitQuote,
     executeJitBuyCallback,
