@@ -61,6 +61,7 @@ import {
   Lsps2HandlerDestroyedError,
 } from './lsps2/errors'
 import { estimateClose, type CloseEstimate } from './close-records/estimate'
+import { recordSweepResult } from './close-records/signals'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
   readRecoveryState,
@@ -1314,6 +1315,7 @@ export function LdkProvider({
                   ONCHAIN_CONFIG.esploraUrl,
                   LDK_CONFIG.esploraFallbackUrl
                 )
+                if (result.swept > 0) recordSweepResult(result)
 
                 if (result.swept > 0) {
                   // Sweep succeeded — transition to sweep_confirmed
