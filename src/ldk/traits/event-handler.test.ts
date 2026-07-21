@@ -293,7 +293,7 @@ vi.mock('../../onchain/storage/changeset', () => ({
 }))
 
 vi.mock('../sweep', () => ({
-  sweepSpendableOutputs: vi.fn(() => Promise.resolve({ swept: 0, skipped: 0, txid: null })),
+  sweepSpendableOutputs: vi.fn(() => Promise.resolve({ swept: 0, skipped: 0, txs: [] })),
 }))
 
 const mockExtractedTxBytes = new Uint8Array([0xde, 0xad])

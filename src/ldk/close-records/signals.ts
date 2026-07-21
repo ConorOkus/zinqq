@@ -94,21 +94,22 @@ export function handleCloseSignal(signal: CloseSignal): void {
  * persisted before this feature carry no channelId and stay unattributed.
  */
 export function recordSweepResult(result: SweepResult): void {
-  const txid = result.txid
-  // broadcastWithRetry can return sentinel strings instead of a txid.
-  if (!txid || txid === 'in-flight' || txid === 'already-broadcast') return
-  const channelIds = new Set(
-    result.attributions.map((a) => a.channelIdHex).filter((id): id is string => id !== null)
-  )
-  for (const channelIdHex of channelIds) {
-    const record: CloseRecord = {
-      schemaVersion: CLOSE_RECORD_SCHEMA_VERSION,
-      channelId: channelIdHex,
-      closeType: 'unknown',
-      initiator: 'unknown',
-      txs: [{ txid, role: 'sweep' }],
-      createdAt: Date.now(),
+  for (const { txid, attributions } of result.txs) {
+    // broadcastWithRetry can return sentinel strings instead of a txid.
+    if (!txid || txid === 'in-flight' || txid === 'already-broadcast') continue
+    const channelIds = new Set(
+      attributions.map((a) => a.channelIdHex).filter((id): id is string => id !== null)
+    )
+    for (const channelIdHex of channelIds) {
+      const record: CloseRecord = {
+        schemaVersion: CLOSE_RECORD_SCHEMA_VERSION,
+        channelId: channelIdHex,
+        closeType: 'unknown',
+        initiator: 'unknown',
+        txs: [{ txid, role: 'sweep' }],
+        createdAt: Date.now(),
+      }
+      void upsertCloseRecord(record)
     }
-    void upsertCloseRecord(record)
   }
 }

@@ -7,6 +7,9 @@ const MAX_BROADCAST_RETRIES = 5
 const FALLBACK_RETRIES = 3
 const RETRY_DELAY_MS = 1_000
 const PENDING_BROADCAST_TTL_MS = 48 * 60 * 60 * 1_000 // 48 hours
+// A hung request would pin the module-level sweep/broadcast guards forever;
+// match the esplora-client.ts timeout so stalls reject instead of hanging.
+const FETCH_TIMEOUT_MS = 10_000
 
 const inflightTxs = new Set<string>()
 
@@ -16,7 +19,11 @@ async function postTxToEsplora(
 ): Promise<
   { status: 'ok'; txid: string } | { status: 'known' } | { status: 'error'; body: string }
 > {
-  const res = await fetch(`${url}/tx`, { method: 'POST', body: txHex })
+  const res = await fetch(`${url}/tx`, {
+    method: 'POST',
+    body: txHex,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
   if (res.ok) {
     return { status: 'ok', txid: await res.text() }
   }

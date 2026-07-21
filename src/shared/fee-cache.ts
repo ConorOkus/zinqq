@@ -18,6 +18,10 @@ interface FeeCache {
 
 const FAILURE_BACKOFF_MS = 15_000
 
+// Callers (e.g. the sweep) hold in-progress guards across this fetch; a hung
+// request must reject instead of pinning them forever. Matches esplora-client.ts.
+const FETCH_TIMEOUT_MS = 10_000
+
 let cache: FeeCache | null = null
 let pendingFetch: Promise<void> | null = null
 let esploraBaseUrl: string | null = null
@@ -41,7 +45,9 @@ function refreshFeeCache(): Promise<void> | null {
   if (!esploraBaseUrl) return null
   if (Date.now() - lastFailedAt < FAILURE_BACKOFF_MS) return null
 
-  pendingFetch = fetch(`${esploraBaseUrl}/fee-estimates`)
+  pendingFetch = fetch(`${esploraBaseUrl}/fee-estimates`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
     .then((res) => {
       if (!res.ok) throw new Error(`Fee API responded with ${res.status.toString()}`)
       return res.json() as Promise<Record<string, number>>

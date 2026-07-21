@@ -41,6 +41,7 @@ describe('broadcastWithRetry', () => {
     expect(fetch).toHaveBeenCalledWith(`${ESPLORA_URL}/tx`, {
       method: 'POST',
       body: TX_HEX,
+      signal: expect.any(AbortSignal) as AbortSignal,
     })
   })
 
