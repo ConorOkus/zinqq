@@ -72,7 +72,7 @@ import {
   clearRecoveryState,
   seedRecoveryVssVersion,
 } from './recovery/recovery-state'
-import { sweepSpendableOutputs } from './sweep'
+import { sweepSpendableOutputs, getPendingSweepInfo } from './sweep'
 import { revealNextAddress } from '../onchain/address-utils'
 import { ONCHAIN_CONFIG } from '../onchain/config'
 
@@ -1368,12 +1368,50 @@ export function LdkProvider({
                   }
                   await writeRecoveryState(updated, vssClient)
                   notifyRecoveryStateChanged()
-                  console.log('[Recovery] Auto-sweep succeeded, txid:', result.txid)
+                  console.log(
+                    '[Recovery] Auto-sweep succeeded, txid(s):',
+                    result.txs.map((t) => t.txid).join(', ')
+                  )
                 }
               } catch (err: unknown) {
                 captureError('warning', 'Recovery', 'Auto-recovery check failed', String(err))
               } finally {
                 recoveryInProgress = false
+              }
+            })()
+          }
+
+          // Pending-sweep retry: outputs that couldn't sweep (dust or
+          // timelocked at the fee rate of the last attempt) stay in IDB;
+          // retry every ~5min so they sweep in one tx once economical.
+          let sweepTickCount = 0
+          let sweepRetryInProgress = false
+          const maybeRetryPendingSweep = () => {
+            if (sweepRetryInProgress) return
+            sweepRetryInProgress = true
+            void (async () => {
+              try {
+                const pending = await getPendingSweepInfo()
+                if (!pending) return
+
+                const destScript = revealNextAddress(bdkWallet, 'Sweep Retry')
+                const result = await sweepSpendableOutputs(
+                  node.keysManager,
+                  destScript,
+                  ONCHAIN_CONFIG.esploraUrl,
+                  LDK_CONFIG.esploraFallbackUrl
+                )
+                if (result.swept > 0) {
+                  recordSweepResult(result)
+                  console.log(
+                    '[Sweep] Pending-sweep retry succeeded, txid(s):',
+                    result.txs.map((t) => t.txid).join(', ')
+                  )
+                }
+              } catch (err: unknown) {
+                captureError('warning', 'Sweep', 'Pending-sweep retry failed', String(err))
+              } finally {
+                sweepRetryInProgress = false
               }
             })()
           }
@@ -1395,6 +1433,12 @@ export function LdkProvider({
             recoveryTickCount += 1
             if (recoveryTickCount % 6 === 0) {
               maybeAutoRecover()
+            }
+
+            // Retry stuck sweeps every ~5min
+            sweepTickCount += 1
+            if (sweepTickCount % 30 === 0) {
+              maybeRetryPendingSweep()
             }
 
             drainEventsAndRefresh()

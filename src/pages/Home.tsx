@@ -5,8 +5,10 @@ import { useLdk } from '../ldk/use-ldk'
 import { useUnifiedBalance } from '../hooks/use-unified-balance'
 import { usePwaInstall } from '../hooks/use-pwa-install'
 import { useRecovery } from '../ldk/recovery/use-recovery'
+import { usePendingSweep } from '../ldk/use-pending-sweep'
 import { BalanceDisplay } from '../components/BalanceDisplay'
 import { RecoveryBanner } from '../components/RecoveryBanner'
+import { PendingSweepBanner } from '../components/PendingSweepBanner'
 import { ArrowUpRight, ArrowDownLeft, RefreshIcon, HomeIcon } from '../components/icons'
 
 export function Home() {
@@ -17,6 +19,7 @@ export function Home() {
   const { canInstall, isIos, isStandalone, promptInstall } = usePwaInstall()
   const vssClient = ldk.status === 'ready' ? ldk.vssClient : null
   const { recovery, dismiss: dismissRecovery } = useRecovery(vssClient)
+  const pendingSweep = usePendingSweep()
   const [showIosHint, setShowIosHint] = useState(false)
 
   const showInstallButton = !isStandalone && (canInstall || isIos)
@@ -77,6 +80,12 @@ export function Home() {
       {recovery && (
         <div className="mb-3">
           <RecoveryBanner recovery={recovery} onDismiss={() => void dismissRecovery()} />
+        </div>
+      )}
+
+      {pendingSweep?.lastAttemptFailed && (
+        <div className="mb-3">
+          <PendingSweepBanner info={pendingSweep} />
         </div>
       )}
 

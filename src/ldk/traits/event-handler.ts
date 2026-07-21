@@ -188,7 +188,12 @@ export function createEventHandler(
     .then((result) => {
       if (result.swept > 0) {
         recordSweepResult(result)
-        console.log('[LDK] Startup sweep: swept', result.swept, 'output(s), txid:', result.txid)
+        console.log(
+          '[LDK] Startup sweep: swept',
+          result.swept,
+          'output(s), txid(s):',
+          result.txs.map((t) => t.txid).join(', ')
+        )
       }
     })
     .catch((err: unknown) => {
@@ -480,8 +485,8 @@ function handleEvent(
           console.log(
             '[LDK Event] SpendableOutputs: swept',
             result.swept,
-            'output(s), txid:',
-            result.txid
+            'output(s), txid(s):',
+            result.txs.map((t) => t.txid).join(', ')
           )
         }
       })
