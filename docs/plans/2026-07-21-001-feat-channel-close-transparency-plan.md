@@ -235,7 +235,7 @@ Reordered from the draft: the confirm screen has no dependency on the record eng
 
 ## Acceptance Criteria
 
-- [ ] Confirm screen shows funder-aware cost estimate (labeled), humanized timeline, amount expected back, pending-HTLC note, non-anchor warning, coop-vs-force education; closing works with fee estimator AND balance APIs failing (hard test)
+- [x] Confirm screen shows funder-aware cost estimate (labeled), humanized timeline, amount expected back, pending-HTLC note, non-anchor warning, coop-vs-force education; closing works with fee estimator AND balance APIs failing (hard test)
 - [ ] Every close path (user coop, user force, counterparty force, HTLC timeout, `CommitmentTxConfirmed`) produces exactly one record; no-tx ClosureReasons produce none; mapping exhaustiveness is test-enforced against the bindings' exports
 - [ ] Records survive restart and cross-device restore via the singleton VSS key; duplicate/out-of-order events are no-ops on stored facts; cross-device conflicts merge field-wise (device A's facts + device B's facts both survive)
 - [ ] History shows one grouped "Channel close" item per record with derived status badge; `ChannelCloseDetail` (URL-addressable, live-updating) lists each tx with txid, explorer link, copy-txid, fee, derived confirmations, and measured total cost when complete
@@ -255,7 +255,7 @@ Reordered from the draft: the confirm screen has no dependency on the record eng
 
 ## Dependencies & Risks
 
-- **Per-monitor balance APIs are new surface** — `get_monitor()`/`monitor.get_claimable_balances()`/`check_and_update_full_resolution_status()` are uncalled today; Phase 2 opens with a spike (including WASM wrapper lifecycle/`free()` behavior).
+- **Per-monitor balance reads are NOT available in these bindings** (Phase 1 finding): `LockedChannelMonitor` in the 0.2.4-0 TS bindings exposes only `free()` — `get_monitor()` cannot read balances, so the per-monitor path this plan assumed is closed. `estimateClose()` works around it by calling the flat `ChainMonitor.get_claimable_balances(allChannelsExceptTarget)` and trusting the result only when exactly one `ClaimableOnChannelClose` entry remains. Phase 2's reconciliation must do the same (ignored-channels filtering) and lean on BDK receipt evidence for completion; `check_and_update_full_resolution_status()` is also unavailable through the lock. Re-check on the next LDK bindings upgrade.
 - **`channel_funding_txo` is an Option** — the funding-txo map + confirm-time capture mitigate; if None everywhere, the record degrades to no-txid-discovery and can only complete via BDK receipt evidence.
 - **Monitor archived before reconciliation runs** — completion then rests solely on BDK receipt matching; the "resolved (unverified)" state covers the remainder.
 - **`broadcast_transactions` gains type tags post-0.2** — when upgrading, closing-txid discovery can move from outspend-matching to broadcast tags; the matcher is isolated in `close-records/` for that swap.

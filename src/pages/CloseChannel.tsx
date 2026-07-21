@@ -388,7 +388,9 @@ export function CloseChannel() {
 
         {pendingHtlcs > 0 && (
           <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
-            {pendingHtlcs === 1 ? '1 in-flight payment' : `${String(pendingHtlcs)} in-flight payments`}{' '}
+            {pendingHtlcs === 1
+              ? '1 in-flight payment'
+              : `${String(pendingHtlcs)} in-flight payments`}{' '}
             must settle before the close completes — the amount returned may change.
           </div>
         )}
