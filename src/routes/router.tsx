@@ -14,6 +14,7 @@ import { Balance } from '../pages/Balance'
 import { Scan } from '../pages/Scan'
 import { Restore } from '../pages/Restore'
 import { TransactionDetail } from '../pages/TransactionDetail'
+import { ChannelCloseDetail } from '../pages/ChannelCloseDetail'
 import { RecoverFunds } from '../pages/RecoverFunds'
 
 export const router = createBrowserRouter([
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
       { path: 'send', element: <Send /> },
       { path: 'scan', element: <Scan /> },
       { path: 'activity', element: <Activity /> },
+      { path: 'activity/close/:channelId', element: <ChannelCloseDetail /> },
       { path: 'activity/:txId', element: <TransactionDetail /> },
       { path: 'recover', element: <RecoverFunds /> },
       { path: 'settings', element: <Settings /> },

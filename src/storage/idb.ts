@@ -1,5 +1,6 @@
 export const DB_NAME = 'zinqq-ldk-mainnet'
-const DB_VERSION = 12
+// v12→v13: added ldk_close_records (channel close transparency records)
+const DB_VERSION = 13
 
 const STORES = [
   'ldk_seed',
@@ -19,6 +20,7 @@ const STORES = [
   'ldk_channel_id_map',
   'ldk_error_log',
   'ldk_force_close_recovery',
+  'ldk_close_records',
 ] as const
 
 export type StoreName = (typeof STORES)[number]

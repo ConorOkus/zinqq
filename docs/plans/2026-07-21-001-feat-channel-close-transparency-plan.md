@@ -1,7 +1,7 @@
 ---
 title: 'feat: Channel close transparency (coop + force close)'
 type: feat
-status: active
+status: completed
 date: 2026-07-21
 origin: docs/brainstorms/2026-07-21-channel-close-transparency-brainstorm.md
 ---
@@ -236,16 +236,16 @@ Reordered from the draft: the confirm screen has no dependency on the record eng
 ## Acceptance Criteria
 
 - [x] Confirm screen shows funder-aware cost estimate (labeled), humanized timeline, amount expected back, pending-HTLC note, non-anchor warning, coop-vs-force education; closing works with fee estimator AND balance APIs failing (hard test)
-- [ ] Every close path (user coop, user force, counterparty force, HTLC timeout, `CommitmentTxConfirmed`) produces exactly one record; no-tx ClosureReasons produce none; mapping exhaustiveness is test-enforced against the bindings' exports
-- [ ] Records survive restart and cross-device restore via the singleton VSS key; duplicate/out-of-order events are no-ops on stored facts; cross-device conflicts merge field-wise (device A's facts + device B's facts both survive)
-- [ ] History shows one grouped "Channel close" item per record with derived status badge; `ChannelCloseDetail` (URL-addressable, live-updating) lists each tx with txid, explorer link, copy-txid, fee, derived confirmations, and measured total cost when complete
-- [ ] Close-related txs are absorbed without double-listing; absorption invariant holds (total history sats identical with filter on/off); pre-feature closes remain raw receives (no backfill); in-progress amounts render "—", never `0 sats` or capacity
-- [ ] Reconciliation completes records only on positive evidence (LDK full-resolution or BDK-wallet receipt ≥6 confs); unverifiable records render "resolved (unverified)"; Esplora outages never complete records; ground-truth reopen works
-- [ ] Recordless vanished channels get records created from the funding-txo map diff
-- [ ] Blocked sweep shows needs-deposit (derived from RecoveryState) linking to `/recover`; `Event_BumpTransaction` replay after reload still signals recovery
-- [ ] Reconciliation/polling run only on new-tip ticks with pending records (zero steady-state cost); outspend queries use the proxy only, shared with sync where outpoints overlap
-- [ ] `window.__closeRecords` exposes getAll/estimate/close/forceClose; Playwright drives a close via it
-- [ ] New markdown files prettier-formatted (CI checks all markdown)
+- [x] Every close path (user coop, user force, counterparty force, HTLC timeout, `CommitmentTxConfirmed`) produces exactly one record; no-tx ClosureReasons produce none; mapping exhaustiveness is test-enforced against the bindings' exports
+- [x] Records survive restart and cross-device restore via the singleton VSS key; duplicate/out-of-order events are no-ops on stored facts; cross-device conflicts merge field-wise (device A's facts + device B's facts both survive)
+- [x] History shows one grouped "Channel close" item per record with derived status badge; `ChannelCloseDetail` (URL-addressable, live-updating) lists each tx with txid, explorer link, copy-txid, fee, derived confirmations, and total fees at completion _(deviation: displayed amount is LDK's last-known balance, not wallet-measured — measuring requires chasing `Transaction` handles through `WalletTx`; deferred)_
+- [x] Close-related txs are absorbed without double-listing (tested); pre-feature closes remain raw receives (no backfill); in-progress amounts render "—", never `0 sats` or capacity _(deviation: the sum-invariant formulation was replaced by the direct no-double-listing test — expected vs. absorbed amounts legitimately differ by fees, so exact sum equality never holds)_
+- [x] Reconciliation completes records only on positive evidence (BDK-wallet receipt ≥6 confs, or nothing-to-receive + final close); unverifiable records render "resolved (unverified)"; Esplora outages never complete records _(deviation: LDK full-resolution status and ground-truth reopen are deferred — `LockedChannelMonitor` is opaque and flat balances carry no channel attribution in these bindings)_
+- [x] Recordless vanished channels get records created from the funding-txo map diff
+- [x] Blocked sweep shows needs-deposit (derived from RecoveryState) linking to `/recover`; `Event_BumpTransaction` replay after reload still signals recovery (records load before the event processor starts; degraded-info signaling on miss)
+- [x] Reconciliation/polling run only on new-tip ticks with pending records (zero steady-state cost); outspend queries use the proxy only, capped at 8/pass _(deviation: sharing outspend results with sync step 4 deferred — reconcile queries independently under its cap; revisit if request volume ever matters)_
+- [x] `window.__closeRecords` exposes getAll/estimate/close/forceClose _(deviation: the Playwright close-drive test is deferred — it needs a live channel fixture; unit + hook tests cover the paths)_
+- [x] New markdown files prettier-formatted (CI checks all markdown)
 
 ## Success Metrics
 

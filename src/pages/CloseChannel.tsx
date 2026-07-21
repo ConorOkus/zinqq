@@ -199,12 +199,20 @@ export function CloseChannel() {
               : 'Your channel is closing. Funds return to your wallet once the closing transaction confirms on-chain — keep the app open until the close completes.'}
           </div>
         </div>
-        <button
-          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
-          onClick={() => void navigate('/')}
-        >
-          Done
-        </button>
+        <div className="flex w-full max-w-[280px] flex-col gap-3">
+          <button
+            className="mt-4 h-14 w-full rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+            onClick={() => void navigate(`/activity/close/${channelIdHex}`)}
+          >
+            Track Progress
+          </button>
+          <button
+            className="h-14 w-full rounded-xl border-2 border-white/20 font-display text-lg font-bold text-on-dark transition-transform active:scale-[0.98]"
+            onClick={() => void navigate('/')}
+          >
+            Done
+          </button>
+        </div>
       </div>
     )
   }

@@ -35,7 +35,16 @@ vi.mock('lightningdevkit', () => {
     reason = new Option_PaymentFailureReasonZ_Some(0) // RecipientRejected
   }
   class Event_SpendableOutputs extends MockEvent {
-    outputs = [{ write: () => new Uint8Array([10, 20, 30]) }]
+    outputs = [
+      {
+        write: () => new Uint8Array([10, 20, 30]),
+        spendable_outpoint: () => ({
+          get_txid: () => new Uint8Array(32),
+          get_index: () => 0,
+        }),
+      },
+    ]
+    channel_id = { write: () => new Uint8Array([7, 8]) }
   }
   class Event_ChannelPending extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
@@ -60,6 +69,10 @@ vi.mock('lightningdevkit', () => {
   class ClosureReason_FundingBatchClosure {}
   class ClosureReason_HTLCsTimedOut {}
   class ClosureReason_PeerFeerateTooLow {}
+  class SpendableOutputDescriptor {}
+  class SpendableOutputDescriptor_StaticOutput extends SpendableOutputDescriptor {}
+  class SpendableOutputDescriptor_DelayedPaymentOutput extends SpendableOutputDescriptor {}
+  class SpendableOutputDescriptor_StaticPaymentOutput extends SpendableOutputDescriptor {}
   class Event_ChannelClosed extends MockEvent {
     channel_id = { write: () => new Uint8Array([7, 8]) }
     counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
@@ -144,6 +157,13 @@ vi.mock('lightningdevkit', () => {
     }
   }
 
+  class Option_u16Z_Some {
+    some: number
+    constructor(s: number) {
+      this.some = s
+    }
+  }
+
   class Option_PaymentFailureReasonZ_Some {
     some: number
     constructor(s: number) {
@@ -194,6 +214,7 @@ vi.mock('lightningdevkit', () => {
     Option_ThirtyTwoBytesZ_Some,
     Option_ThirtyTwoBytesZ_None,
     Option_u64Z_Some,
+    Option_u16Z_Some,
     Option_PaymentFailureReasonZ_Some,
     PaymentFailureReason,
     ClosureReason_CounterpartyForceClosed,
@@ -210,6 +231,10 @@ vi.mock('lightningdevkit', () => {
     ClosureReason_FundingBatchClosure,
     ClosureReason_HTLCsTimedOut,
     ClosureReason_PeerFeerateTooLow,
+    SpendableOutputDescriptor,
+    SpendableOutputDescriptor_StaticOutput,
+    SpendableOutputDescriptor_DelayedPaymentOutput,
+    SpendableOutputDescriptor_StaticPaymentOutput,
     SocketAddress_TcpIpV4,
     SocketAddress_TcpIpV6,
     SocketAddress_Hostname,
@@ -297,11 +322,20 @@ vi.mock('@bitcoindevkit/bdk-wallet-web', () => ({
   ScriptBuf: { from_bytes: vi.fn((b: unknown) => b) },
   Amount: { from_sat: vi.fn((s: unknown) => s) },
   SignOptions: class {},
+  Transaction: {
+    from_bytes: vi.fn(() => ({ compute_txid: () => ({ toString: () => 'commitment-txid' }) })),
+  },
 }))
 
 vi.mock('../utils', () => ({
   bytesToHex: vi.fn((bytes: Uint8Array) =>
     Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  ),
+  txidBytesToHex: vi.fn((bytes: Uint8Array) =>
+    Array.from(bytes)
+      .reverse()
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('')
   ),
@@ -454,11 +488,36 @@ describe('createEventHandler', () => {
   // process_pending_htlc_forwards) in context.tsx, so the former
   // event-scheduling / timer-cleanup tests no longer apply.
 
-  it('persists SpendableOutputs to IDB', () => {
+  it('persists SpendableOutputs to IDB with channel attribution', () => {
     handleEvent(new Event_SpendableOutputs())
-    expect(idbPut).toHaveBeenCalledWith('ldk_spendable_outputs', expect.any(String), [
-      expect.any(Uint8Array),
-    ])
+    expect(idbPut).toHaveBeenCalledWith(
+      'ldk_spendable_outputs',
+      expect.any(String),
+      expect.objectContaining({
+        descriptors: [expect.any(Uint8Array)],
+        channelIdHex: '0708',
+        outpoints: [expect.objectContaining({ vout: 0, valueSats: '0' })],
+      })
+    )
+  })
+
+  it('persists descriptors even when outpoint extraction throws (fund-safety)', () => {
+    const evt = new Event_SpendableOutputs() as unknown as {
+      outputs: { spendable_outpoint: () => unknown }[]
+    }
+    const first = evt.outputs[0]
+    if (!first) throw new Error('mock output missing')
+    first.spendable_outpoint = () => {
+      throw new Error('binding edge case')
+    }
+    handleEvent(evt as never)
+    // The descriptors write is the fund-safety payload — it must survive a
+    // throwing attribution accessor; attribution degrades to empty.
+    expect(idbPut).toHaveBeenCalledWith(
+      'ldk_spendable_outputs',
+      expect.any(String),
+      expect.objectContaining({ descriptors: [expect.any(Uint8Array)], outpoints: [] })
+    )
   })
 
   it('logs "persisting" for SpendableOutputs', () => {

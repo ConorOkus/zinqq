@@ -173,6 +173,13 @@ export interface SyncLoopConfig {
    * is cheap when nothing is dirty.
    */
   schedulePersist: () => Promise<void>
+  /**
+   * Feature extension point, called after each successful sync pass and
+   * OUTSIDE the sync timeout/abort budget. Keeps chain-sync free of feature
+   * imports (same layering as onStatusChange). Errors are logged, never
+   * counted as sync failures.
+   */
+  onSynced?: (info: { tipChanged: boolean; tipHash: string }) => Promise<void> | void
 }
 
 const MAX_BACKOFF_MS = 5 * 60 * 1_000 // 5 minutes
@@ -207,6 +214,7 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       // Initialize RGS concurrently — don't block chain sync on gossip fetch
       void ensureRgs()
 
+      const prevTipHash = lastTipHash
       const controller = new AbortController()
       const syncTimeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS)
       try {
@@ -233,6 +241,18 @@ export function startSyncLoop(config: SyncLoopConfig): SyncLoopHandle {
       // counted as sync errors, which is correct: the scheduler will retry
       // on next tick via its internal mustRetry flag.
       await config.schedulePersist()
+
+      // Feature hook runs AFTER the fund-critical persist scheduling — its
+      // Esplora queries (worst case ~10 × 10s timeouts in an outage) must
+      // never delay LDK persistence. Still awaited so a slow pass can't
+      // overlap the next tick's Esplora work.
+      if (config.onSynced && lastTipHash) {
+        try {
+          await config.onSynced({ tipChanged: lastTipHash !== prevTipHash, tipHash: lastTipHash })
+        } catch (err) {
+          captureError('warning', 'LDK Sync', 'onSynced hook failed', String(err))
+        }
+      }
 
       // Persist NetworkGraph + Scorer every ~10 ticks (~10 min at 60s interval)
       if ((tickCount + 1) % 10 === 0) {

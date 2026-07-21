@@ -77,6 +77,7 @@ import {
 } from './storage/known-peers'
 import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
+import { initCloseRecords } from './close-records/store'
 import { captureError } from '../storage/error-log'
 
 import {
@@ -732,6 +733,17 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   // added live.
   const trustedLspIds = new Set<string>()
   if (LDK_CONFIG.lspNodeId !== '') trustedLspIds.add(LDK_CONFIG.lspNodeId)
+
+  // Close records must load BEFORE the event handler exists: the
+  // BumpTransaction handler reads the records' sync in-memory view, and
+  // LDK can replay events (incl. BumpTransaction) as soon as processing
+  // starts. Failure is non-fatal — records degrade, funds are unaffected.
+  try {
+    await initCloseRecords(vssClient ?? null)
+  } catch (err: unknown) {
+    captureError('error', 'CloseRecords', 'init failed — records degraded', String(err))
+  }
+
   const { handler: eventHandler, cleanup: cleanupEventHandler } = createEventHandler(
     channelManager,
     keysManager,

@@ -30,22 +30,11 @@ import {
   type BumpTransactionEventHandlerSync,
   BumpTransactionEvent_ChannelClose,
   BumpTransactionEvent_HTLCResolution,
-  type ClosureReason,
-  ClosureReason_CounterpartyForceClosed,
-  ClosureReason_HolderForceClosed,
-  ClosureReason_LegacyCooperativeClosure,
-  ClosureReason_CounterpartyInitiatedCooperativeClosure,
-  ClosureReason_LocallyInitiatedCooperativeClosure,
-  ClosureReason_CommitmentTxConfirmed,
-  ClosureReason_FundingTimedOut,
-  ClosureReason_ProcessingError,
-  ClosureReason_DisconnectedPeer,
-  ClosureReason_OutdatedChannelManager,
-  ClosureReason_CounterpartyCoopClosedUnfundedChannel,
-  ClosureReason_LocallyCoopClosedUnfundedChannel,
-  ClosureReason_FundingBatchClosure,
-  ClosureReason_HTLCsTimedOut,
-  ClosureReason_PeerFeerateTooLow,
+  SpendableOutputDescriptor,
+  SpendableOutputDescriptor_StaticOutput,
+  SpendableOutputDescriptor_DelayedPaymentOutput,
+  SpendableOutputDescriptor_StaticPaymentOutput,
+  Option_u16Z_Some,
   ChannelConfigOverrides,
   ChannelConfigUpdate,
   ChannelHandshakeConfigUpdate,
@@ -66,10 +55,15 @@ import {
   ScriptBuf,
   Amount,
   SignOptions,
+  Transaction,
 } from '@bitcoindevkit/bdk-wallet-web'
 import { idbPut, idbGet, idbDelete } from '../../storage/idb'
 import { persistPayment, updatePaymentStatus } from '../storage/payment-history'
-import { bytesToHex } from '../utils'
+import { bytesToHex, txidBytesToHex } from '../utils'
+import { classifyClosureReason } from '../close-records/closure-reason'
+import { handleCloseSignal, recordSweepResult } from '../close-records/signals'
+import { getCloseRecordSync, recordFundingTxo } from '../close-records/store'
+import type { SpendableOutputsEntry } from '../sweep'
 import { revealNextAddress } from '../../onchain/address-utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
@@ -193,6 +187,7 @@ export function createEventHandler(
   )
     .then((result) => {
       if (result.swept > 0) {
+        recordSweepResult(result)
         console.log('[LDK] Startup sweep: swept', result.swept, 'output(s), txid:', result.txid)
       }
     })
@@ -342,6 +337,31 @@ function handleEvent(
     void idbPut('ldk_channel_id_map', channelIdHex, tempIdHex).catch((err: unknown) =>
       console.warn('[LDK Event] Failed to persist channel ID mapping:', err)
     )
+    // Safety net for close records: if this channel later closes while the
+    // tab is dying (crash between ok() and the record persist), reconciliation
+    // recreates the record from this funding outpoint. to_self_delay is
+    // captured here too — it becomes unreadable once the channel closes, and
+    // reconciliation needs it to derive the timelock expiry height.
+    let timelockBlocks: number | undefined
+    try {
+      const delay = channelManager
+        .list_channels()
+        .find((ch) => bytesToHex(ch.get_channel_id().write()) === channelIdHex)
+        ?.get_force_close_spend_delay()
+      if (delay instanceof Option_u16Z_Some) timelockBlocks = delay.some
+    } catch {
+      // best-effort — the funding txo below must still be recorded
+    }
+    try {
+      const txo = event.funding_txo
+      recordFundingTxo(channelIdHex, {
+        txid: txidBytesToHex(txo.get_txid()),
+        vout: txo.get_index(),
+        ...(timelockBlocks !== undefined ? { timelockBlocks } : {}),
+      }).catch(() => {})
+    } catch (err: unknown) {
+      console.warn('[LDK Event] Failed to record funding txo:', err)
+    }
     return
   }
 
@@ -358,20 +378,37 @@ function handleEvent(
 
   if (event instanceof Event_ChannelClosed) {
     const channelIdHex = bytesToHex(event.channel_id.write())
-    const reason = describeClosureReason(event.reason)
-    console.log('[LDK Event] ChannelClosed:', channelIdHex, 'reason:', reason)
+    const classification = classifyClosureReason(event.reason)
+    console.log('[LDK Event] ChannelClosed:', channelIdHex, 'reason:', classification.description)
 
-    // Record force-close info for the BumpTransaction/SpendableOutputs handlers.
-    if (isForceClose(event.reason)) {
-      let localBalanceSat = 0
-      if (event.last_local_balance_msat instanceof Option_u64Z_Some) {
-        localBalanceSat = Number(event.last_local_balance_msat.some / 1000n)
-      } else if (event.channel_capacity_sats instanceof Option_u64Z_Some) {
-        // Fallback to channel capacity if local balance unavailable
-        localBalanceSat = Number(event.channel_capacity_sats.some)
+    // Drain event fields into a primitives-only signal synchronously — no
+    // WASM handle may survive into the async persist path. Note: NO
+    // channel-capacity fallback for the balance (it would overstate the
+    // expected return by the entire capacity); unknown stays unknown.
+    let fundingTxo: { txid: string; vout: number } | null = null
+    try {
+      const txo: unknown = event.channel_funding_txo
+      if (txo) {
+        const outPoint = event.channel_funding_txo
+        fundingTxo = { txid: txidBytesToHex(outPoint.get_txid()), vout: outPoint.get_index() }
       }
-      forceCloseInfoMap.set(channelIdHex, { channelId: channelIdHex, localBalanceSat })
+    } catch {
+      // Pre-0.0.120 serializations may lack the funding txo — degrade gracefully
     }
+    const lastLocalBalanceSats =
+      event.last_local_balance_msat instanceof Option_u64Z_Some
+        ? event.last_local_balance_msat.some / 1000n
+        : null
+    handleCloseSignal({
+      type: 'channel_closed',
+      channelIdHex,
+      description: classification.description,
+      closeType: classification.closeType,
+      initiator: classification.initiator,
+      hasOnchainTx: classification.hasOnchainTx,
+      fundingTxo,
+      lastLocalBalanceSats,
+    })
 
     // Notify caller so they can clean up peer storage if no channels remain.
     const peerPubkeyHex = bytesToHex(event.counterparty_node_id)
@@ -399,8 +436,35 @@ function handleEvent(
   // (IDB writes are typically <10ms) but not zero.
   if (event instanceof Event_SpendableOutputs) {
     const key = crypto.randomUUID()
-    const serialized = event.outputs.map((o) => o.write())
-    void idbPut('ldk_spendable_outputs', key, serialized)
+    // Drain everything synchronously: serialized descriptors, the source
+    // channel (Option — may be NULL/all-0s), and each output's outpoint +
+    // value. Sweep attribution is by these facts, never by causality
+    // (batching + the sweep-in-progress guard make "the sweep my event
+    // triggered" nondeterministic).
+    // Attribution extraction is guarded PER OUTPUT: a throwing binding
+    // accessor here must never abort this block — handle_event's top-level
+    // catch would return ok() and LDK would never replay the event, so the
+    // descriptors (the fund-safety payload) would be lost unswept forever.
+    // Attribution is cosmetic; it degrades to empty.
+    const outpoints: SpendableOutputsEntry['outpoints'] = []
+    for (const o of event.outputs) {
+      try {
+        const outpoint = o.spendable_outpoint()
+        outpoints.push({
+          txid: txidBytesToHex(outpoint.get_txid()),
+          vout: outpoint.get_index(),
+          valueSats: readDescriptorValueSats(o).toString(),
+        })
+      } catch (err: unknown) {
+        console.warn('[LDK Event] SpendableOutputs: outpoint extraction failed:', err)
+      }
+    }
+    const entry: SpendableOutputsEntry = {
+      descriptors: event.outputs.map((o) => o.write()),
+      channelIdHex: readOptionalChannelIdHex(event.channel_id),
+      outpoints,
+    }
+    void idbPut('ldk_spendable_outputs', key, entry)
       .then(() => {
         const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
         return sweepSpendableOutputs(
@@ -412,6 +476,7 @@ function handleEvent(
       })
       .then((result) => {
         if (result && result.swept > 0) {
+          recordSweepResult(result)
           console.log(
             '[LDK Event] SpendableOutputs: swept',
             result.swept,
@@ -562,7 +627,41 @@ function handleEvent(
     } else if (bumpEvent instanceof BumpTransactionEvent_HTLCResolution) {
       bumpChannelIdHex = bytesToHex(bumpEvent.channel_id.write())
     }
-    const forceCloseInfo = bumpChannelIdHex ? forceCloseInfoMap.get(bumpChannelIdHex) : null
+    // Close-record sync read model (replaces the old memory-only
+    // forceCloseInfoMap, which lost recovery context on event replay after
+    // a reload — records are loaded from IDB before the event processor
+    // starts, so replays still find their context here).
+    const closeRecord = bumpChannelIdHex ? getCloseRecordSync(bumpChannelIdHex) : undefined
+    const recoveryContext = bumpChannelIdHex
+      ? {
+          channelId: bumpChannelIdHex,
+          localBalanceSat:
+            closeRecord?.expectedAmountSats !== undefined
+              ? Number(closeRecord.expectedAmountSats)
+              : 0,
+        }
+      : null
+
+    // Attach the commitment txid + pre-committed fee to the close record.
+    // Only the anchor path hands us the actual commitment transaction.
+    if (bumpEvent instanceof BumpTransactionEvent_ChannelClose && bumpChannelIdHex) {
+      try {
+        const txid = Transaction.from_bytes(bumpEvent.commitment_tx).compute_txid().toString()
+        handleCloseSignal({
+          type: 'commitment_broadcast',
+          channelIdHex: bumpChannelIdHex,
+          txid,
+          feeSats: bumpEvent.commitment_tx_fee_satoshis,
+        })
+      } catch (err: unknown) {
+        captureError(
+          'warning',
+          'Event:BumpTransaction',
+          'Failed to extract commitment txid',
+          String(err)
+        )
+      }
+    }
 
     if (bumpTxHandler) {
       // Pre-check: does the wallet have confirmed UTXOs for CPFP?
@@ -581,10 +680,12 @@ function handleEvent(
         // Best-effort check — proceed to handler regardless
       }
 
-      if (!hasConfirmedUtxo && onRecoveryNeeded && forceCloseInfo) {
+      // Fire even when the close record is missing (degraded info beats
+      // silently skipping recovery signaling — the old `&& forceCloseInfo`
+      // guard dropped it entirely on replay after a reload).
+      if (!hasConfirmedUtxo && onRecoveryNeeded && recoveryContext) {
         onRecoveryNeeded({
-          channelId: forceCloseInfo.channelId,
-          localBalanceSat: forceCloseInfo.localBalanceSat,
+          ...recoveryContext,
           reason:
             'No confirmed on-chain UTXOs available for CPFP fee bump — deposit funds to complete force-close recovery',
         })
@@ -595,12 +696,8 @@ function handleEvent(
         bumpTxHandler.handle_event(bumpEvent)
       } catch (err: unknown) {
         captureError('critical', 'Event:BumpTransaction', 'CPFP handling failed', String(err))
-        if (onRecoveryNeeded && forceCloseInfo) {
-          onRecoveryNeeded({
-            channelId: forceCloseInfo.channelId,
-            localBalanceSat: forceCloseInfo.localBalanceSat,
-            reason: String(err),
-          })
+        if (onRecoveryNeeded && recoveryContext) {
+          onRecoveryNeeded({ ...recoveryContext, reason: String(err) })
         }
       }
     } else {
@@ -609,10 +706,9 @@ function handleEvent(
         'Event:BumpTransaction',
         'No handler configured — force-close tx may be stuck'
       )
-      if (onRecoveryNeeded && forceCloseInfo) {
+      if (onRecoveryNeeded && recoveryContext) {
         onRecoveryNeeded({
-          channelId: forceCloseInfo.channelId,
-          localBalanceSat: forceCloseInfo.localBalanceSat,
+          ...recoveryContext,
           reason: 'No BumpTransactionEventHandler configured',
         })
       }
@@ -737,41 +833,36 @@ function parseFirstSocketAddress(
   return null
 }
 
-/** Returns true for closure reasons that produce anchor outputs needing CPFP. */
-function isForceClose(reason: ClosureReason): boolean {
-  return (
-    reason instanceof ClosureReason_CounterpartyForceClosed ||
-    reason instanceof ClosureReason_CommitmentTxConfirmed ||
-    reason instanceof ClosureReason_HolderForceClosed ||
-    reason instanceof ClosureReason_HTLCsTimedOut
-  )
+/**
+ * Read an Option-like ChannelId: the bindings represent None as NULL or an
+ * all-zero id (see the Event_SpendableOutputs docs in the .d.mts).
+ */
+function readOptionalChannelIdHex(channelId: { write(): Uint8Array } | null): string | null {
+  try {
+    if (!channelId) return null
+    const hex = bytesToHex(channelId.write())
+    return /^0*$/.test(hex) ? null : hex
+  } catch {
+    return null
+  }
 }
 
-// Tracks force-close info per channel so the BumpTransaction handler
-// can include the correct channel context when firing onRecoveryNeeded.
-const forceCloseInfoMap = new Map<string, { channelId: string; localBalanceSat: number }>()
-
-function describeClosureReason(reason: ClosureReason): string {
-  if (reason instanceof ClosureReason_CounterpartyForceClosed) return 'Counterparty force closed'
-  if (reason instanceof ClosureReason_HolderForceClosed) return 'Force closed by you'
-  if (reason instanceof ClosureReason_LegacyCooperativeClosure) return 'Cooperative close'
-  if (reason instanceof ClosureReason_CounterpartyInitiatedCooperativeClosure)
-    return 'Cooperative close (initiated by peer)'
-  if (reason instanceof ClosureReason_LocallyInitiatedCooperativeClosure) return 'Cooperative close'
-  if (reason instanceof ClosureReason_CommitmentTxConfirmed)
-    return 'Commitment transaction confirmed'
-  if (reason instanceof ClosureReason_FundingTimedOut) return 'Funding timed out'
-  if (reason instanceof ClosureReason_ProcessingError) return 'Processing error'
-  if (reason instanceof ClosureReason_DisconnectedPeer) return 'Peer disconnected'
-  if (reason instanceof ClosureReason_OutdatedChannelManager) return 'Outdated channel manager'
-  if (reason instanceof ClosureReason_CounterpartyCoopClosedUnfundedChannel)
-    return 'Counterparty closed unfunded channel'
-  if (reason instanceof ClosureReason_LocallyCoopClosedUnfundedChannel)
-    return 'Closed unfunded channel'
-  if (reason instanceof ClosureReason_FundingBatchClosure) return 'Funding batch closure'
-  if (reason instanceof ClosureReason_HTLCsTimedOut) return 'HTLCs timed out'
-  if (reason instanceof ClosureReason_PeerFeerateTooLow) return 'Peer feerate too low'
-  return 'Channel closed'
+/** Best-effort output value per descriptor variant; 0 when unavailable. */
+function readDescriptorValueSats(descriptor: SpendableOutputDescriptor): bigint {
+  try {
+    if (descriptor instanceof SpendableOutputDescriptor_StaticOutput) {
+      return descriptor.output.value
+    }
+    if (descriptor instanceof SpendableOutputDescriptor_DelayedPaymentOutput) {
+      return descriptor.delayed_payment_output.get_output().value
+    }
+    if (descriptor instanceof SpendableOutputDescriptor_StaticPaymentOutput) {
+      return descriptor.static_payment_output.get_output().value
+    }
+  } catch {
+    // fall through
+  }
+  return 0n
 }
 
 function describePaymentFailure(reason: PaymentFailureReason): string {

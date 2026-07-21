@@ -15,13 +15,35 @@ const FEE_TARGET_BLOCKS = 6
 const MIN_FEE_RATE_SAT_VB = 2
 const MAX_FEE_RATE_SAT_VB = 500
 
+/**
+ * Persisted shape of an `ldk_spendable_outputs` entry. Entries written
+ * before close-record attribution existed are bare `Uint8Array[]`
+ * (descriptors only) — both shapes must stay sweepable.
+ */
+export interface SpendableOutputsEntry {
+  descriptors: Uint8Array[]
+  channelIdHex: string | null
+  outpoints: { txid: string; vout: number; valueSats: string }[]
+}
+
+export interface SweepAttribution {
+  channelIdHex: string | null
+  outpoints: { txid: string; vout: number; valueSats: string }[]
+}
+
 export interface SweepResult {
   swept: number
   skipped: number
   txid: string | null
+  /** One entry per consumed IDB record — the basis for close-record sweep attribution. */
+  attributions: SweepAttribution[]
 }
 
 let sweepInProgress = false
+
+function isLegacyEntry(entry: Uint8Array[] | SpendableOutputsEntry): entry is Uint8Array[] {
+  return Array.isArray(entry)
+}
 
 /**
  * Sweep all persisted SpendableOutputDescriptors from IDB back to an on-chain
@@ -41,17 +63,19 @@ export async function sweepSpendableOutputs(
   esploraUrl: string,
   esploraFallbackUrl?: string
 ): Promise<SweepResult> {
-  if (sweepInProgress) return { swept: 0, skipped: 0, txid: null }
+  if (sweepInProgress) return { swept: 0, skipped: 0, txid: null, attributions: [] }
   sweepInProgress = true
   try {
-    const entries = await idbGetAll<Uint8Array[]>('ldk_spendable_outputs')
-    if (entries.size === 0) return { swept: 0, skipped: 0, txid: null }
+    const entries = await idbGetAll<Uint8Array[] | SpendableOutputsEntry>('ldk_spendable_outputs')
+    if (entries.size === 0) return { swept: 0, skipped: 0, txid: null, attributions: [] }
 
     const allDescriptors: SpendableOutputDescriptor[] = []
     const idbKeys: string[] = []
+    const attributions: SweepAttribution[] = []
     let skipped = 0
 
-    for (const [key, serializedArray] of entries) {
+    for (const [key, entry] of entries) {
+      const serializedArray = isLegacyEntry(entry) ? entry : entry.descriptors
       const descriptors: SpendableOutputDescriptor[] = []
       let valid = true
 
@@ -73,13 +97,18 @@ export async function sweepSpendableOutputs(
       if (valid && descriptors.length > 0) {
         allDescriptors.push(...descriptors)
         idbKeys.push(key)
+        attributions.push(
+          isLegacyEntry(entry)
+            ? { channelIdHex: null, outpoints: [] }
+            : { channelIdHex: entry.channelIdHex, outpoints: entry.outpoints }
+        )
       } else {
         skipped += serializedArray.length
       }
     }
 
     if (allDescriptors.length === 0) {
-      return { swept: 0, skipped, txid: null }
+      return { swept: 0, skipped, txid: null, attributions: [] }
     }
 
     // Fetch fee rate and convert from sat/vB to sat/kw (×250)
@@ -98,7 +127,7 @@ export async function sweepSpendableOutputs(
       feeRateSatPer1000Weight = feeRateSatVb * 250
     } catch (err: unknown) {
       captureError('error', 'Sweep', 'Fee rate estimation failed', String(err))
-      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null }
+      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null, attributions: [] }
     }
 
     // Build + sign sweep tx via LDK's OutputSpender
@@ -118,7 +147,7 @@ export async function sweepSpendableOutputs(
         'Sweep',
         `spend_spendable_outputs failed — outputs may be dust or timelocked, descriptors: ${allDescriptors.length}`
       )
-      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null }
+      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null, attributions: [] }
     }
 
     let txid: string
@@ -127,7 +156,7 @@ export async function sweepSpendableOutputs(
       txid = await broadcastWithRetry(esploraUrl, txHex, esploraFallbackUrl)
     } catch (err: unknown) {
       captureError('error', 'Sweep', 'Broadcast failed after signing', String(err))
-      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null }
+      return { swept: 0, skipped: skipped + allDescriptors.length, txid: null, attributions: [] }
     }
 
     // Clean up IDB entries atomically after successful broadcast
@@ -135,7 +164,7 @@ export async function sweepSpendableOutputs(
 
     console.log('[Sweep] Successfully swept', allDescriptors.length, 'output(s), txid:', txid)
 
-    return { swept: allDescriptors.length, skipped, txid }
+    return { swept: allDescriptors.length, skipped, txid, attributions }
   } finally {
     sweepInProgress = false
   }
