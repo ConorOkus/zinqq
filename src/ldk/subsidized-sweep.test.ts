@@ -21,7 +21,8 @@ import { UtilMethods } from 'lightningdevkit'
 import { broadcastWithRetry } from './traits/broadcaster'
 
 const state = vi.hoisted(() => ({
-  feeOverride: null as bigint | null,
+  /** Per-call fee_amount() overrides, consumed in order; null entries compute the real fee. */
+  feeOverrides: [] as (bigint | null)[],
   fakeTxid: 'ab'.repeat(32),
 }))
 
@@ -38,6 +39,10 @@ vi.mock('../onchain/address-utils', () => ({
 
 vi.mock('./traits/broadcaster', () => ({
   broadcastWithRetry: vi.fn(() => Promise.resolve(state.fakeTxid)),
+}))
+
+vi.mock('../onchain/storage/changeset', () => ({
+  putChangeset: vi.fn(() => Promise.resolve()),
 }))
 
 vi.mock('lightningdevkit', () => {
@@ -102,9 +107,9 @@ vi.mock('@bitcoindevkit/bdk-wallet-web', async () => {
     }
 
     fee_amount(): { to_sat: () => bigint } | undefined {
-      if (state.feeOverride !== null) {
-        const value = state.feeOverride
-        return { to_sat: () => value }
+      const override = state.feeOverrides.length > 0 ? state.feeOverrides.shift()! : null
+      if (override !== null) {
+        return { to_sat: () => override }
       }
       const inputSum = surgery
         .readWitnessUtxoValues(this.parsed)
@@ -128,7 +133,16 @@ vi.mock('@bitcoindevkit/bdk-wallet-web', async () => {
     trust_witness_utxo = false
   }
 
-  return { Psbt, SignOptions }
+  class UnconfirmedTx {
+    tx: unknown
+    lastSeen: bigint
+    constructor(tx: unknown, lastSeen: bigint) {
+      this.tx = tx
+      this.lastSeen = lastSeen
+    }
+  }
+
+  return { Psbt, SignOptions, UnconfirmedTx }
 })
 
 const DEST_SCRIPT = hexToBytes('0014dddddddddddddddddddddddddddddddddddddddd')
@@ -169,11 +183,20 @@ function buildFakeLdkPsbt(inputValueSats: bigint, outputValueSats: bigint): Uint
   return serializePsbt(psbt)
 }
 
+// Each wallet gets globally unique txids: the production module reserves
+// spent subsidy outpoints in module state, so reusing a txid across tests
+// would leak reservations from one test into the next.
+let walletSeq = 0
+
 function makeWallet(utxoValues: bigint[], { confirmed = true, signResult = true } = {}): Wallet {
+  const seq = ++walletSeq
   return {
     list_unspent: () =>
       utxoValues.map((valueSats, index) => ({
-        outpoint: { txid: { toString: () => index.toString(16).padStart(64, '0') }, vout: 0 },
+        outpoint: {
+          txid: { toString: () => (seq * 1000 + index).toString(16).padStart(64, '0') },
+          vout: 0,
+        },
         txout: {
           script_pubkey: { as_bytes: () => WALLET_SCRIPT },
           value: { to_sat: () => valueSats },
@@ -181,6 +204,8 @@ function makeWallet(utxoValues: bigint[], { confirmed = true, signResult = true 
       })),
     get_tx: () => ({ chain_position: { is_confirmed: confirmed } }),
     sign: vi.fn(() => signResult),
+    apply_unconfirmed_txs: vi.fn(),
+    take_staged: vi.fn(() => null),
   } as unknown as Wallet
 }
 
@@ -223,7 +248,7 @@ function baseParams(overrides: Partial<SubsidizedSweepParams> = {}): SubsidizedS
 
 beforeEach(async () => {
   vi.clearAllMocks()
-  state.feeOverride = null
+  state.feeOverrides = []
   const ldk = await import('lightningdevkit')
   signResultClass = ldk.Result_CVec_u8ZNoneZ_OK as never
   createPsbtOkClass = ldk.Result_C2Tuple_CVec_u8Zu64ZNoneZ_OK as never
@@ -278,6 +303,18 @@ describe('selectSubsidyInputs', () => {
     })
   })
 
+  it('rescues via the changeless variant when the with-change subsidy exceeds spendable', () => {
+    // neededWithChange(1) = 1,980 > 1,900 spendable, but changeless needs
+    // only 1,670 — the rescue must not be reported as a shortfall.
+    const result = selectSubsidyInputs([utxo(1_900n)], 439n, 110n, 10n, 0n)
+    expect(result).toEqual({
+      selected: [utxo(1_900n)],
+      changeSats: null,
+      totalFeeSats: 2_010n,
+      subsidySats: 1_900n,
+    })
+  })
+
   it('reports a shortfall when candidates cannot cover the subsidy', () => {
     const result = selectSubsidyInputs([utxo(500n)], 439n, 110n, 10n, 0n)
     expect(result).toEqual({ shortfall: { neededSubsidySats: 1_980n, availableSats: 500n } })
@@ -296,7 +333,11 @@ describe('selectSubsidyInputs', () => {
   it('caps the number of subsidy inputs', () => {
     const candidates = Array.from({ length: MAX_SUBSIDY_INPUTS + 5 }, () => utxo(10n))
     const result = selectSubsidyInputs(candidates, 439n, 110n, 10n, 0n)
-    expect('shortfall' in result).toBe(true)
+    // neededWithChange(20): 439 + 20*272 + 124 = 6,003 wu -> 1,501 vB -> 15,010
+    // minus 110 ldk fee. A broken or removed cap changes this number.
+    expect(result).toEqual({
+      shortfall: { neededSubsidySats: 14_900n, availableSats: 250n },
+    })
   })
 })
 
@@ -393,12 +434,55 @@ describe('attemptSubsidizedSweep', () => {
     expect(broadcastWithRetry).not.toHaveBeenCalled()
   })
 
-  it('fails on a fee mismatch instead of broadcasting', async () => {
+  it('fails on a pre-sign fee mismatch instead of broadcasting', async () => {
     mockCreatePsbt(buildFakeLdkPsbt(3_000n, 2_890n), 439n)
-    state.feeOverride = 999_999n
+    state.feeOverrides = [999_999n]
     const outcome = await attemptSubsidizedSweep(baseParams())
     expect(outcome).toEqual({ status: 'failed', reason: 'fee-mismatch' })
     expect(broadcastWithRetry).not.toHaveBeenCalled()
+  })
+
+  it('fails on a post-sign fee mismatch instead of broadcasting', async () => {
+    mockCreatePsbt(buildFakeLdkPsbt(3_000n, 2_890n), 439n)
+    // Pre-sign reading is honest; only the post-sign reading diverges.
+    state.feeOverrides = [null, 999_999n]
+    const outcome = await attemptSubsidizedSweep(baseParams())
+    expect(outcome).toEqual({ status: 'failed', reason: 'post-sign-fee-mismatch' })
+    expect(broadcastWithRetry).not.toHaveBeenCalled()
+  })
+
+  it('rejects a subsidy in the net-negative band between output and input value', async () => {
+    // Rescued value (output) is 2,500; gross inputs 3,000. At 15 sat/vB the
+    // subsidy is 2,635 — less than the inputs but more than the rescue
+    // delivers, so it must be rejected as not economical.
+    mockCreatePsbt(buildFakeLdkPsbt(3_000n, 2_500n), 439n)
+    const outcome = await attemptSubsidizedSweep(baseParams({ targetFeeRateSatVb: 15n }))
+    expect(outcome).toEqual({
+      status: 'not-economical',
+      neededSubsidySats: 2_635n,
+      pendingSats: 3_000n,
+    })
+  })
+
+  it('reserves spent subsidy outpoints and registers the tx with the wallet', async () => {
+    mockCreatePsbt(buildFakeLdkPsbt(3_000n, 2_890n), 439n)
+    const wallet = makeWallet([50_000n])
+    const outcome = await attemptSubsidizedSweep(baseParams({ bdkWallet: wallet }))
+    expect(outcome).toEqual({ status: 'broadcast', txid: state.fakeTxid, subsidySats: 1_980n })
+    // The wallet graph learns of the spend immediately, not at the next sync.
+    expect(vi.mocked(wallet.apply_unconfirmed_txs)).toHaveBeenCalledTimes(1)
+
+    // A second sweep in the pre-sync window must not re-select the same
+    // UTXO — the wallet still lists it, but the reservation excludes it.
+    mockCreatePsbt(buildFakeLdkPsbt(3_000n, 2_890n), 439n)
+    const second = await attemptSubsidizedSweep(baseParams({ bdkWallet: wallet }))
+    expect(second).toEqual({
+      status: 'shortfall',
+      neededSubsidySats: 1_980n,
+      availableSats: 0n,
+      shortfallSats: 1_980n,
+    })
+    expect(broadcastWithRetry).toHaveBeenCalledTimes(1)
   })
 
   it('accepts a broadcast sentinel only when esplora knows the tx', async () => {

@@ -7,8 +7,15 @@ import {
   Option_u32Z,
   type KeysManager,
 } from 'lightningdevkit'
-import { Psbt, SignOptions, type Wallet } from '@bitcoindevkit/bdk-wallet-web'
+import {
+  Psbt,
+  SignOptions,
+  UnconfirmedTx,
+  type Transaction,
+  type Wallet,
+} from '@bitcoindevkit/bdk-wallet-web'
 import { revealNextAddress } from '../onchain/address-utils'
+import { putChangeset } from '../onchain/storage/changeset'
 import { broadcastWithRetry } from './traits/broadcaster'
 import { captureError } from '../storage/error-log'
 import { bytesToHex, uint8ArrayToBase64 } from './utils'
@@ -125,10 +132,8 @@ export function selectSubsidyInputs(
     const n = BigInt(selected.length)
 
     const needed = neededWithChange(n)
-    if (needed > spendable) break // adding inputs only raises the fee — no solution
-
     const change = selectedSum - needed
-    if (change >= DUST_LIMIT_SATS) {
+    if (needed <= spendable && change >= DUST_LIMIT_SATS) {
       return {
         selected,
         changeSats: change,
@@ -137,6 +142,8 @@ export function selectSubsidyInputs(
       }
     }
 
+    // The changeless variant can still fit when the with-change subsidy
+    // exceeds the spendable budget — it must be tried before giving up.
     const neededDrained = neededChangeless(n)
     if (selectedSum >= neededDrained && selectedSum <= spendable) {
       return {
@@ -146,16 +153,34 @@ export function selectSubsidyInputs(
         subsidySats: selectedSum,
       }
     }
+
+    // Once both the fee requirement and the selection itself exceed the
+    // spendable budget, adding inputs only raises both — no solution.
+    if (needed > spendable && selectedSum > spendable) break
   }
 
   const n = BigInt(Math.max(selected.length, 1))
   return { shortfall: { neededSubsidySats: neededWithChange(n), availableSats: spendable } }
 }
 
+/**
+ * Outpoints consumed by a subsidized sweep broadcast this session. The BDK
+ * wallet only learns of the spend at the next chain sync (~180s), so without
+ * this a second sweep in that window could re-select the same UTXO and
+ * RBF-replace the first transaction after its descriptors were already
+ * deleted — permanent fund loss. Never removed within a session: once the
+ * sweep confirms, list_unspent stops returning these anyway, and if the tx is
+ * evicted, keeping the UTXO reserved is the safe direction (a reload clears it).
+ */
+const spentSubsidyOutpoints = new Set<string>()
+
 /** Confirmed P2WPKH UTXOs, sorted largest-first. */
 export function listConfirmedP2wpkhUtxos(bdkWallet: Wallet): ForeignInput[] {
   const candidates: ForeignInput[] = []
   for (const output of bdkWallet.list_unspent()) {
+    if (spentSubsidyOutpoints.has(`${output.outpoint.txid.toString()}:${output.outpoint.vout}`))
+      continue
+
     // Unconfirmed parents could drop from the mempool and invalidate the
     // sweep; only confirmed inputs are safe to build on.
     const wtx = bdkWallet.get_tx(output.outpoint.txid)
@@ -208,7 +233,47 @@ interface LdkPsbtAnalysis {
   parsed: ParsedPsbt
   ldkWeightWu: bigint
   ldkInputSum: bigint
+  /** What the destination output actually delivers — the rescued value. */
+  ldkOutputSum: bigint
   ldkFeeSats: bigint
+}
+
+/**
+ * Make the spend visible to the rest of the wallet immediately: reserve the
+ * outpoints against re-selection by a later sweep, and register the tx with
+ * the BDK wallet graph so its own coin selection (user sends) excludes them
+ * before the next chain sync. Registration failure is non-fatal — the funds
+ * already swept and the reservation set still guards the sweep path.
+ */
+function markSubsidyInputsSpent(
+  bdkWallet: Wallet,
+  tx: Transaction,
+  selected: ForeignInput[]
+): void {
+  for (const input of selected) {
+    spentSubsidyOutpoints.add(`${input.txidDisplayHex}:${input.vout}`)
+  }
+  try {
+    bdkWallet.apply_unconfirmed_txs([new UnconfirmedTx(tx, BigInt(Math.floor(Date.now() / 1000)))])
+    const staged = bdkWallet.take_staged()
+    if (staged && !staged.is_empty()) {
+      void putChangeset(staged.to_json()).catch((err: unknown) =>
+        captureError(
+          'warning',
+          'Sweep',
+          'Failed to persist subsidized sweep changeset',
+          String(err)
+        )
+      )
+    }
+  } catch (err: unknown) {
+    captureError(
+      'warning',
+      'Sweep',
+      'Failed to register subsidized sweep with wallet; relying on next sync',
+      String(err)
+    )
+  }
 }
 
 function failed(reason: string, detail?: string): SubsidizedSweepOutcome {
@@ -258,15 +323,18 @@ function createLdkPsbtAtFloor(
   const ldkFeeSats = ldkInputSum - ldkOutputSum
   if (ldkFeeSats < 0n) return failed('negative-ldk-fee')
 
-  return { parsed, ldkWeightWu, ldkInputSum, ldkFeeSats }
+  return { parsed, ldkWeightWu, ldkInputSum, ldkOutputSum, ldkFeeSats }
 }
 
 async function run(params: SubsidizedSweepParams): Promise<SubsidizedSweepOutcome> {
   const analysis = createLdkPsbtAtFloor(params)
   if ('status' in analysis) return analysis
-  const { parsed, ldkWeightWu, ldkInputSum, ldkFeeSats } = analysis
+  const { parsed, ldkWeightWu, ldkInputSum, ldkOutputSum, ldkFeeSats } = analysis
 
   // Net-positive policy: never spend more on-chain than the sweep rescues.
+  // The rescued value is what the destination output delivers (ldkOutputSum),
+  // not the gross input value — gating on inputs would allow a rescue that is
+  // net-negative by up to the floor fee.
   const minimumSubsidy = maxBigint(
     feeForWeight(
       ldkWeightWu + BDK_INPUT_WEIGHT_WU + CHANGE_OUTPUT_WEIGHT_WU,
@@ -275,7 +343,7 @@ async function run(params: SubsidizedSweepParams): Promise<SubsidizedSweepOutcom
     0n
   )
   if (minimumSubsidy <= 0n) return failed('no-subsidy-needed')
-  if (minimumSubsidy >= ldkInputSum) {
+  if (minimumSubsidy >= ldkOutputSum) {
     return { status: 'not-economical', neededSubsidySats: minimumSubsidy, pendingSats: ldkInputSum }
   }
 
@@ -296,7 +364,7 @@ async function run(params: SubsidizedSweepParams): Promise<SubsidizedSweepOutcom
       shortfallSats: maxBigint(neededSubsidySats - availableSats, 1n),
     }
   }
-  if (selection.subsidySats >= ldkInputSum) {
+  if (selection.subsidySats >= ldkOutputSum) {
     return {
       status: 'not-economical',
       neededSubsidySats: selection.subsidySats,
@@ -368,6 +436,8 @@ async function run(params: SubsidizedSweepParams): Promise<SubsidizedSweepOutcom
     )
     if (!known) return failed('broadcast-ambiguous')
   }
+
+  markSubsidyInputsSpent(params.bdkWallet, tx, selection.selected)
 
   console.log(
     '[Sweep] Subsidized sweep broadcast, txid:',
