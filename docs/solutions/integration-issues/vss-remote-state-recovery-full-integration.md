@@ -58,6 +58,8 @@ Full VSS (Versioned Storage Service) integration across 5 phases:
 - Consolidated 3 separate CM persist paths into one function
 - Version conflict resolution (re-fetch server version, retry once)
 
+**Update:** CM persistence is now wrapped in `createChannelManagerPersistScheduler`, a single-flight/dirty-bit scheduler that owns LDK's `get_and_clear_needs_persistence()` check so callers can invoke `schedule()` unconditionally (`src/ldk/storage/persist-cm.ts`, `src/ldk/storage/serial-persister.ts`). VSS conflict resolution also gained a wallet-lock takeover-grace window (`src/ldk/storage/vss-write.ts`): a 409 landing inside the grace window throws `VssConflictDuringTakeoverError` instead of retrying-and-overwriting, so a newly-active tab's write can't clobber the previous tab's late write.
+
 ### Phase 1D: Initialization + Migration
 
 - VSS keys derived in `WalletProvider`, passed through context to `LdkProvider`
@@ -68,9 +70,16 @@ Full VSS (Versioned Storage Service) integration across 5 phases:
 
 ### Phase 1E: Recovery Flow
 
-- Restore page at `/settings/restore` with mnemonic input, confirmation, progress
-- Derives keys from mnemonic → checks VSS for backup → clears all IDB → writes restored data → full page reload
-- CM written before monitors per init.ts ordering constraint
+**Update — this phase shipped full automatic recovery, superseding the "Phase 2" deferral noted below.** Whenever LDK init finds IDB empty and VSS has data (`src/ldk/init.ts`, ~299-450), it runs a full automatic recovery: fetches the `_monitor_keys` manifest (`MONITOR_MANIFEST_KEY`), downloads all monitors + the ChannelManager + known-peers, and restores them to IDB before the node starts:
+
+- Monitors are downloaded in parallel chunks (chunk size 10, `VSS_RECOVERY_CHUNK_SIZE`) to bound concurrent requests
+- An overall 2-minute timeout (`VSS_RECOVERY_TIMEOUT_MS`) aborts recovery on slow connections rather than hanging indefinitely
+- Each monitor blob is deserialized (`constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read`) and validated _before_ being persisted to IDB — corrupt data throws rather than silently writing bad state
+- The ChannelManager gets a minimum-size sanity check (32 bytes) before being written
+- On any failure, partial IDB writes (monitors + CM) are rolled back so the app starts fresh instead of half-restored
+- Known peers are restored from the `_known_peers` VSS key if present
+
+The separate Restore page at `/settings/restore` (mnemonic input, confirmation, progress) drives the same manifest-based recovery path explicitly for user-initiated restores.
 
 ### Key Design Decisions
 
@@ -78,7 +87,7 @@ Full VSS (Versioned Storage Service) integration across 5 phases:
 
 **CM persistence throws on failure (no indefinite retry).** Unlike monitors where `channel_monitor_updated` is withheld to halt channel operations, CM persistence is caller-managed. Chain-sync uses `cmNeedsPersist` for next-tick retry. The event timer is fire-and-forget with `.catch()`.
 
-**Monitor recovery deferred to Phase 2.** The VssClient obfuscates keys before every API call, so you can't fetch monitors by their obfuscated keys from `listKeyVersions`. Recovery currently restores CM only — channels will be force-closed by counterparty and funds recovered on-chain. A Phase 2 manifest key will enable full monitor recovery.
+**Monitor recovery via manifest key (superseded the original Phase 2 deferral).** The VssClient obfuscates keys before every API call, so you can't fetch monitors by their obfuscated keys from `listKeyVersions`. Rather than waiting on a manifest feature, a `_monitor_keys` manifest object (`MONITOR_MANIFEST_KEY`) is written alongside every monitor persist and read back on recovery to enumerate which monitor keys to fetch — see `src/ldk/init.ts`. This restores full channel state (CM + all monitors + known peers), not just the CM, so channels do not need to be force-closed on recovery.
 
 ## Prevention
 
@@ -89,6 +98,7 @@ Full VSS (Versioned Storage Service) integration across 5 phases:
 
 ## Related
 
+- `docs/solutions/logic-errors/vss-restore-background-persist-race.md` — accurate current reference for the recovery flow (manifest-based monitor recovery, shutdown-before-clear ordering); supersedes the recovery-flow description in this doc
 - `docs/solutions/design-patterns/vss-dual-write-persistence-with-version-conflict-resolution.md` — Phase 1B deep dive
 - `docs/solutions/integration-issues/ldk-wasm-foundation-layer-patterns.md` — `InProgress` return pattern
 - `docs/solutions/integration-issues/ldk-trait-defensive-hardening-patterns.md` — Retry patterns

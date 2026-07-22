@@ -21,7 +21,7 @@ Browsers lack a raw TCP socket API (and likely never will for security reasons).
 A ~100-line TypeScript Cloudflare Worker in `proxy/` that:
 
 1. Accepts WebSocket upgrades at `/v1/{host_underscored}/{port}` (MutinyWallet-compatible format)
-2. Validates origin, target port (9735), and SSRF protection
+2. Validates origin, target port (`ALLOWED_PORTS` — `9735,9736,9737,26000` in production, dev additionally allows `25000`), and SSRF protection
 3. Opens TCP via Cloudflare's `connect()` API
 4. Pipes bytes bidirectionally between WebSocket and TCP
 
@@ -58,7 +58,7 @@ Block these before calling `connect()`:
 - Well-known hostnames: `localhost`, `*.local`, `*.internal`, `*.localhost`
 - IPv6 loopback/private: `::1`, `[::1]`, `::ffff:*`, `fc*`, `fd*`, `fe80*`
 
-**Known limitation:** Hostnames that DNS-resolve to private IPs bypass validation (Cloudflare's `connect()` resolves DNS server-side and doesn't expose the resolved IP). The port-9735 restriction limits blast radius. Tracked in `todos/035`.
+**Known limitation:** Hostnames that DNS-resolve to private IPs bypass validation (Cloudflare's `connect()` resolves DNS server-side and doesn't expose the resolved IP). The `ALLOWED_PORTS` allowlist limits blast radius. Tracked in `todos/035`.
 
 ### Cloudflare Workers Gotchas
 
@@ -79,14 +79,17 @@ npx wrangler deploy --env dev
 
 Requires Cloudflare Workers **Paid plan** ($5/month) for the `connect()` TCP API.
 
+Production runs on a custom domain, `proxy.zinqq.app`, worker name `ln-ws-proxy-production` (`proxy/wrangler.toml` `[env.production]`).
+
 ### Wallet Integration
 
 ```typescript
-// src/ldk/config.ts — env var with fallback
-wsProxyUrl: (import.meta.env.VITE_WS_PROXY_URL as string | undefined) ?? 'wss://p.mutinynet.com',
+// src/ldk/config.ts — env var, defaulting to the self-hosted proxy (not a community fallback)
+wsProxyUrl: (import.meta.env.VITE_WS_PROXY_URL as string | undefined) ?? DEFAULTS.wsProxyUrl,
+// DEFAULTS.wsProxyUrl = 'wss://proxy.zinqq.app'
 ```
 
-CSP in `index.html` must include the Worker domain in `connect-src`.
+CSP in `index.html`/`vercel.json` must include the Worker domain in `connect-src`.
 
 ## Prevention
 

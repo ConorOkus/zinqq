@@ -11,10 +11,10 @@ components: [src/ldk/context.tsx, src/ldk/storage/offer.ts]
 
 ## Problem
 
-Calling `channelManager.create_offer_builder()` immediately after peer reconnection fails with `Bolt12SemanticError::MissingPaths` (error code 21):
+Calling `channelManager.create_offer_builder()` immediately after peer reconnection fails with `Bolt12SemanticError::MissingPaths` (error code 22 in the installed bindings):
 
 ```
-Result_OfferWithDerivedMetadataBuilderBolt12SemanticErrorZ_Err {err: 21}
+Result_OfferWithDerivedMetadataBuilderBolt12SemanticErrorZ_Err {err: 22}
 ```
 
 The error occurs because `create_offer_builder` delegates to `DefaultMessageRouter` to construct blinded onion message paths. The router needs the network graph to find a route through connected peers, but the graph is empty or incomplete because Rapid Gossip Sync (RGS) hasn't finished populating it yet.
@@ -54,8 +54,8 @@ const loadOrCreateOffer = async (attempt = 0) => {
     /* set state, return */
   }
 
-  const builderResult = node.channelManager.create_offer_builder(Option_u64Z.constructor_none())
-  if (!(builderResult instanceof Result_OK)) {
+  const builderResult = node.channelManager.create_offer_builder()
+  if (!(builderResult instanceof Result_OfferWithDerivedMetadataBuilderBolt12SemanticErrorZ_OK)) {
     if (attempt < MAX_OFFER_RETRIES) {
       const delayMs = 3000 * 2 ** attempt // 3s, 6s, 12s, 24s, 48s
       offerRetryTimer = setTimeout(() => void loadOrCreateOffer(attempt + 1), delayMs)
@@ -66,7 +66,8 @@ const loadOrCreateOffer = async (attempt = 0) => {
   }
 
   // Configure and persist the offer
-  builder.chain(SIGNET_CONFIG.network) // REQUIRED for signet
+  const builder = builderResult.res
+  builder.chain(LDK_CONFIG.network)
   builder.description('zinqq wallet')
   const offer = builder.build()
   await putPersistedOffer(offer.res.to_str())
@@ -82,21 +83,21 @@ Critical safety details:
 
 ## Bolt12SemanticError Enum Reference
 
-| Code   | Name                       | Meaning                                    |
-| ------ | -------------------------- | ------------------------------------------ |
-| 0      | AlreadyExpired             | Offer/invoice has expired                  |
-| 1      | UnsupportedChain           | Chain not supported                        |
-| 10     | MissingDescription         | No description set                         |
-| 11     | MissingIssuerSigningPubkey | No signing pubkey                          |
-| **21** | **MissingPaths**           | **No blinding paths could be constructed** |
-| 27     | MissingSigningPubkey       | No signing pubkey for invoice              |
+**Enum values are version-specific — do not hardcode error codes from memory or from other LDK versions.** The enum has shifted between LDK releases (e.g. `MissingPaths` was 21 in an earlier version; in the currently installed bindings it's 22, with `DuplicatePaymentId` occupying 21). Always check the actual installed bindings before matching on a numeric error code:
 
-Full enum at: `node_modules/lightningdevkit/bindings.d.mts` (search `Bolt12SemanticError`).
+`node_modules/lightningdevkit/bindings.d.mts` (search `Bolt12SemanticError`) — as of the installed 0.2.4-0 bindings, the values relevant to offer creation are:
+
+| Code   | Name                      | Meaning                                    |
+| ------ | ------------------------- | ------------------------------------------ |
+| 20     | MissingPayerSigningPubkey | No payer signing pubkey                    |
+| 21     | DuplicatePaymentId        | Payment ID already in use                  |
+| **22** | **MissingPaths**          | **No blinding paths could be constructed** |
+| 23     | UnexpectedPaths           | Paths provided but not expected            |
 
 ## Prevention
 
 - Never assume `create_offer_builder` will succeed on first call -- always implement retry logic
-- The `.chain()` call is mandatory for non-mainnet networks; without it the offer defaults to mainnet and peers on signet will reject it
+- Always call `builder.chain(LDK_CONFIG.network)` when configuring the offer, even though this is a mainnet-only wallet now (signet infrastructure was removed 2026-04-15) -- there is no longer a non-mainnet chain to fall back to incorrectly, but the call still pins the offer to the configured network explicitly rather than relying on a default
 - Persist the offer string to IDB after creation -- the nonce may not be deterministic across restarts, so a shared offer could silently break if regenerated
 - When adding retry timers inside a React useEffect, always track timer IDs and clear them in cleanup to prevent stale closure bugs
 

@@ -4,7 +4,7 @@ category: integration-issues
 date: 2026-03-31
 tags: [lsps2, ldk, jit-channel, htlc, channel-config, lightning]
 severity: high
-components: [ldk/init.ts, ldk/traits/event-handler.ts, pages/Lsps2Receive.tsx]
+components: [ldk/init.ts, ldk/traits/event-handler.ts, src/pages/Receive.tsx]
 ---
 
 # LSPS2 JIT Receive: Channel Config Required for Payment Claiming
@@ -38,7 +38,9 @@ const channelConfig = config.get_channel_config()
 channelConfig.set_accept_underpaying_htlcs(true)
 ```
 
-Note: The LDK WASM bindings don't support per-channel config overrides on `accept_inbound_channel_from_trusted_peer_0conf` (it takes 3 args, not 4). These settings must be applied globally. This is safe because the `OpenChannelRequest` handler only accepts channels from the configured LSP.
+Note (pre-0.2, historical): The LDK WASM bindings don't support per-channel config overrides on `accept_inbound_channel_from_trusted_peer_0conf` (it takes 3 args, not 4). These settings must be applied globally. This is safe because the `OpenChannelRequest` handler only accepts channels from a trusted LSP (see [`ldk-event-handler-multi-lsp-trust-set.md`](ldk-event-handler-multi-lsp-trust-set.md) for the trust-set mechanism).
+
+**2026-07 update:** LDK 0.2 added the 4th `config_overrides` parameter to `accept_inbound_channel_from_trusted_peer_0conf`. The two settings above are now enforced BOTH globally (`user-config.ts`, retained as a safety net) AND per-channel via `buildJitChannelConfigOverrides()` (`src/ldk/traits/event-handler.ts` ~121-139, called at ~774-778), with `src/ldk/jit-channel-config.ts` as the single source of truth for the values.
 
 ## Debugging Approach
 

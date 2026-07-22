@@ -49,12 +49,12 @@ Three coordinated changes:
 
 ### 1. Eager BDK wallet init before LDK deserialization
 
-Split `onchain/init.ts` into two phases:
+Split `src/onchain/init.ts` into two phases:
 
 - `initializeBdkWalletEager()` — creates/restores wallet from persisted ChangeSet without chain scan (fast, no network I/O)
 - `fullScanBdkWallet()` — performs Esplora full scan later, after LDK is fully initialized
 
-In `ldk/init.ts`, eager init runs before KeysManager and SignerProvider creation:
+In `src/ldk/init.ts`, eager init runs before KeysManager and SignerProvider creation:
 
 ```typescript
 const { wallet: bdkWallet, esploraClient: bdkEsploraClient } = await initializeBdkWalletEager(
@@ -110,6 +110,10 @@ Both `createBdkSignerProvider` and `createEventHandler` now accept `bdkWallet: W
 
 6. **Birthday paradox on address collisions.** At 10,000 slots, collision probability reaches ~1% at 12 channels and ~50% at 118 channels. Collisions do not cause fund loss but link channels on-chain.
 
+7. **`deserializeMonitors()` must receive the custom `bdkSignerProvider`, not `keysManager.as_SignerProvider()`.** Channel monitors carry a signer reference from deserialization time. If deserialized with the KeysManager default provider instead of the custom one, reconstructed force-close claim transactions route to KeysManager-derived scripts that BDK doesn't watch — the same fund-visibility bug this doc otherwise fixes, reintroduced at the deserialization call site. See `src/ldk/init.ts` ~549, where `deserializeMonitors(monitorEntries, keysManager, bdkSignerProvider)` is called with the custom provider explicitly threaded through.
+
+8. **The WASM u128 encode/decode asymmetry affects `channel_keys_id` handling here too.** `generate_channel_keys_id` must operate on the raw `user_channel_id` BigInt directly and never re-encode it through `encodeUint128` (which rejects values >= 2^124, despite the misleading "cannot exceed 128 bits" error). See `src/ldk/traits/bdk-signer-provider.ts` ~59-65 and [LDK WASM encodeUint128/decodeUint128 asymmetry](ldk-wasm-encode-uint128-asymmetry.md) for the full writeup.
+
 ## Prevention
 
 - **Ban lazy-set patterns for critical dependencies.** If a value is needed during deserialization, it must be present at construction time, not injected later via a setter.
@@ -120,7 +124,6 @@ Both `createBdkSignerProvider` and `createEventHandler` now accept `bdkWallet: W
 
 ## Related Documentation
 
-- [BDK/LDK SignerProvider fund routing](bdk-ldk-signer-provider-fund-routing.md) — original custom SignerProvider implementation
 - [BDK address reveal not persisted](../logic-errors/bdk-address-reveal-not-persisted.md) — changeset persistence after `next_unused_address`
 - [BDK-WASM onchain wallet integration patterns](bdk-wasm-onchain-wallet-integration-patterns.md) — React context patterns, init order, re-render avoidance
 - [LDK event handler patterns](ldk-event-handler-patterns.md) — SpendableOutputs handling and sweep destinations

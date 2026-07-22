@@ -101,4 +101,4 @@ Before mainnet launch, a systematic audit of the entire codebase revealed 27+ is
 - Brainstorm: `docs/brainstorms/2026-03-30-mainnet-fund-safety-audit-brainstorm.md`
 - Plan: `docs/plans/2026-03-30-002-fix-mainnet-fund-safety-audit-plan.md`
 - PRs: #65, #66, #67, #68, #69, #70
-- Prior learnings applied: `bdk-descriptor-version-bytes-network-mismatch.md`, `bdk-ldk-signer-provider-fund-routing.md`, `bdk-address-reveal-not-persisted.md`, `ldk-event-handler-patterns.md`
+- Prior learnings applied: `bdk-ldk-force-close-destination-script-interop.md` (absorbed the since-deleted signer-provider fund-routing and descriptor version-bytes learnings), `bdk-address-reveal-not-persisted.md`, `ldk-event-handler-patterns.md`

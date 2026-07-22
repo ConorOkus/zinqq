@@ -67,13 +67,14 @@ const mnemonic = raw.trim().toLowerCase().replace(/\s+/g, ' ')
 
 ### 4. BDK-WASM Transaction Type Has No `to_bytes()` Export
 
-**Problem:** BDK-WASM's `Transaction` class doesn't expose raw byte serialization. LDK's `funding_transaction_generated()` requires raw tx bytes (`Uint8Array`). The two WASM modules don't share types.
+**Problem:** BDK-WASM's `Transaction` class didn't expose raw byte serialization. LDK's `funding_transaction_generated()` requires raw tx bytes (`Uint8Array`). The two WASM modules didn't share types.
 
-**Status:** Unresolved. The funding handler builds and signs the PSBT but cannot pass the finalized tx to LDK. Options being explored:
+**Status: Resolved** by the BDK 0.3.0 upgrade. Both directions of serialization now exist natively:
 
-1. BDK-WASM exposing `Transaction.to_bytes()` (upstream feature request)
-2. Parsing the PSBT base64 to extract the finalized tx in JS
-3. Shared serialization format
+- `psbt.extract_tx().to_bytes()` extracts raw tx bytes from a signed PSBT for handing to LDK (`src/ldk/traits/event-handler.ts` ~559, in the funding-transaction-generated handler)
+- `Transaction.from_bytes(...)` parses raw bytes (e.g. from an LDK `BumpTransactionEvent_ChannelClose` commitment tx) back into a BDK `Transaction` (`src/ldk/traits/event-handler.ts` ~663)
+
+See [BDK 0.3.0 upgrade — nlocktime and chain-sync consistency](bdk-030-upgrade-nlocktime-and-chain-sync-consistency.md) for the full upgrade writeup, including the related `nlocktime(0)` requirement for funding transactions.
 
 ### 5. BDK ChangeSet Persistence — `take_staged()` Is Destructive
 
@@ -94,17 +95,27 @@ if (staged && !staged.is_empty()) {
 
 ### 6. BIP84 Descriptor Construction from @scure/bip32
 
-**Pattern:** `@scure/bip32`'s `HDKey.fromMasterSeed()` defaults to mainnet version bytes (`xprv`/`xpub`). **BDK validates that descriptor key version bytes match the target network** — signet/testnet require `tprv`/`tpub`. Pass testnet version bytes explicitly for non-mainnet networks. See [BDK Descriptor Version Bytes Fix](bdk-descriptor-version-bytes-network-mismatch.md) for full details.
+**Current reality (mainnet-only):** This is a mainnet-only wallet — signet infrastructure was removed 2026-04-15. `deriveBdkDescriptors()` (`src/wallet/keys.ts` ~73-87) takes no network parameter and hardcodes coin type `0'`. There is no version-byte branching: `@scure/bip32`'s `HDKey.fromMasterSeed()` defaults to mainnet version bytes (`xprv`/`xpub`), which is exactly what's needed since mainnet is the only supported network.
 
 ```typescript
-const TESTNET_VERSIONS = { private: 0x04358394, public: 0x043587cf }
-const versions = network === 'bitcoin' ? undefined : TESTNET_VERSIONS
-const master = HDKey.fromMasterSeed(seed, versions)
-const fingerprint = master.fingerprint.toString(16).padStart(8, '0')
-const account = master.derive(`m/84'/${coinType}'/0'`)
-const xprv = account.privateExtendedKey // tprv for signet, xprv for mainnet
-const descriptor = `wpkh([${fingerprint}/84'/${coinType}'/0']${xprv}/0/*)`
+export function deriveBdkDescriptors(mnemonic: string): { external: string; internal: string } {
+  const path = "m/84'/0'/0'"
+
+  const seed = mnemonicToSeedSync(mnemonic)
+  const master = HDKey.fromMasterSeed(seed)
+  const fingerprint = master.fingerprint.toString(16).padStart(8, '0')
+  const account = master.derive(path)
+  const xprv = account.privateExtendedKey
+
+  const origin = `${fingerprint}/84'/0'/0'`
+  const external = `wpkh([${origin}]${xprv}/0/*)`
+  const internal = `wpkh([${origin}]${xprv}/1/*)`
+
+  return { external, internal }
+}
 ```
+
+If multi-network support is ever reintroduced, revisit version-byte handling — but do not carry forward the old `TESTNET_VERSIONS` pattern speculatively while the wallet remains mainnet-only.
 
 ### 7. Provider Nesting Order Matters
 

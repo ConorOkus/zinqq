@@ -13,7 +13,7 @@ tags:
 severity: medium
 components:
   - src/pages/Send.tsx
-  - src/onchain/bip21.ts
+  - src/onchain/bip321.ts
 related_todos:
   - 158-pending-p2-fetchandrouteinvoice-missing-abort-controller
   - 163-pending-p2-satstobctstring-negative-guard
@@ -27,7 +27,7 @@ Two independent bugs in the zinqq Lightning wallet frontend, both classified P2:
 
 When a user navigated the LNURL payment flow via the amount step (`handleAmountNext`), `fetchAndRouteInvoice` read `resolveAbortRef.current` to obtain an AbortController. However, when invoked from the amount step rather than from `resolveAddress`, no controller had been assigned to the ref — it was `null`. The fetch therefore ran without an abort signal and could not be cancelled by the user (e.g. by pressing back or navigating away).
 
-**2. satsToBtcString negative guard (`src/onchain/bip21.ts`)**
+**2. satsToBtcString negative guard (`src/onchain/bip321.ts`)**
 
 `satsToBtcString` produced malformed BTC amount strings for negative `bigint` inputs. For example, `-1n` would yield `"0.-0000001"` instead of throwing. This silently produced an invalid BIP-21 URI amount field.
 
@@ -85,7 +85,7 @@ A test case covering the negative input path was added alongside the fix.
 - **PR #42** — this fix
 - **Todo #149** (complete) — LNURL invoice amount validation, same `fetchAndRouteInvoice` function
 - **Todo #157** (pending) — production CORS strategy for LNURL, same flow
-- **Todo #164** (pending) — extract `buildBip21Uri` utility, same bip21.ts module
+- **Todo #164** (pending) — extract `buildBip321Uri` utility, same bip321.ts module
 
 ## Prevention
 

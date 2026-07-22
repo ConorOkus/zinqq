@@ -141,5 +141,4 @@ The `vssSigningKey` flows through the component tree:
 - [VSS Remote State Recovery](vss-remote-state-recovery-full-integration.md) -- key derivation for VSS encryption and store IDs
 - [VSS Dual-Write Persistence](../design-patterns/vss-dual-write-persistence-with-version-conflict-resolution.md) -- persistence patterns using VssClient
 - [VSS CORS Bypass via Vite Proxy](vss-cors-bypass-vite-proxy.md) -- dev proxy setup for VSS requests
-- [Vercel VSS Serverless Proxy](../infrastructure/vercel-staging-vss-serverless-proxy.md) -- production proxy forwarding to VSS backend
-- [BDK Descriptor Version Bytes](bdk-descriptor-version-bytes-network-mismatch.md) -- related key derivation issue
+- [Vercel Serverless Functions](../infrastructure/vercel-serverless-functions-not-deployed.md) -- production proxy forwarding to VSS backend (absorbed the staging-proxy doc)

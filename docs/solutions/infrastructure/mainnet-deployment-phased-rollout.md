@@ -14,7 +14,7 @@ tags:
 
 ## Problem
 
-Zinq's mainnet config scaffolding existed but the app could not run on mainnet: empty WS proxy URL caused startup crash, no BOLT 12 network validation risked cross-network fund loss, and unimplemented anchor channel CPFP meant force-close scenarios could lose funds during high-fee periods.
+Zinqq's mainnet config scaffolding existed but the app could not run on mainnet: empty WS proxy URL caused startup crash, no BOLT 12 network validation risked cross-network fund loss, and unimplemented anchor channel CPFP meant force-close scenarios could lose funds during high-fee periods.
 
 ## Root Cause
 
@@ -30,16 +30,18 @@ Three-phase rollout, each producing a deployable milestone:
 - Deploy Cloudflare Workers WS proxy with `custom_domain = true` route for `proxy.zinqq.app`
 - Implement `Event_ConnectionNeeded` handler — parse `SocketAddress` (TcpIpV4, TcpIpV6, Hostname) and reconnect via callback pattern matching existing `onPaymentEvent`/`onChannelClosed` conventions
 - Separate Vercel projects: `zinqq.app` (mainnet) and `testnet.zinqq.app` (signet) via `VITE_NETWORK` build-time env var
+  > **Historical.** Signet infrastructure was fully removed 2026-04-15 — the app is mainnet-only now. `src/onchain/config.ts` types `network` as the single literal `'bitcoin'`; there is no `testnet.zinqq.app` deployment or `VITE_NETWORK` switch anymore.
 
 ### Phase 2 — Safety
 
 - **BOLT 12 validation**: `offer.chains()` IS exposed in LDK WASM (the old TODO was wrong). Compare chain hashes against `LDK_CONFIG.genesisBlockHash`. Empty chains = implicit mainnet per BOLT 12 spec, rejected on signet.
+  > **Historical.** Signet infrastructure was fully removed 2026-04-15; there is no signet build to reject against anymore — the app only ever runs on mainnet.
 - **Anchor CPFP**: LDK provides `BumpTransactionEventHandler` which wraps all CPFP complexity. Implement `WalletSourceInterface` backed by BDK wallet:
   - `list_confirmed_utxos()`: Filter `bdkWallet.list_unspent()` to confirmed-only via `wallet.get_tx(txid).chain_position.is_confirmed`
   - `get_change_script()`: Use existing `revealNextAddress()` (handles changeset persistence)
   - `sign_psbt()`: Convert bytes → base64 → `Psbt.from_string()` → `wallet.sign()` → `extract_tx().to_bytes()`
 - **Broadcaster fallback**: Extract `postTxToEsplora()` helper, add `tryBroadcast()` with configurable retry count. Primary gets 5 retries, fallback (`blockstream.info`) gets 3.
-- **Anchor reserve**: 10k sats reserved when open channels exist. `sendMax` uses fixed-amount send instead of `drain_wallet()`. `sendToAddress` estimates fee before checking reserve.
+- **Anchor reserve**: 10k sats reserved when open channels exist (`ANCHOR_RESERVE_SATS = 10_000n` in `src/onchain/config.ts`, hoisted there 2026-07-21). `sendMax` uses fixed-amount send instead of `drain_wallet()`. `sendToAddress` estimates fee before checking reserve.
 
 ### Phase 3 — Polish
 

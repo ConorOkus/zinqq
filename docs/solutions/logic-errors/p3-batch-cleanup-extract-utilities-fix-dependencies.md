@@ -33,12 +33,12 @@ Code duplication and dependency inversions accumulated during rapid feature deve
 
 ## Solution
 
-### 1. buildBip21Uri extraction
+### 1. buildBip321Uri extraction
 
-Extracted 12-line inline BIP 21 URI construction from Receive.tsx into `src/onchain/bip21.ts`:
+Extracted 12-line inline BIP 21 URI construction from Receive.tsx into `src/onchain/bip321.ts`:
 
 ```typescript
-export function buildBip21Uri({ address, amountSats, invoice }: BuildBip21Options): string
+export function buildBip321Uri({ address, amountSats, invoice }: BuildBip321Options): string
 ```
 
 Complements existing `parseBip21`. Added 8 unit tests including round-trip validation. Parameter `invoice` typed as `string | null` to match React state conventions.
@@ -104,4 +104,4 @@ Batch-updated 61 todos with "complete" in filename but `status: pending` in fron
 - [BIP 321 unified URI construction](../integration-issues/bip321-unified-uri-bolt11-invoice-generation.md) — original inline BIP 21 implementation
 - [AbortController and BigInt sign fixes](abort-controller-and-bigint-sign-fixes.md) — related AbortError propagation work
 - [VSS dual-write persistence](../design-patterns/vss-dual-write-persistence-with-version-conflict-resolution.md) — context for isVssConflict extraction
-- [Vercel staging VSS proxy](../infrastructure/vercel-staging-vss-serverless-proxy.md) — context for VSS_PROXY_TARGET documentation
+- [Vercel serverless functions](../infrastructure/vercel-serverless-functions-not-deployed.md) — context for VSS_PROXY_TARGET documentation (absorbed the staging-proxy doc)

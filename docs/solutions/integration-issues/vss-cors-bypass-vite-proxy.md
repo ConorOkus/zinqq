@@ -20,24 +20,23 @@ The VSS server (rust `vss-server`) does not set CORS headers. This is a server-s
 
 Proxy VSS requests through Vite's dev server so they become same-origin, bypassing both CSP and CORS:
 
-**`vite.config.ts`** — Add a proxy rule:
+**`vite.config.ts`** — Add a proxy rule, target driven by env var (the real target lives in the untracked `.env`, defaulting to a local dev server):
 
 ```ts
 proxy: {
   '/__vss_proxy': {
-    target: 'http://98.207.69.189:52146',
+    target: env.VSS_PROXY_TARGET ?? 'http://localhost:8080',
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/__vss_proxy/, ''),
   },
 },
 ```
 
-**`src/ldk/config.ts`** — Route through proxy in dev, direct in production:
+**`src/ldk/config.ts`** — `vssUrl` defaults unconditionally to `/api/vss-proxy` (a Vercel serverless function that proxies to the real VSS server in production); dev overrides via `VITE_VSS_URL=/__vss_proxy/vss` in `.env` (see `.env.example`) to route through the Vite dev proxy instead:
 
 ```ts
-vssUrl:
-  (import.meta.env.VITE_VSS_URL as string | undefined) ??
-  (import.meta.env.DEV ? '/__vss_proxy/vss' : 'http://98.207.69.189:52146/vss'),
+vssUrl: ((import.meta.env.VITE_VSS_URL as string | undefined) ?? DEFAULTS.vssUrl).trim(),
+// DEFAULTS.vssUrl = '/api/vss-proxy'
 ```
 
 No CSP changes needed — proxied requests are same-origin (`'self'`).
@@ -46,4 +45,4 @@ No CSP changes needed — proxied requests are same-origin (`'self'`).
 
 - When connecting to a new external API from the browser, check CORS support first with `curl -I -X OPTIONS <url>`.
 - Prefer Vite proxy for development over CSP allowlisting raw IPs — it's cleaner and avoids leaking test infrastructure into the HTML.
-- For production, the VSS server will need either CORS headers or a reverse proxy (e.g., Cloudflare, nginx) in front of it.
+- **Resolved for production**: rather than requiring the VSS server itself to grow CORS headers, production proxies through `api/vss-proxy.ts` (a Node serverless function) plus the `vercel.json` rewrite — see [Vercel serverless functions not deployed](../infrastructure/vercel-serverless-functions-not-deployed.md) for the full serverless proxy layout.

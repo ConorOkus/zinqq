@@ -5,7 +5,11 @@ date: 2026-03-16
 severity: high
 tags: [bdk, address-reveal, changeset, persistence, fund-visibility, sweep]
 modules:
-  [src/ldk/traits/event-handler.ts, src/onchain/init.ts, src/ldk/traits/bdk-signer-provider.ts]
+  [
+    src/ldk/traits/event-handler.ts,
+    src/onchain/address-utils.ts,
+    src/ldk/traits/bdk-signer-provider.ts,
+  ]
 ---
 
 # BDK Address Reveals Not Persisted — Funds Invisible After Restart
@@ -49,6 +53,26 @@ if (staged && !staged.is_empty()) {
 ```
 
 Applied in all 3 locations: `bdk-signer-provider.ts`, `event-handler.ts` (setBdkWallet), `event-handler.ts` (SpendableOutputs).
+
+**Update:** These 3 inline duplicated persist blocks have since been centralized into shared helpers in `src/onchain/address-utils.ts` — `revealNextAddress` (~11-23) and `peekAddressAtIndex` (~58-74). Both carry the same take_staged+putChangeset invariant described above, so the fix is now enforced in one place rather than repeated at each call site:
+
+```typescript
+export function revealNextAddress(wallet: Wallet, tag: string): Uint8Array {
+  const addressInfo = wallet.next_unused_address('external')
+  const scriptBytes = addressInfo.address.script_pubkey.as_bytes()
+
+  const staged = wallet.take_staged()
+  if (staged && !staged.is_empty()) {
+    void putChangeset(staged.to_json()).catch((err: unknown) =>
+      captureError('warning', tag, 'Failed to persist address reveal changeset', String(err))
+    )
+  }
+
+  return scriptBytes
+}
+```
+
+`peekAddressAtIndex` is a second, distinct call pattern built on the same invariant: instead of `next_unused_address` (non-deterministic, advances an internal counter), it derives a deterministic BDK address index from `channel_keys_id` and uses `peek_address` + `reveal_addresses_to` so the same `channel_keys_id` always maps to the same address on any device sharing the mnemonic — required for cross-device recovery. It still finishes with the identical `take_staged()` + `putChangeset()` persistence step.
 
 ### 2. Always full-scan on wallet init
 

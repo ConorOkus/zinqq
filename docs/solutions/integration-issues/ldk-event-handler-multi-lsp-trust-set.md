@@ -15,6 +15,14 @@ related:
 
 # LSPS2 trusted-LSP gate hardcoded to fallback pubkey rejected primary LQwD 0-conf channels
 
+> ⚠️ **Partially superseded (2026-07-07, PR #167).** LQwD was removed; Megalith
+> is now the sole LSP. The Solution §4 runtime-discovery snippet below
+> (`fetchLqwdContact().then((contact) => node.trustedLspIds.add(...))`) no
+> longer exists — the trust set is seeded once at init from the single
+> env-configured LSP. The `IsTrustedLsp` predicate + `Set<string>` pattern
+> itself (§1–3) is fully retained (see `src/ldk/init.ts` ~108-112 comments),
+> deliberately, so a second LSP can be re-added without rework.
+
 ## Symptom
 
 A user requesting a JIT Lightning invoice from the runtime-discovered LQwD primary LSP would see the receive flow time out with no payment arriving. There was no browser-console error and no thrown exception — the LSPS2 dance succeeded all the way up to the moment LQwD opened the inbound 0-conf channel, at which point LDK silently dropped the `Event_OpenChannelRequest`. From the user's perspective the invoice "just didn't pay"; from the logs you'd only see `[LDK Event] OpenChannelRequest: rejected from non-LSP peer` against a pubkey that was, in fact, our LSP. The bug only manifested at HTLC time, was not caught by any unit test, and was flagged by the architecture-strategist agent during code review of PR #148.

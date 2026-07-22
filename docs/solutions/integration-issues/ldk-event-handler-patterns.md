@@ -43,6 +43,13 @@ if (event instanceof Event_PendingHTLCsForwardable) {
 }
 ```
 
+> **Removed in LDK 0.2.** `Event::PendingHTLCsForwardable` no longer exists.
+> Forwarding is now driven by polling `channelManager.needs_pending_htlc_processing()`
+> and, when true, calling `channelManager.process_pending_htlc_forwards()` inside
+> `drainEventsAndRefresh()` in `src/ldk/context.tsx` (~1270-1282). The event-handler
+> side of the old pattern (the timer + `cleanup()`) is retained as a no-op for
+> caller API stability (`src/ldk/traits/event-handler.ts` ~212-214 comment).
+
 ### Async events (fire-and-forget with IDB persistence)
 
 ```typescript
@@ -58,6 +65,17 @@ if (event instanceof Event_SpendableOutputs) {
 }
 ```
 
+> **2026-07-21 update.** `SpendableOutputs` handling has since grown well
+> beyond the persist-and-forget sketch above: per-output outpoint/value
+> attribution is extracted with a guarded per-output try/catch (a single
+> malformed descriptor no longer drops the whole batch), an immediate sweep
+> attempt is made with a fee-subsidized fallback (`src/ldk/sweep.ts`,
+> `src/ldk/subsidized-sweep.ts`), and an unconditional startup-recovery sweep
+> runs on handler creation to catch descriptors persisted from a prior session
+> that never got swept. See
+> [`ldk-spendable-output-sweep-stuck-retry-and-fee-semantics.md`](ldk-spendable-output-sweep-stuck-retry-and-fee-semantics.md)
+> for the sweep/retry design.
+
 ### Deferred events (no implementation yet, log and acknowledge)
 
 ```typescript
@@ -70,19 +88,34 @@ if (event instanceof Event_FundingGenerationReady) {
 
 ### Background loop integration
 
+> **Updated shape.** The snippet above is superseded by a single shared
+> `drainEventsAndRefresh()` defined once in `src/ldk/context.tsx`, called from
+> three places instead of only a timer: the periodic timer tick, the
+> per-message WebSocket callback (so channel-state changes like `channel_ready`
+> reflect immediately), and tab-foreground. It drains `ChannelManager`,
+> `ChainMonitor`, and `OnionMessenger` events, then polls
+> `needs_pending_htlc_processing()` (see the `PendingHTLCsForwardable` note
+> above), then schedules a persist. The CM dirty-flag flush moved out of this
+> loop and into `src/ldk/storage/persist-cm.ts`, which still uses
+> `get_and_clear_needs_persistence()` as the underlying mechanism (gotcha #2
+> below still applies).
+
 ```typescript
-// Process events on the 10s peer timer tick
-peerTimerId = setInterval(() => {
-  node.peerManager.timer_tick_occurred()
-  node.peerManager.process_events()
-  // Drain events: ChannelManager first, then ChainMonitor
+// src/ldk/context.tsx — shared drain, called from timer / WS message / tab-foreground
+function drainEventsAndRefresh() {
   node.channelManager.as_EventsProvider().process_pending_events(node.eventHandler)
   node.chainMonitor.as_EventsProvider().process_pending_events(node.eventHandler)
-  // Flush CM state immediately after events (fund safety)
-  if (node.channelManager.get_and_clear_needs_persistence()) {
-    void idbPut('ldk_channel_manager', 'primary', node.channelManager.write())
+  node.onionMessenger.as_EventsProvider().process_pending_events(node.eventHandler)
+
+  // LDK 0.2 removed Event::PendingHTLCsForwardable; drive forwarding by polling.
+  if (node.channelManager.needs_pending_htlc_processing()) {
+    node.channelManager.process_pending_htlc_forwards()
   }
-}, 10_000)
+
+  // Scheduler (src/ldk/storage/persist-cm.ts) consults
+  // get_and_clear_needs_persistence() and skips when clean.
+  void schedulePersist()
+}
 ```
 
 ## Key Gotchas
@@ -95,7 +128,11 @@ peerTimerId = setInterval(() => {
 
 4. **Don't plumb dependencies you can't use yet** — `ConnectionNeeded` provides `SocketAddress` objects but the WASM bindings don't easily expose subclass types for parsing. Log and defer rather than passing empty host/port that always fails (YAGNI).
 
+   > **Update:** `parseFirstSocketAddress()` is now implemented (`src/ldk/traits/event-handler.ts` ~826-849), handling `TcpIpV4`, `TcpIpV6`, and `Hostname` variants, and is wired up to the `onConnectionNeeded` callback. The YAGNI deferral no longer applies.
+
 5. **`OpenChannelRequest` without explicit accept/reject will timeout** — LDK does not auto-reject. If you log "auto-rejecting" make sure you actually call the reject API, or be honest that it times out.
+
+   > **Still true**, but acceptance is now gated by `isTrustedLsp()` (see [`ldk-event-handler-multi-lsp-trust-set.md`](ldk-event-handler-multi-lsp-trust-set.md)) plus JIT channel config overrides applied to the 0-conf accept call (see [`lsps2-jit-receive-channel-config.md`](lsps2-jit-receive-channel-config.md)) — untrusted peers still silently timeout with no explicit reject.
 
 6. **Use `crypto.randomUUID()` for IDB keys** — `Math.random()` is not cryptographically secure and can collide under batch processing. `crypto.randomUUID()` is available in all modern browsers.
 

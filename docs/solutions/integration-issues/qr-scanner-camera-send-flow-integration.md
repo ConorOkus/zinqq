@@ -40,34 +40,38 @@ const parsed = classifyPaymentInput(raw)
 
 This avoids serialization issues entirely. The double-parse also provides defense-in-depth validation.
 
-### 2. Fork the state machine based on amount presence
+### 2. No amount-presence fork needed — recipient-first flow made it unnecessary
+
+**Update:** The original design forked the state machine based on whether the scanned QR embedded an amount. That fork no longer exists. The Send flow is recipient-first now (see the [state-machine doc](../design-patterns/react-send-flow-amount-first-state-machine.md) for current framing), so a scanned input is always routed through the same single call regardless of amount presence.
+
+Current implementation (`src/pages/Send.tsx`, ~549-571) uses two effects: one consumes `location.state.scannedInput` and stashes it in an intermediate `pendingQrInput` state; a second waits until `onchain.status === 'ready'` before processing it:
 
 ```typescript
-const hasAmount =
-  (parsed.type === 'onchain' && parsed.amountSats !== null) ||
-  ((parsed.type === 'bolt11' || parsed.type === 'bolt12') && parsed.amountMsat !== null)
+// Effect 1: consume scannedInput from location.state, clear it, stash it
+useEffect(() => {
+  const state = location.state as Record<string, unknown> | null
+  const raw = typeof state?.scannedInput === 'string' ? state.scannedInput : null
+  if (!raw) return
+  if (raw.length > 2000) {
+    setInputError('Scanned input is too long')
+    return
+  }
+  void navigate('/send', { replace: true, state: null })
+  setPendingQrInput(raw)
+}, [])
 
-if (hasAmount) {
-  // processRecipientInput derives amounts from the parsed input directly
-  void processRecipientInput(raw)
-} else {
-  // Store recipient, start at amount step, skip recipient step on Next
-  setScannedInput(raw)
-}
+// Effect 2: process the pending QR input once the wallet is ready
+useEffect(() => {
+  if (!pendingQrInput) return
+  if (onchain.status !== 'ready') return
+  const raw = pendingQrInput
+  setPendingQrInput(null)
+  setInputValue(raw)
+  void processRecipientInput(raw, 'recipient')
+}, [pendingQrInput, onchain.status, processRecipientInput])
 ```
 
-**Key insight**: `processRecipientInput` already extracts `parsed.amountSats` / `parsed.amountMsat` from the input — no need to pre-fill `amountDigits` state. Calling it directly avoids stale closure bugs.
-
-For no-amount inputs, store the raw string in `scannedInput` state. In `handleAmountNext`, check for it and skip the recipient step:
-
-```typescript
-if (scannedInput) {
-  const input = scannedInput
-  setScannedInput(null) // Clear after use to prevent stale re-use
-  void processRecipientInput(input)
-  return
-}
-```
+`processRecipientInput` gained a second parameter — `fromStep: 'recipient' | 'amount'` — tagging where the call originated (recipient-input vs. amount-step re-entry after "Next"). The scanned-input path always passes `'recipient'`; `processRecipientInput` itself still branches internally on whether the parsed input carries an embedded amount to decide whether to go straight to review or fall through to the amount step.
 
 ### 3. Security headers
 
@@ -96,7 +100,7 @@ worker-src 'self' blob:;
 - **Always clear `location.state` after consuming it** — `navigate(path, { replace: true, state: null })` prevents re-processing on browser back/forward.
 - **Always validate `location.state` at runtime** — use `typeof` checks, not `as` casts, since state comes from an untrusted boundary.
 - **Use a ref guard (`hasNavigatedRef`) for camera callbacks** — QR decoders fire rapidly and can trigger duplicate navigations.
-- **Clear one-shot state after consumption** — `scannedInput` should be nulled after `handleAmountNext` uses it, or it persists on retry.
+- **Clear one-shot state after consumption** — `pendingQrInput` should be nulled once the ready-gated effect consumes it, or it persists on retry.
 
 ## Related
 

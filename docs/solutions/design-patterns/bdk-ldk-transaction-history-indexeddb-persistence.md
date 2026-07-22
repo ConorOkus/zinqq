@@ -35,6 +35,8 @@ LDK's `listRecentPayments()` is volatile -- payment data is lost on page refresh
 
 **Unified view:** `useTransactionHistory()` hook merges Lightning payments from IDB and on-chain transactions from BDK into a single `UnifiedTransaction[]` array, sorted by timestamp descending.
 
+**Update — three-way merge with channel-close records.** `useTransactionHistory()` (`src/hooks/use-transaction-history.ts`, ~11-56) now also imports `useCloseRecords`/`useLastKnownTipHeight` and adds a third `UnifiedTransaction` variant, `layer: 'channel-close'`, carrying `amountSats: bigint | null`, `channelId`, and `closeStatus`. Each close record renders as one grouped row rather than as its raw constituent transactions. To prevent double-listing, the hook builds an `absorbedTxids` set from every txid referenced inside a close record and skips those txids when iterating on-chain transactions — so a channel's commitment/sweep/closing txs appear once, inside the close row, never again as bare on-chain receives.
+
 ## Key Code Patterns
 
 **Bigint-safe IDB serialization:** IDB cannot store `bigint` values. The `SerializedPayment` type maps amount fields to `string`, with `persistPayment()` converting via `.toString()` and `loadAllPayments()` converting back via `BigInt()`.
@@ -56,6 +58,8 @@ LDK's `listRecentPayments()` is volatile -- payment data is lost on page refresh
 4. **Bigint in IndexedDB.** Attempting to store a `bigint` value directly in IDB throws a `DataCloneError` at runtime with no compile-time warning. Every amount field must be explicitly converted to `string` before persistence.
 
 5. **formatRelativeTime(0) gibberish.** Using `0` as a fallback timestamp for transactions with no `confirmationTime` or `firstSeen` produces nonsensical display like "2930w ago". Guard against sentinel values before passing to formatters.
+
+6. **`amountSats` can be `null` on channel-close rows.** Unlike the `onchain`/`lightning` variants, the `channel-close` variant's `amountSats` is `bigint | null` — it's `null` while the close outcome is still unresolved. Any formatter/UI boundary that renders `UnifiedTransaction.amountSats` must handle `null` by rendering a dash (`—`), never coercing it to `0` — a literal "0 sats" reads as a real (and wrong) zero-value transaction rather than "amount not yet known".
 
 ## Prevention Strategies
 

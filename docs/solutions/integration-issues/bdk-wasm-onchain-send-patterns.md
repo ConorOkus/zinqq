@@ -8,7 +8,6 @@ severity: HIGH
 related:
   - bdk-wasm-txbuilder-consumes-self.md
   - bdk-wasm-onchain-wallet-integration-patterns.md
-  - bdk-ldk-cross-wasm-transaction-bridge.md
 ---
 
 # BDK WASM Onchain Send — Build/Sign/Broadcast Pipeline
@@ -94,7 +93,7 @@ await sendToAddress(address, amount, feeRate)
 
 ### 5. Pause Sync Loop During Send
 
-The background sync loop calls `wallet.apply_update()` every 30 seconds. If `wallet.build_tx()` runs while an update is being applied, async interleaving can corrupt wallet state.
+The background sync loop calls `wallet.apply_update()` on the configured sync interval (`syncIntervalMs` in `src/onchain/config.ts`, currently 180,000ms / 3 minutes). If `wallet.build_tx()` runs while an update is being applied, async interleaving can corrupt wallet state.
 
 ```typescript
 syncHandle.pause()
@@ -148,6 +147,39 @@ function btcStringToSats(btcStr: string): bigint | null {
 
 Expose only controlled helper functions (`sendToAddress`, `estimateFee`, etc.), not the raw BDK `Wallet` object. This enforces least-privilege — consumers can't bypass sync pause/resume, fee checks, or changeset persistence.
 
+### 9. Reserve Anchor Funds While Lightning Channels Are Open
+
+Both `sendToAddress` and `sendMax` must reject (or reduce) an on-chain send that would leave the wallet below `ANCHOR_RESERVE_SATS` (10,000 sats, `src/onchain/config.ts`) while any Lightning channel is open. Anchor-output channels require the node to be able to fee-bump commitment/HTLC transactions from wallet funds — draining the on-chain wallet to zero would leave force-close claims unable to confirm.
+
+`getAnchorReserve()` (`src/onchain/context.tsx` ~88-91) returns `ANCHOR_RESERVE_SATS` if any channel is open, else `0n`:
+
+```typescript
+const getAnchorReserve = useCallback((): bigint => {
+  const channels = listChannelsRef.current?.() ?? []
+  return channels.length > 0 ? ANCHOR_RESERVE_SATS : 0n
+}, [])
+```
+
+`sendToAddress` (`src/onchain/context.tsx` ~261-292) checks the reserve before building the transaction and throws if the send plus fee would breach it:
+
+```typescript
+const reserve = getAnchorReserve()
+if (reserve > 0n) {
+  const balance = wallet.balance
+  const available = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+  const { fee } = await estimateFee(address, amountSats)
+  if (amountSats + fee + reserve > available) {
+    throw new Error(
+      `Insufficient funds after reserving ${formatBtc(ANCHOR_RESERVE_SATS)} for Lightning channel safety`
+    )
+  }
+}
+```
+
+`sendMax` (`src/onchain/context.tsx` ~294-337) takes the same reserve into account by switching strategy: with no channels open it drains the wallet fully (`drain_wallet().drain_to(...)`); with channels open it computes a max-sendable amount that preserves the reserve and sends that as a fixed amount instead of draining.
+
+**Why:** Without this guard, a user could send their entire on-chain balance while channels are open, leaving nothing to fee-bump a force close — funds already committed to the channel could become stuck or costly to recover.
+
 ## Prevention
 
 - Always extract shared helpers for safety-critical code paths (sign, persist, broadcast)
@@ -156,3 +188,4 @@ Expose only controlled helper functions (`sendToAddress`, `estimateFee`, etc.), 
 - Always use fixed-point arithmetic for monetary conversions
 - Always use `useRef` (not `useState`) for synchronous guards
 - Always pause the sync loop during wallet mutations
+- Always reserve `ANCHOR_RESERVE_SATS` on-chain while Lightning channels are open, so force-close claims can always be fee-bumped
