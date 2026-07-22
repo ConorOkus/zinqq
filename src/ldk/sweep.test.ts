@@ -18,6 +18,10 @@ vi.mock('./traits/broadcaster', () => ({
   broadcastWithRetry: vi.fn(),
 }))
 
+vi.mock('./subsidized-sweep', () => ({
+  attemptSubsidizedSweep: vi.fn(),
+}))
+
 // Mock lightningdevkit — descriptors decode to `{ marker }` objects so tests
 // can steer the OutputSpender mock per descriptor. A serialized descriptor is
 // a 1-byte Uint8Array whose value is the marker.
@@ -52,18 +56,22 @@ vi.mock('lightningdevkit', () => {
 import {
   sweepSpendableOutputs,
   getPendingSweepInfo,
+  sweepNeedsOnchainFunds,
   SWEEP_STATE_EVENT,
   type SpendableOutputsEntry,
 } from './sweep'
 import { idbGetAll, idbDeleteBatch } from '../storage/idb'
 import { broadcastWithRetry } from './traits/broadcaster'
+import { attemptSubsidizedSweep } from './subsidized-sweep'
 import { Result_TransactionNoneZ_OK } from 'lightningdevkit'
 import type { KeysManager } from 'lightningdevkit'
+import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 
 const DUST_MARKER = 0x01
 const GOOD_MARKER = 0x02
+const GOOD_MARKER_B = 0x03
 
 function entry(
   markers: number[],
@@ -97,8 +105,16 @@ function makeKeysManager(): { keysManager: KeysManager; spendCalls: number[][] }
   return { keysManager, spendCalls }
 }
 
-async function runSweep(keysManager: KeysManager) {
-  return sweepSpendableOutputs(keysManager, new Uint8Array([0xaa]), 'https://esplora.test')
+const FAKE_BDK_WALLET = {} as Wallet
+
+async function runSweep(keysManager: KeysManager, reserveSats?: bigint) {
+  return sweepSpendableOutputs({
+    keysManager,
+    bdkWallet: FAKE_BDK_WALLET,
+    destinationScript: new Uint8Array([0xaa]),
+    esploraUrl: 'https://esplora.test',
+    reserveSats,
+  })
 }
 
 describe('sweepSpendableOutputs', () => {
@@ -107,20 +123,24 @@ describe('sweepSpendableOutputs', () => {
     vi.mocked(broadcastWithRetry).mockImplementation((_url, txHex) =>
       Promise.resolve(`txid-${txHex}`)
     )
+    vi.mocked(attemptSubsidizedSweep).mockResolvedValue({
+      status: 'failed',
+      reason: 'test-default',
+    })
   })
 
   it('sweeps all entries in a single bundled transaction', async () => {
     vi.mocked(idbGetAll).mockResolvedValue(
       new Map<string, SpendableOutputsEntry>([
         ['k1', entry([GOOD_MARKER], 'chan-a')],
-        ['k2', entry([GOOD_MARKER], 'chan-b')],
+        ['k2', entry([GOOD_MARKER_B], 'chan-b')],
       ])
     )
     const { keysManager, spendCalls } = makeKeysManager()
 
     const result = await runSweep(keysManager)
 
-    expect(spendCalls).toEqual([[GOOD_MARKER, GOOD_MARKER]])
+    expect(spendCalls).toEqual([[GOOD_MARKER, GOOD_MARKER_B]])
     expect(broadcastWithRetry).toHaveBeenCalledTimes(1)
     expect(result.swept).toBe(2)
     expect(result.skipped).toBe(0)
@@ -156,6 +176,8 @@ describe('sweepSpendableOutputs', () => {
       pendingSats: 2800n,
       hasUnknownValue: false,
       lastAttemptFailed: true,
+      needsOnchainFunds: false,
+      shortfallSats: null,
     })
   })
 
@@ -258,6 +280,144 @@ describe('sweepSpendableOutputs', () => {
     expect(idbDeleteBatch).not.toHaveBeenCalled()
     expect(stateEvents).toHaveBeenCalledTimes(1)
     expect((await getPendingSweepInfo())?.lastAttemptFailed).toBe(true)
+  })
+
+  it('deduplicates byte-identical descriptors across entries', async () => {
+    // A replayed SpendableOutputs event can persist the same descriptor under
+    // two keys; spending must see it once but both entries clean up.
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([
+        ['original', entry([GOOD_MARKER], 'chan-a')],
+        ['replayed', entry([GOOD_MARKER], 'chan-a')],
+      ])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    expect(spendCalls).toEqual([[GOOD_MARKER]])
+    expect(result.swept).toBe(1)
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['original', 'replayed'])
+  })
+})
+
+describe('sweepSpendableOutputs (subsidized fallback)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(broadcastWithRetry).mockImplementation((_url, txHex) =>
+      Promise.resolve(`txid-${txHex}`)
+    )
+  })
+
+  function dustEntries() {
+    return new Map<string, SpendableOutputsEntry>([
+      ['dust', entry([DUST_MARKER], 'chan-dust', ['3000'])],
+    ])
+  }
+
+  it('passes serialized descriptors and reserve to the subsidized attempt', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(dustEntries())
+    vi.mocked(attemptSubsidizedSweep).mockResolvedValue({ status: 'failed', reason: 'x' })
+    const { keysManager } = makeKeysManager()
+
+    await runSweep(keysManager, 10_000n)
+
+    expect(attemptSubsidizedSweep).toHaveBeenCalledTimes(1)
+    const params = vi.mocked(attemptSubsidizedSweep).mock.calls[0]![0]
+    expect(params.serializedDescriptors).toEqual([new Uint8Array([DUST_MARKER])])
+    expect(params.reserveSats).toBe(10_000n)
+    expect(params.targetFeeRateSatVb).toBe(10n)
+    expect(params.bdkWallet).toBe(FAKE_BDK_WALLET)
+  })
+
+  it('deletes entries and reports the sweep when the subsidized attempt broadcasts', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(dustEntries())
+    vi.mocked(attemptSubsidizedSweep).mockResolvedValue({
+      status: 'broadcast',
+      txid: 'subsidized-txid',
+      subsidySats: 1_980n,
+    })
+    const { keysManager } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    expect(result.swept).toBe(1)
+    expect(result.txs).toEqual([
+      {
+        txid: 'subsidized-txid',
+        attributions: [
+          {
+            channelIdHex: 'chan-dust',
+            outpoints: [{ txid: 'closetx', vout: 0, valueSats: '3000' }],
+          },
+        ],
+      },
+    ])
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['dust'])
+    vi.mocked(idbGetAll).mockResolvedValue(new Map())
+    expect(await getPendingSweepInfo()).toBeNull()
+    expect(sweepNeedsOnchainFunds()).toBe(false)
+  })
+
+  it('surfaces the shortfall when on-chain funds cannot cover the subsidy', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(dustEntries())
+    vi.mocked(attemptSubsidizedSweep).mockResolvedValue({
+      status: 'shortfall',
+      neededSubsidySats: 1_980n,
+      availableSats: 500n,
+      shortfallSats: 1_480n,
+    })
+    const { keysManager } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    expect(result.swept).toBe(0)
+    expect(idbDeleteBatch).not.toHaveBeenCalled()
+    expect(sweepNeedsOnchainFunds()).toBe(true)
+    const pending = await getPendingSweepInfo()
+    expect(pending?.lastAttemptFailed).toBe(true)
+    expect(pending?.needsOnchainFunds).toBe(true)
+    expect(pending?.shortfallSats).toBe(1_480n)
+  })
+
+  it('clears the shortfall once a later sweep succeeds', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(dustEntries())
+    vi.mocked(attemptSubsidizedSweep).mockResolvedValue({
+      status: 'shortfall',
+      neededSubsidySats: 1_980n,
+      availableSats: 500n,
+      shortfallSats: 1_480n,
+    })
+    const { keysManager } = makeKeysManager()
+    await runSweep(keysManager)
+    expect(sweepNeedsOnchainFunds()).toBe(true)
+
+    // Funds arrived — the subsidized attempt now broadcasts.
+    vi.mocked(attemptSubsidizedSweep).mockResolvedValue({
+      status: 'broadcast',
+      txid: 'rescued',
+      subsidySats: 1_980n,
+    })
+    await runSweep(keysManager)
+    expect(sweepNeedsOnchainFunds()).toBe(false)
+  })
+
+  it('keeps entries pending on not-economical and failed outcomes', async () => {
+    for (const outcome of [
+      { status: 'not-economical' as const, neededSubsidySats: 5_000n, pendingSats: 800n },
+      { status: 'failed' as const, reason: 'ldk-sign' },
+    ]) {
+      vi.mocked(idbGetAll).mockResolvedValue(dustEntries())
+      vi.mocked(attemptSubsidizedSweep).mockResolvedValue(outcome)
+      const { keysManager } = makeKeysManager()
+
+      const result = await runSweep(keysManager)
+
+      expect(result.swept).toBe(0)
+      expect(idbDeleteBatch).not.toHaveBeenCalled()
+      expect(sweepNeedsOnchainFunds()).toBe(false)
+      expect((await getPendingSweepInfo())?.lastAttemptFailed).toBe(true)
+    }
   })
 })
 

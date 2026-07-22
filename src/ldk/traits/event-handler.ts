@@ -67,7 +67,7 @@ import type { SpendableOutputsEntry } from '../sweep'
 import { revealNextAddress } from '../../onchain/address-utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
-import { ONCHAIN_CONFIG } from '../../onchain/config'
+import { ONCHAIN_CONFIG, ANCHOR_RESERVE_SATS } from '../../onchain/config'
 import { LDK_CONFIG } from '../config'
 import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../jit-channel-config'
 import { sweepSpendableOutputs } from '../sweep'
@@ -138,6 +138,11 @@ function buildJitChannelConfigOverrides(): ChannelConfigOverrides {
   return ChannelConfigOverrides.constructor_new(handshakeOverrides, updateOverrides)
 }
 
+/** Keep the anchor-CPFP reserve out of subsidized sweeps while channels are open. */
+function anchorReserveSats(channelManager: ChannelManager): bigint {
+  return channelManager.list_channels().length > 0 ? ANCHOR_RESERVE_SATS : 0n
+}
+
 export function createEventHandler(
   channelManager: ChannelManager,
   keysManager: KeysManager,
@@ -179,12 +184,14 @@ export function createEventHandler(
   // Startup sweep recovery: sweep any SpendableOutputs persisted from a
   // previous session (crash recovery). BDK wallet is always available now.
   const destinationScript = revealNextAddress(bdkWallet, 'LDK')
-  void sweepSpendableOutputs(
+  void sweepSpendableOutputs({
     keysManager,
+    bdkWallet,
     destinationScript,
-    ONCHAIN_CONFIG.esploraUrl,
-    LDK_CONFIG.esploraFallbackUrl
-  )
+    esploraUrl: ONCHAIN_CONFIG.esploraUrl,
+    esploraFallbackUrl: LDK_CONFIG.esploraFallbackUrl,
+    reserveSats: anchorReserveSats(channelManager),
+  })
     .then((result) => {
       if (result.swept > 0) {
         recordSweepResult(result)
@@ -472,12 +479,14 @@ function handleEvent(
     void idbPut('ldk_spendable_outputs', key, entry)
       .then(() => {
         const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
-        return sweepSpendableOutputs(
+        return sweepSpendableOutputs({
           keysManager,
+          bdkWallet,
           destinationScript,
-          ONCHAIN_CONFIG.esploraUrl,
-          LDK_CONFIG.esploraFallbackUrl
-        )
+          esploraUrl: ONCHAIN_CONFIG.esploraUrl,
+          esploraFallbackUrl: LDK_CONFIG.esploraFallbackUrl,
+          reserveSats: anchorReserveSats(channelManager),
+        })
       })
       .then((result) => {
         if (result && result.swept > 0) {

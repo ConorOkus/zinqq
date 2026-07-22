@@ -8,6 +8,14 @@ export const MIN_FEE_RATE_SAT_VB = 2n
 /** Sanity ceiling for absolute fee on any on-chain send (sats). */
 export const MAX_FEE_SATS = 50_000n
 
+/**
+ * Reserve UTXOs for anchor channel CPFP fee bumping. When the user has open
+ * Lightning channels, the on-chain wallet must retain enough sats to fund a
+ * child transaction if a force-close requires fee bumping. 10,000 sats covers
+ * a ~150 vB CPFP at ~50 sat/vB.
+ */
+export const ANCHOR_RESERVE_SATS = 10_000n
+
 interface OnchainConfig {
   network: 'bitcoin'
   esploraUrl: string

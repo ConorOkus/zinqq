@@ -5,11 +5,13 @@ import {
   Option_u32Z,
   type KeysManager,
 } from 'lightningdevkit'
+import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 import { idbGetAll, idbDeleteBatch } from '../storage/idb'
 import { bytesToHex } from './utils'
 import { broadcastWithRetry } from './traits/broadcaster'
 import { captureError } from '../storage/error-log'
 import { getFeeRate } from '../shared/fee-cache'
+import { attemptSubsidizedSweep } from './subsidized-sweep'
 
 const FEE_TARGET_BLOCKS = 6
 const MIN_FEE_RATE_SAT_VB = 2
@@ -44,6 +46,17 @@ export interface SweepResult {
   txs: SweptTx[]
 }
 
+export interface SweepContext {
+  keysManager: KeysManager
+  bdkWallet: Wallet
+  /** Script pubkey bytes for the sweep destination address. */
+  destinationScript: Uint8Array
+  esploraUrl: string
+  esploraFallbackUrl?: string
+  /** Confirmed sats to leave untouched for anchor CPFP (0 when no channels are open). */
+  reserveSats?: bigint
+}
+
 /** Snapshot of outputs still waiting to sweep, for user-facing surfaces. */
 export interface PendingSweepInfo {
   entryCount: number
@@ -57,6 +70,13 @@ export interface PendingSweepInfo {
   hasUnknownValue: boolean
   /** True when the most recent sweep attempt failed (dust, timelock, fees, broadcast). */
   lastAttemptFailed: boolean
+  /**
+   * True when a fee-subsidized sweep would rescue the funds but the confirmed
+   * on-chain balance can't cover the subsidy — adding funds unblocks it.
+   */
+  needsOnchainFunds: boolean
+  /** Estimated additional confirmed sats needed; null when not in shortfall. */
+  shortfallSats: bigint | null
 }
 
 /** Fired whenever a sweep attempt changes what's pending — UI re-reads on this. */
@@ -68,6 +88,12 @@ function notifySweepStateChanged(): void {
 
 let sweepInProgress = false
 let lastAttemptFailed = false
+let onchainShortfallSats: bigint | null = null
+
+/** Cheap synchronous check for callers gating a faster retry cadence. */
+export function sweepNeedsOnchainFunds(): boolean {
+  return onchainShortfallSats !== null
+}
 
 function isLegacyEntry(entry: Uint8Array[] | SpendableOutputsEntry): entry is Uint8Array[] {
   return Array.isArray(entry)
@@ -108,6 +134,8 @@ export async function getPendingSweepInfo(): Promise<PendingSweepInfo | null> {
     pendingSats,
     hasUnknownValue,
     lastAttemptFailed,
+    needsOnchainFunds: onchainShortfallSats !== null,
+    shortfallSats: onchainShortfallSats,
   }
 }
 
@@ -122,19 +150,16 @@ export async function getPendingSweepInfo(): Promise<PendingSweepInfo | null> {
  * IDB and flags the pending state so the UI can explain; callers retry
  * periodically and the sweep completes once it becomes economical.
  *
+ * When the self-funded spend fails (outputs can't pay their own fee), a
+ * fee-subsidized sweep is attempted with confirmed on-chain UTXOs covering
+ * the shortfall — see subsidized-sweep.ts.
+ *
  * Guarded against concurrent execution — only one sweep can run at a time.
  *
- * @param keysManager - LDK KeysManager for signing
- * @param destinationScript - Script pubkey bytes for the sweep destination address
- * @param esploraUrl - Esplora API URL for fee estimation and broadcast
  * @returns Summary of swept and skipped outputs
  */
-export async function sweepSpendableOutputs(
-  keysManager: KeysManager,
-  destinationScript: Uint8Array,
-  esploraUrl: string,
-  esploraFallbackUrl?: string
-): Promise<SweepResult> {
+export async function sweepSpendableOutputs(ctx: SweepContext): Promise<SweepResult> {
+  const { keysManager, destinationScript, esploraUrl, esploraFallbackUrl } = ctx
   if (sweepInProgress) return { swept: 0, skipped: 0, txs: [] }
   sweepInProgress = true
   try {
@@ -142,6 +167,13 @@ export async function sweepSpendableOutputs(
     if (entries.size === 0) return { swept: 0, skipped: 0, txs: [] }
 
     const allDescriptors: SpendableOutputDescriptor[] = []
+    /**
+     * Serialized bytes for every entry in allDescriptors: the wasm bindings
+     * consume descriptor objects per call, so the subsidized path re-decodes
+     * from these instead of reusing the objects spent on the plain attempt.
+     */
+    const allSerialized: Uint8Array[] = []
+    const seenDescriptorHex = new Set<string>()
     const idbKeys: string[] = []
     const attributions: SweepAttribution[] = []
     let skipped = 0
@@ -149,12 +181,20 @@ export async function sweepSpendableOutputs(
     for (const [key, entry] of entries) {
       const serializedArray = isLegacyEntry(entry) ? entry : entry.descriptors
       const descriptors: SpendableOutputDescriptor[] = []
+      const serialized: Uint8Array[] = []
       let valid = true
 
       for (const bytes of serializedArray) {
+        // A replayed event can persist the same descriptor under two keys;
+        // duplicates would make both LDK spend paths fail outright.
+        const hex = bytesToHex(bytes)
+        if (seenDescriptorHex.has(hex)) continue
+
         const result = SpendableOutputDescriptor.constructor_read(bytes)
         if (result instanceof Result_SpendableOutputDescriptorDecodeErrorZ_OK) {
+          seenDescriptorHex.add(hex)
           descriptors.push(result.res)
+          serialized.push(bytes)
         } else {
           captureError(
             'error',
@@ -166,8 +206,9 @@ export async function sweepSpendableOutputs(
         }
       }
 
-      if (valid && descriptors.length > 0) {
+      if (valid && serializedArray.length > 0) {
         allDescriptors.push(...descriptors)
+        allSerialized.push(...serialized)
         idbKeys.push(key)
         attributions.push(
           isLegacyEntry(entry)
@@ -183,16 +224,18 @@ export async function sweepSpendableOutputs(
       // Entries exist but none decoded — funds are stuck; surface it like the
       // other failure paths so the pending banner appears.
       lastAttemptFailed = true
+      onchainShortfallSats = null
       notifySweepStateChanged()
       return { swept: 0, skipped, txs: [] }
     }
 
     // Fetch fee rate and convert from sat/vB to sat/kw (×250)
+    let feeRateSatVb: number
     let feeRateSatPer1000Weight: number
     try {
       const rawRate = await getFeeRate(FEE_TARGET_BLOCKS)
       const ceiledRate = Math.ceil(rawRate)
-      const feeRateSatVb = Math.max(Math.min(ceiledRate, MAX_FEE_RATE_SAT_VB), MIN_FEE_RATE_SAT_VB)
+      feeRateSatVb = Math.max(Math.min(ceiledRate, MAX_FEE_RATE_SAT_VB), MIN_FEE_RATE_SAT_VB)
       if (feeRateSatVb < ceiledRate) {
         captureError(
           'warning',
@@ -204,6 +247,7 @@ export async function sweepSpendableOutputs(
     } catch (err: unknown) {
       captureError('error', 'Sweep', 'Fee rate estimation failed', String(err))
       lastAttemptFailed = true
+      onchainShortfallSats = null
       notifySweepStateChanged()
       return { swept: 0, skipped: skipped + allDescriptors.length, txs: [] }
     }
@@ -219,13 +263,45 @@ export async function sweepSpendableOutputs(
     )
 
     if (!(result instanceof Result_TransactionNoneZ_OK)) {
-      // spend_spendable_outputs can fail if outputs are dust or uneconomical
+      // spend_spendable_outputs fails when the outputs can't pay their own
+      // fee (or are timelocked) — try covering the shortfall with confirmed
+      // on-chain funds before giving up.
       captureError(
         'warning',
         'Sweep',
-        `spend_spendable_outputs failed — outputs may be dust or timelocked, descriptors: ${allDescriptors.length}`
+        `spend_spendable_outputs failed — attempting subsidized sweep, descriptors: ${allDescriptors.length}`
       )
+      const outcome = await attemptSubsidizedSweep({
+        keysManager,
+        bdkWallet: ctx.bdkWallet,
+        serializedDescriptors: allSerialized,
+        destinationScript,
+        targetFeeRateSatVb: BigInt(feeRateSatVb),
+        esploraUrl,
+        esploraFallbackUrl,
+        reserveSats: ctx.reserveSats ?? 0n,
+      })
+
+      if (outcome.status === 'broadcast') {
+        await idbDeleteBatch('ldk_spendable_outputs', idbKeys)
+        lastAttemptFailed = skipped > 0
+        onchainShortfallSats = null
+        notifySweepStateChanged()
+        console.log(
+          '[Sweep] Subsidized sweep rescued',
+          allDescriptors.length,
+          'output(s), txid:',
+          outcome.txid
+        )
+        return {
+          swept: allDescriptors.length,
+          skipped,
+          txs: [{ txid: outcome.txid, attributions }],
+        }
+      }
+
       lastAttemptFailed = true
+      onchainShortfallSats = outcome.status === 'shortfall' ? outcome.shortfallSats : null
       notifySweepStateChanged()
       return { swept: 0, skipped: skipped + allDescriptors.length, txs: [] }
     }
@@ -237,6 +313,7 @@ export async function sweepSpendableOutputs(
     } catch (err: unknown) {
       captureError('error', 'Sweep', 'Broadcast failed after signing', String(err))
       lastAttemptFailed = true
+      onchainShortfallSats = null
       notifySweepStateChanged()
       return { swept: 0, skipped: skipped + allDescriptors.length, txs: [] }
     }
@@ -246,6 +323,7 @@ export async function sweepSpendableOutputs(
     // pending state flagged so the banner doesn't hide them.
     await idbDeleteBatch('ldk_spendable_outputs', idbKeys)
     lastAttemptFailed = skipped > 0
+    onchainShortfallSats = null
     notifySweepStateChanged()
 
     console.log('[Sweep] Successfully swept', allDescriptors.length, 'output(s), txid:', txid)

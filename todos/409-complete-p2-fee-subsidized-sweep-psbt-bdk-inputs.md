@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: '409'
 tags: [sweep, force-close, onchain, ldk, bdk, ux]
@@ -53,3 +53,31 @@ suggestion — with the current non-PSBT sweep it would change nothing).
   pass, joined by a 7th from a Megalith LSP force-close.
 - Interim behavior (banner + periodic all-at-once retry) shipped in the
   `fix/sweep-pending-retry-banner` branch.
+
+## Resolution (2026-07-21, branch `feat/fee-subsidized-sweep`)
+
+Implemented as designed, with the open questions resolved:
+
+- `create_spendable_outputs_psbt` does **not** enforce dust ("We do not
+  enforce that outputs meet the dust limit") — the LDK side is created at the
+  250 sat/kw floor and an explicit dust gate rejects sub-546-sat outputs
+  before signing (`src/ldk/subsidized-sweep.ts`).
+- The wasm BDK `Psbt`/`TxBuilder` cannot add foreign inputs, so the combined
+  tx is built by hand-rolled BIP-174 surgery (`src/ldk/psbt-surgery.ts`,
+  pinned against the BIP-174 spec golden vector) — BDK inputs + change are
+  appended before either side signs; LDK signs first, BDK second with
+  `trust_witness_utxo`.
+- Fee math uses the returned expected-max-weight plus 272 wu per P2WPKH
+  input plus 124 wu for change, validated to the sat against
+  `Psbt.fee_amount()` before broadcast.
+- Threshold: auto-subsidize only when net-positive (subsidy < rescued
+  value); otherwise the sweep keeps waiting as before.
+- Shortfall (subsidy affordable but balance too low) surfaces
+  `needsOnchainFunds`/`shortfallSats` on `PendingSweepInfo`; the
+  `PendingSweepBanner` becomes an "add at least X" CTA to `/receive`, and
+  the retry loop tightens from ~60 min to ~60 s while blocked on funds.
+- Fund-safety hardening beyond the original design: broadcast success
+  sentinels (`already-broadcast`) are verified against esplora before IDB
+  entries are deleted, descriptors are re-decoded per LDK call (wasm
+  pointers are consumed by value), and the anchor-CPFP reserve is excluded
+  from subsidy coin selection.
