@@ -1383,7 +1383,7 @@ export function LdkProvider({
 
           // Pending-sweep retry: outputs that couldn't sweep (dust or
           // timelocked at the fee rate of the last attempt) stay in IDB;
-          // retry every ~5min so they sweep in one tx once economical.
+          // retry every ~60min so they sweep in one tx once economical.
           let sweepTickCount = 0
           let sweepRetryInProgress = false
           const maybeRetryPendingSweep = () => {
@@ -1435,9 +1435,10 @@ export function LdkProvider({
               maybeAutoRecover()
             }
 
-            // Retry stuck sweeps every ~5min
+            // Retry stuck sweeps every ~60min — fee conditions change slowly,
+            // and startup/event sweeps still fire immediately when relevant.
             sweepTickCount += 1
-            if (sweepTickCount % 30 === 0) {
+            if (sweepTickCount % 360 === 0) {
               maybeRetryPendingSweep()
             }
 
