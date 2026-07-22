@@ -11,7 +11,7 @@ import {
 import { type Wallet, SignOptions, Psbt } from '@bitcoindevkit/bdk-wallet-web'
 import { revealNextAddress } from '../../onchain/address-utils'
 import { captureError } from '../../storage/error-log'
-import { hexToBytes } from '../utils'
+import { hexToBytes, uint8ArrayToBase64 } from '../utils'
 
 // P2WPKH witness: ~107 weight units (DER sig + compressed pubkey)
 const P2WPKH_SATISFACTION_WEIGHT = 107n
@@ -124,12 +124,4 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSourceSync {
   }
 
   return WalletSourceSync.new_impl(impl)
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!)
-  }
-  return btoa(binary)
 }

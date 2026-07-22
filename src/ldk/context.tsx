@@ -72,9 +72,9 @@ import {
   clearRecoveryState,
   seedRecoveryVssVersion,
 } from './recovery/recovery-state'
-import { sweepSpendableOutputs, getPendingSweepInfo } from './sweep'
+import { sweepSpendableOutputs, getPendingSweepInfo, sweepNeedsOnchainFunds } from './sweep'
 import { revealNextAddress } from '../onchain/address-utils'
-import { ONCHAIN_CONFIG } from '../onchain/config'
+import { ONCHAIN_CONFIG, ANCHOR_RESERVE_SATS } from '../onchain/config'
 
 function getOutboundCapacitySats(cm: import('lightningdevkit').ChannelManager): bigint {
   const msat = cm
@@ -1337,6 +1337,11 @@ export function LdkProvider({
             })
           }
 
+          // Keep the anchor-CPFP reserve out of subsidized sweeps while
+          // channels are open.
+          const anchorReserveSats = () =>
+            node.channelManager.list_channels().length > 0 ? ANCHOR_RESERVE_SATS : 0n
+
           // Auto-recovery: periodically check if we can sweep stuck outputs.
           // Runs every ~60s (6 ticks) to avoid excessive IDB reads.
           let recoveryTickCount = 0
@@ -1351,12 +1356,14 @@ export function LdkProvider({
 
                 // Attempt sweep with current UTXOs
                 const destScript = revealNextAddress(bdkWallet, 'Recovery')
-                const result = await sweepSpendableOutputs(
-                  node.keysManager,
-                  destScript,
-                  ONCHAIN_CONFIG.esploraUrl,
-                  LDK_CONFIG.esploraFallbackUrl
-                )
+                const result = await sweepSpendableOutputs({
+                  keysManager: node.keysManager,
+                  bdkWallet,
+                  destinationScript: destScript,
+                  esploraUrl: ONCHAIN_CONFIG.esploraUrl,
+                  esploraFallbackUrl: LDK_CONFIG.esploraFallbackUrl,
+                  reserveSats: anchorReserveSats(),
+                })
                 if (result.swept > 0) recordSweepResult(result)
 
                 if (result.swept > 0) {
@@ -1395,12 +1402,14 @@ export function LdkProvider({
                 if (!pending) return
 
                 const destScript = revealNextAddress(bdkWallet, 'Sweep Retry')
-                const result = await sweepSpendableOutputs(
-                  node.keysManager,
-                  destScript,
-                  ONCHAIN_CONFIG.esploraUrl,
-                  LDK_CONFIG.esploraFallbackUrl
-                )
+                const result = await sweepSpendableOutputs({
+                  keysManager: node.keysManager,
+                  bdkWallet,
+                  destinationScript: destScript,
+                  esploraUrl: ONCHAIN_CONFIG.esploraUrl,
+                  esploraFallbackUrl: LDK_CONFIG.esploraFallbackUrl,
+                  reserveSats: anchorReserveSats(),
+                })
                 if (result.swept > 0) {
                   recordSweepResult(result)
                   console.log(
@@ -1437,8 +1446,10 @@ export function LdkProvider({
 
             // Retry stuck sweeps every ~60min — fee conditions change slowly,
             // and startup/event sweeps still fire immediately when relevant.
+            // When only incoming on-chain funds block the sweep, check every
+            // ~60s instead so a fresh deposit is picked up promptly.
             sweepTickCount += 1
-            if (sweepTickCount % 360 === 0) {
+            if (sweepTickCount % (sweepNeedsOnchainFunds() ? 6 : 360) === 0) {
               maybeRetryPendingSweep()
             }
 

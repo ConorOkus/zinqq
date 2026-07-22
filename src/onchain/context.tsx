@@ -17,7 +17,7 @@ import {
   type MaxSendEstimate,
 } from './onchain-context'
 import { fullScanBdkWallet } from './init'
-import { ONCHAIN_CONFIG, MIN_FEE_RATE_SAT_VB, MAX_FEE_SATS } from './config'
+import { ONCHAIN_CONFIG, MIN_FEE_RATE_SAT_VB, MAX_FEE_SATS, ANCHOR_RESERVE_SATS } from './config'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { captureError } from '../storage/error-log'
@@ -27,12 +27,6 @@ import { getFeeRate as getSharedFeeRate } from '../shared/fee-cache'
 import { formatBtc } from '../utils/format-btc'
 
 const FEE_TARGET_BLOCKS = 6
-
-// Reserve UTXOs for anchor channel CPFP fee bumping. When the user has
-// open Lightning channels, the on-chain wallet must retain enough sats
-// to fund a child transaction if a force-close requires fee bumping.
-// 10,000 sats covers a ~150 vB CPFP at ~50 sat/vB.
-const ANCHOR_RESERVE_SATS = 10_000n
 
 async function getFeeRate(): Promise<bigint> {
   const satPerVb = await getSharedFeeRate(FEE_TARGET_BLOCKS)
