@@ -63,14 +63,17 @@ import { bytesToHex, txidBytesToHex } from '../utils'
 import { classifyClosureReason } from '../close-records/closure-reason'
 import { handleCloseSignal, recordSweepResult } from '../close-records/signals'
 import { getCloseRecordSync, recordFundingTxo } from '../close-records/store'
-import type { SpendableOutputsEntry } from '../sweep'
+import {
+  sweepSpendableOutputs,
+  isWalletOwnedStaticOutput,
+  type SpendableOutputsEntry,
+} from '../sweep'
 import { revealNextAddress } from '../../onchain/address-utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG, ANCHOR_RESERVE_SATS } from '../../onchain/config'
 import { LDK_CONFIG } from '../config'
 import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../jit-channel-config'
-import { sweepSpendableOutputs } from '../sweep'
 import { captureError } from '../../storage/error-log'
 
 export type PaymentEventCallback = (
@@ -448,6 +451,21 @@ function handleEvent(
   // (IDB writes are typically <10ms) but not zero.
   if (event instanceof Event_SpendableOutputs) {
     const key = crypto.randomUUID()
+    // StaticOutputs paying to wallet-owned scripts need no sweep — our
+    // SignerProvider routes destination scripts to BDK addresses, so those
+    // funds are already on-chain in the wallet. Worse, KeysManager cannot
+    // sign them, so persisting one would poison the all-or-nothing sweep
+    // batch forever (`ldk-sign`). The check never throws; on doubt the
+    // descriptor is kept, which is the fund-safe direction.
+    const sweepable = event.outputs.filter((o) => !isWalletOwnedStaticOutput(o, bdkWallet))
+    const alreadyInWallet = event.outputs.length - sweepable.length
+    if (alreadyInWallet > 0) {
+      console.log(
+        '[LDK Event] SpendableOutputs:',
+        alreadyInWallet,
+        'output(s) already pay to the on-chain wallet; no sweep needed'
+      )
+    }
     // Drain everything synchronously: serialized descriptors, the source
     // channel (Option — may be NULL/all-0s), and each output's outpoint +
     // value. Sweep attribution is by these facts, never by causality
@@ -459,7 +477,7 @@ function handleEvent(
     // descriptors (the fund-safety payload) would be lost unswept forever.
     // Attribution is cosmetic; it degrades to empty.
     const outpoints: SpendableOutputsEntry['outpoints'] = []
-    for (const o of event.outputs) {
+    for (const o of sweepable) {
       try {
         const outpoint = o.spendable_outpoint()
         outpoints.push({
@@ -472,11 +490,15 @@ function handleEvent(
       }
     }
     const entry: SpendableOutputsEntry = {
-      descriptors: event.outputs.map((o) => o.write()),
+      descriptors: sweepable.map((o) => o.write()),
       channelIdHex: readOptionalChannelIdHex(event.channel_id),
       outpoints,
     }
-    void idbPut('ldk_spendable_outputs', key, entry)
+    // Even when nothing new needs persisting, still run the sweep — older
+    // pending entries may be waiting on retry.
+    const persisted =
+      sweepable.length > 0 ? idbPut('ldk_spendable_outputs', key, entry) : Promise.resolve()
+    void persisted
       .then(() => {
         const destinationScript = revealNextAddress(bdkWallet, 'LDK Event')
         return sweepSpendableOutputs({
@@ -509,7 +531,7 @@ function handleEvent(
       })
     console.log(
       '[LDK Event] SpendableOutputs: persisting',
-      event.outputs.length,
+      sweepable.length,
       'descriptor(s) and attempting sweep'
     )
     return

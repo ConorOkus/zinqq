@@ -1,13 +1,15 @@
 import {
   SpendableOutputDescriptor,
+  SpendableOutputDescriptor_StaticOutput,
   Result_SpendableOutputDescriptorDecodeErrorZ_OK,
   Result_TransactionNoneZ_OK,
   Option_u32Z,
   type KeysManager,
 } from 'lightningdevkit'
-import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
-import { idbGetAll, idbDeleteBatch } from '../storage/idb'
-import { bytesToHex } from './utils'
+import { ScriptBuf, type Wallet } from '@bitcoindevkit/bdk-wallet-web'
+import { idbGetAll, idbDeleteBatch, idbPut } from '../storage/idb'
+import { deriveAddressAtIndex, peekAddressAtIndex } from '../onchain/address-utils'
+import { bytesToHex, txidBytesToHex } from './utils'
 import { broadcastWithRetry } from './traits/broadcaster'
 import { captureError } from '../storage/error-log'
 import { getFeeRate } from '../shared/fee-cache'
@@ -100,6 +102,63 @@ function isLegacyEntry(entry: Uint8Array[] | SpendableOutputsEntry): entry is Ui
 }
 
 /**
+ * True when a descriptor is a StaticOutput paying to a script the BDK wallet
+ * already owns. Our SignerProvider hands LDK wallet-derived addresses via
+ * get_destination_script, so force-close resolutions produce StaticOutput
+ * descriptors whose funds are already on-chain in the wallet — and which
+ * KeysManager categorically cannot sign (it only recognizes its own two
+ * internal scripts and returns Err for anything else). One such descriptor in
+ * the all-or-nothing batch makes every sweep fail with `ldk-sign`, freezing
+ * the descriptors that DO need sweeping.
+ *
+ * Never throws. A failed ownership check reads as "not wallet-owned", which
+ * keeps the descriptor in the batch — the safe direction (status quo).
+ */
+export function isWalletOwnedStaticOutput(
+  descriptor: SpendableOutputDescriptor,
+  bdkWallet: Wallet
+): boolean {
+  if (!(descriptor instanceof SpendableOutputDescriptor_StaticOutput)) return false
+  try {
+    const scriptBytes = descriptor.output.script_pubkey
+    // is_mine CONSUMES the ScriptBuf (wasm-bindgen move semantics: the glue
+    // calls __destroy_into_raw on it). Never free() it afterwards — that
+    // throws "null pointer passed to rust", and a throw here would misread
+    // as "not wallet-owned". The wrapper is finalizer-registered, so nothing
+    // leaks.
+    if (bdkWallet.is_mine(ScriptBuf.from_bytes(scriptBytes))) return true
+
+    // After a cross-device recovery the destination index may not be revealed
+    // yet, making is_mine false for a script the wallet can in fact spend.
+    // Compare against a pure re-derivation first; reveal (a wallet mutation)
+    // only on a confirmed match, so foreign outputs kept in a failing batch
+    // don't mutate wallet state on every retry.
+    const keysId = descriptor.channel_keys_id
+    if (keysId && keysId.length === 32 && keysId.some((b) => b !== 0)) {
+      const derived = deriveAddressAtIndex(bdkWallet, keysId)
+      const matches =
+        derived.length === scriptBytes.length && derived.every((b, i) => b === scriptBytes[i])
+      // Ensure BDK tracks the address so the funds show in the balance.
+      if (matches) peekAddressAtIndex(bdkWallet, keysId)
+      return matches
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/** `txid:vout` key for a descriptor's outpoint; null when unreadable. */
+function descriptorOutpointKey(descriptor: SpendableOutputDescriptor): string | null {
+  try {
+    const outpoint = descriptor.spendable_outpoint()
+    return `${txidBytesToHex(outpoint.get_txid())}:${outpoint.get_index()}`
+  } catch {
+    return null
+  }
+}
+
+/**
  * Read what's still waiting to sweep. Returns null when nothing is pending.
  */
 export async function getPendingSweepInfo(): Promise<PendingSweepInfo | null> {
@@ -109,16 +168,29 @@ export async function getPendingSweepInfo(): Promise<PendingSweepInfo | null> {
   let descriptorCount = 0
   let pendingSats = 0n
   let hasUnknownValue = false
+  // LDK replays SpendableOutputs events across restarts while a sweep keeps
+  // failing, persisting the same output under multiple keys until a sweep
+  // pass prunes them — dedup so the banner doesn't double-count.
+  const seenDescriptorHex = new Set<string>()
+  const seenOutpoints = new Set<string>()
 
   for (const [, entry] of entries) {
+    const serialized = isLegacyEntry(entry) ? entry : entry.descriptors
+    for (const bytes of serialized) {
+      const hex = bytesToHex(bytes)
+      if (seenDescriptorHex.has(hex)) continue
+      seenDescriptorHex.add(hex)
+      descriptorCount++
+    }
     if (isLegacyEntry(entry)) {
-      descriptorCount += entry.length
       hasUnknownValue = true
       continue
     }
-    descriptorCount += entry.descriptors.length
     if (entry.outpoints.length === 0) hasUnknownValue = true
     for (const outpoint of entry.outpoints) {
+      const outpointKey = `${outpoint.txid}:${outpoint.vout}`
+      if (seenOutpoints.has(outpointKey)) continue
+      seenOutpoints.add(outpointKey)
       try {
         pendingSats += BigInt(outpoint.valueSats)
       } catch {
@@ -176,26 +248,30 @@ export async function sweepSpendableOutputs(ctx: SweepContext): Promise<SweepRes
     const seenDescriptorHex = new Set<string>()
     const idbKeys: string[] = []
     const attributions: SweepAttribution[] = []
+    /** Entries left with nothing sweepable after pruning — deleted outright. */
+    const emptiedKeys: string[] = []
     let skipped = 0
+    let walletOwnedCount = 0
 
     for (const [key, entry] of entries) {
       const serializedArray = isLegacyEntry(entry) ? entry : entry.descriptors
       const descriptors: SpendableOutputDescriptor[] = []
       const serialized: Uint8Array[] = []
+      const prunedOutpointKeys = new Set<string>()
+      let prunedCount = 0
       let valid = true
 
       for (const bytes of serializedArray) {
         // A replayed event can persist the same descriptor under two keys;
         // duplicates would make both LDK spend paths fail outright.
         const hex = bytesToHex(bytes)
-        if (seenDescriptorHex.has(hex)) continue
+        if (seenDescriptorHex.has(hex)) {
+          prunedCount++
+          continue
+        }
 
         const result = SpendableOutputDescriptor.constructor_read(bytes)
-        if (result instanceof Result_SpendableOutputDescriptorDecodeErrorZ_OK) {
-          seenDescriptorHex.add(hex)
-          descriptors.push(result.res)
-          serialized.push(bytes)
-        } else {
+        if (!(result instanceof Result_SpendableOutputDescriptorDecodeErrorZ_OK)) {
           captureError(
             'error',
             'Sweep',
@@ -204,26 +280,85 @@ export async function sweepSpendableOutputs(ctx: SweepContext): Promise<SweepRes
           valid = false
           break
         }
+
+        seenDescriptorHex.add(hex)
+
+        // Wallet-owned StaticOutputs need no sweep (the funds already pay to
+        // an address BDK tracks) and would poison the batch — see
+        // isWalletOwnedStaticOutput.
+        if (isWalletOwnedStaticOutput(result.res, ctx.bdkWallet)) {
+          const outpointKey = descriptorOutpointKey(result.res)
+          if (outpointKey !== null) prunedOutpointKeys.add(outpointKey)
+          prunedCount++
+          walletOwnedCount++
+          continue
+        }
+
+        descriptors.push(result.res)
+        serialized.push(bytes)
       }
 
-      if (valid && serializedArray.length > 0) {
-        allDescriptors.push(...descriptors)
-        allSerialized.push(...serialized)
-        idbKeys.push(key)
-        attributions.push(
-          isLegacyEntry(entry)
-            ? { channelIdHex: null, outpoints: [] }
-            : { channelIdHex: entry.channelIdHex, outpoints: entry.outpoints }
-        )
-      } else {
+      if (!valid) {
         skipped += serializedArray.length
+        continue
       }
+
+      if (descriptors.length === 0) {
+        // Everything in this entry was wallet-owned or a duplicate of another
+        // entry — nothing to sweep, so remove it and stop counting it.
+        emptiedKeys.push(key)
+        continue
+      }
+
+      const outpoints = isLegacyEntry(entry)
+        ? []
+        : entry.outpoints.filter((o) => !prunedOutpointKeys.has(`${o.txid}:${o.vout}`))
+      const channelIdHex = isLegacyEntry(entry) ? null : entry.channelIdHex
+
+      if (prunedCount > 0) {
+        // Persist the pruned entry so dropped descriptors never re-enter the
+        // batch or the pending banner, even if this sweep attempt fails.
+        // A failed write must not abort the pass: the in-memory prune already
+        // protects this batch, and the next pass re-prunes from IDB.
+        try {
+          await idbPut('ldk_spendable_outputs', key, {
+            descriptors: serialized,
+            channelIdHex,
+            outpoints,
+          } satisfies SpendableOutputsEntry)
+        } catch (err: unknown) {
+          captureError('warning', 'Sweep', 'Failed to persist pruned entry', String(err))
+        }
+      }
+
+      allDescriptors.push(...descriptors)
+      allSerialized.push(...serialized)
+      idbKeys.push(key)
+      attributions.push({ channelIdHex, outpoints })
+    }
+
+    if (emptiedKeys.length > 0) {
+      try {
+        await idbDeleteBatch('ldk_spendable_outputs', emptiedKeys)
+      } catch (err: unknown) {
+        // Non-fatal: the entries hold nothing sweepable, so leaving them for
+        // the next pass only overstates the banner until then.
+        captureError('warning', 'Sweep', 'Failed to delete emptied sweep entries', String(err))
+      }
+    }
+    if (walletOwnedCount > 0) {
+      console.log(
+        '[Sweep]',
+        walletOwnedCount,
+        'output(s) already pay to the on-chain wallet; excluded from sweep'
+      )
     }
 
     if (allDescriptors.length === 0) {
-      // Entries exist but none decoded — funds are stuck; surface it like the
-      // other failure paths so the pending banner appears.
-      lastAttemptFailed = true
+      // Nothing sweepable remains. Undecodable entries are stuck funds and
+      // keep the pending banner; entries emptied by pruning were funds the
+      // wallet already holds, which is a healthy state.
+      lastAttemptFailed = skipped > 0
       onchainShortfallSats = null
       notifySweepStateChanged()
       return { swept: 0, skipped, txs: [] }
