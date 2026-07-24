@@ -46,6 +46,17 @@ function channelKeysIdToIndex(channelKeysId: Uint8Array): number {
 }
 
 /**
+ * Pure lookup of the deterministic BDK script for a channel_keys_id: peeks
+ * without revealing, persisting, or otherwise mutating wallet state. Use for
+ * ownership comparisons; use peekAddressAtIndex when the address must also be
+ * tracked for syncing.
+ */
+export function deriveAddressAtIndex(wallet: Wallet, channelKeysId: Uint8Array): Uint8Array {
+  const index = channelKeysIdToIndex(channelKeysId)
+  return wallet.peek_address('external', index).address.script_pubkey.as_bytes()
+}
+
+/**
  * Deterministically derive a BDK address from a channel_keys_id.
  *
  * Maps channel_keys_id → derivation index, then uses peek_address to get

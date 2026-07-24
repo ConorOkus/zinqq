@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../storage/idb', () => ({
   idbGetAll: vi.fn(),
   idbDeleteBatch: vi.fn().mockResolvedValue(undefined),
+  idbPut: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../storage/error-log', () => ({
@@ -24,7 +25,8 @@ vi.mock('./subsidized-sweep', () => ({
 
 // Mock lightningdevkit — descriptors decode to `{ marker }` objects so tests
 // can steer the OutputSpender mock per descriptor. A serialized descriptor is
-// a 1-byte Uint8Array whose value is the marker.
+// a 1-byte Uint8Array whose value is the marker. Markers 0x04/0x05 decode to
+// StaticOutput instances paying to the wallet script / a foreign script.
 vi.mock('lightningdevkit', () => {
   class Result_SpendableOutputDescriptorDecodeErrorZ_OK {
     res: unknown
@@ -38,20 +40,78 @@ vi.mock('lightningdevkit', () => {
       this.res = res
     }
   }
+  class SpendableOutputDescriptor_StaticOutput {
+    marker: number
+    output: { script_pubkey: Uint8Array; value: bigint }
+    channel_keys_id: Uint8Array
+    constructor(marker: number, scriptFill: number, keysIdFill = 0) {
+      this.marker = marker
+      const script = new Uint8Array(22)
+      script[1] = 0x14
+      script.fill(scriptFill, 2)
+      this.output = { script_pubkey: script, value: 1_000n }
+      // all-0s → None (no re-derivation fallback); non-zero enables it.
+      this.channel_keys_id = new Uint8Array(32).fill(keysIdFill)
+    }
+    spendable_outpoint() {
+      return {
+        get_txid: () => new Uint8Array(32).fill(this.marker),
+        get_index: () => 0,
+      }
+    }
+  }
   return {
     Result_SpendableOutputDescriptorDecodeErrorZ_OK,
     Result_TransactionNoneZ_OK,
+    SpendableOutputDescriptor_StaticOutput,
     SpendableOutputDescriptor: {
-      constructor_read: (bytes: Uint8Array) =>
-        bytes[0] === 0xff
-          ? { decodeError: true } // not an OK instance → deserialization failure
-          : new Result_SpendableOutputDescriptorDecodeErrorZ_OK({ marker: bytes[0] }),
+      constructor_read: (bytes: Uint8Array) => {
+        if (bytes[0] === 0xff) return { decodeError: true } // not an OK instance → deserialization failure
+        if (bytes[0] === 0x04)
+          return new Result_SpendableOutputDescriptorDecodeErrorZ_OK(
+            new SpendableOutputDescriptor_StaticOutput(0x04, 0xee) // wallet-owned script
+          )
+        if (bytes[0] === 0x05)
+          return new Result_SpendableOutputDescriptorDecodeErrorZ_OK(
+            new SpendableOutputDescriptor_StaticOutput(0x05, 0xdd) // foreign script
+          )
+        if (bytes[0] === 0x06)
+          return new Result_SpendableOutputDescriptorDecodeErrorZ_OK(
+            // Foreign to is_mine but with a non-zero channel_keys_id, so the
+            // cross-device-recovery re-derivation fallback runs.
+            new SpendableOutputDescriptor_StaticOutput(0x06, 0xdd, 0xab)
+          )
+        return new Result_SpendableOutputDescriptorDecodeErrorZ_OK({ marker: bytes[0] })
+      },
     },
     Option_u32Z: {
       constructor_none: () => 'none',
     },
   }
 })
+
+// sweep.ts imports ScriptBuf for the is_mine ownership check; the wasm-backed
+// package must not load under vitest. The mock models the real wasm-bindgen
+// ownership semantics: is_mine consumes the ScriptBuf, and freeing (or
+// reusing) a consumed wrapper throws — a regression back to free-after-is_mine
+// must fail these tests the way it fails in production.
+vi.mock('@bitcoindevkit/bdk-wallet-web', () => ({
+  ScriptBuf: {
+    from_bytes: (bytes: Uint8Array) => ({
+      bytes,
+      consumed: false,
+      free() {
+        if (this.consumed) throw new Error('null pointer passed to rust')
+        this.consumed = true
+      },
+    }),
+  },
+}))
+
+vi.mock('../onchain/address-utils', () => ({
+  deriveAddressAtIndex: vi.fn(() => new Uint8Array(0)),
+  peekAddressAtIndex: vi.fn(() => new Uint8Array(0)),
+}))
 
 import {
   sweepSpendableOutputs,
@@ -60,7 +120,8 @@ import {
   SWEEP_STATE_EVENT,
   type SpendableOutputsEntry,
 } from './sweep'
-import { idbGetAll, idbDeleteBatch } from '../storage/idb'
+import { idbGetAll, idbDeleteBatch, idbPut } from '../storage/idb'
+import { deriveAddressAtIndex, peekAddressAtIndex } from '../onchain/address-utils'
 import { broadcastWithRetry } from './traits/broadcaster'
 import { attemptSubsidizedSweep } from './subsidized-sweep'
 import { Result_TransactionNoneZ_OK } from 'lightningdevkit'
@@ -72,6 +133,12 @@ import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 const DUST_MARKER = 0x01
 const GOOD_MARKER = 0x02
 const GOOD_MARKER_B = 0x03
+/** Decodes to a StaticOutput paying to a script the fake wallet owns. */
+const STATIC_WALLET_MARKER = 0x04
+/** Decodes to a StaticOutput paying to a script the fake wallet does NOT own. */
+const STATIC_FOREIGN_MARKER = 0x05
+/** Foreign to is_mine but with a non-zero channel_keys_id (recovery fallback). */
+const STATIC_RECOVERY_MARKER = 0x06
 
 function entry(
   markers: number[],
@@ -81,7 +148,13 @@ function entry(
   return {
     descriptors: markers.map((m) => new Uint8Array([m])),
     channelIdHex,
-    outpoints: valueSats.map((v, i) => ({ txid: 'closetx', vout: i, valueSats: v })),
+    // Distinct txid per entry: real close outputs never share an outpoint,
+    // and getPendingSweepInfo dedups by txid:vout.
+    outpoints: valueSats.map((v, i) => ({
+      txid: channelIdHex ?? 'closetx',
+      vout: i,
+      valueSats: v,
+    })),
   }
 }
 
@@ -105,7 +178,18 @@ function makeKeysManager(): { keysManager: KeysManager; spendCalls: number[][] }
   return { keysManager, spendCalls }
 }
 
-const FAKE_BDK_WALLET = {} as Wallet
+/**
+ * Owns exactly the P2WPKH script filled with 0xee (STATIC_WALLET_MARKER's).
+ * Mirrors the real binding: is_mine takes ownership of the ScriptBuf, so a
+ * consumed wrapper throws on any later use.
+ */
+const FAKE_BDK_WALLET = {
+  is_mine: (script: { bytes: Uint8Array; consumed: boolean }) => {
+    if (script.consumed) throw new Error('null pointer passed to rust')
+    script.consumed = true
+    return script.bytes[2] === 0xee
+  },
+} as unknown as Wallet
 
 async function runSweep(keysManager: KeysManager, reserveSats?: bigint) {
   return sweepSpendableOutputs({
@@ -284,7 +368,9 @@ describe('sweepSpendableOutputs', () => {
 
   it('deduplicates byte-identical descriptors across entries', async () => {
     // A replayed SpendableOutputs event can persist the same descriptor under
-    // two keys; spending must see it once but both entries clean up.
+    // two keys; spending must see it once but both entries clean up. The
+    // fully-duplicate entry is deleted during collection, the canonical one
+    // after broadcast.
     vi.mocked(idbGetAll).mockResolvedValue(
       new Map<string, SpendableOutputsEntry>([
         ['original', entry([GOOD_MARKER], 'chan-a')],
@@ -297,7 +383,131 @@ describe('sweepSpendableOutputs', () => {
 
     expect(spendCalls).toEqual([[GOOD_MARKER]])
     expect(result.swept).toBe(1)
-    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['original', 'replayed'])
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['replayed'])
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['original'])
+  })
+
+  it('excludes wallet-owned StaticOutputs so the rest of the batch sweeps (regression: ldk-sign)', async () => {
+    // With our SignerProvider, force-close resolutions emit StaticOutput
+    // descriptors paying straight to BDK addresses. KeysManager cannot sign
+    // those; one in the batch used to fail the whole all-or-nothing sweep
+    // forever, freezing the descriptors that DO need sweeping.
+    // The first outpoint's txid matches the mocked StaticOutput's
+    // spendable_outpoint (32 bytes of the marker, display order), so the
+    // rewrite must drop it and keep only the sweepable descriptor's record.
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([
+        [
+          'mixed',
+          {
+            descriptors: [new Uint8Array([STATIC_WALLET_MARKER]), new Uint8Array([GOOD_MARKER])],
+            channelIdHex: 'chan-a',
+            outpoints: [
+              { txid: '04'.repeat(32), vout: 0, valueSats: '23000' },
+              { txid: 'chan-a', vout: 1, valueSats: '7000' },
+            ],
+          },
+        ],
+      ])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    // The wallet-owned StaticOutput never reaches LDK's signer.
+    expect(spendCalls).toEqual([[GOOD_MARKER]])
+    expect(result.swept).toBe(1)
+    // The entry was pruned in place before the attempt — descriptor AND its
+    // outpoint record — so the StaticOutput can never poison a later batch or
+    // inflate the banner even if this sweep had failed.
+    expect(idbPut).toHaveBeenCalledWith('ldk_spendable_outputs', 'mixed', {
+      descriptors: [new Uint8Array([GOOD_MARKER])],
+      channelIdHex: 'chan-a',
+      outpoints: [{ txid: 'chan-a', vout: 1, valueSats: '7000' }],
+    })
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['mixed'])
+  })
+
+  it('deletes entries holding only wallet-owned StaticOutputs and reports a healthy state', async () => {
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([
+        ['static-only', entry([STATIC_WALLET_MARKER], 'chan-a', ['23000'])],
+      ])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const stateEvents = vi.fn()
+    window.addEventListener(SWEEP_STATE_EVENT, stateEvents)
+    const result = await runSweep(keysManager)
+    window.removeEventListener(SWEEP_STATE_EVENT, stateEvents)
+
+    // Nothing to spend or broadcast — the funds already pay to the wallet.
+    expect(spendCalls).toEqual([])
+    expect(broadcastWithRetry).not.toHaveBeenCalled()
+    expect(result).toEqual({ swept: 0, skipped: 0, txs: [] })
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['static-only'])
+    expect(stateEvents).toHaveBeenCalledTimes(1)
+    // Not a failure: the banner must not stay up for funds the wallet holds.
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([['other', entry([GOOD_MARKER], null, ['1'])]])
+    )
+    expect((await getPendingSweepInfo())?.lastAttemptFailed).toBe(false)
+  })
+
+  it('keeps StaticOutputs the wallet does not own in the batch', async () => {
+    // A StaticOutput paying to the KeysManager's own internal script (e.g.
+    // from before the custom SignerProvider) is LDK-signable and must sweep.
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([['foreign', entry([STATIC_FOREIGN_MARKER])]])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    expect(spendCalls).toEqual([[STATIC_FOREIGN_MARKER]])
+    expect(result.swept).toBe(1)
+    expect(idbPut).not.toHaveBeenCalled()
+  })
+
+  it('prunes a StaticOutput when the channel_keys_id re-derivation matches (recovery fallback)', async () => {
+    // After cross-device recovery is_mine can be false for a script the
+    // wallet owns; the fallback re-derives from channel_keys_id and must
+    // classify a byte-identical script as wallet-owned, then reveal it so
+    // BDK tracks the funds.
+    const matchingScript = new Uint8Array(22)
+    matchingScript[1] = 0x14
+    matchingScript.fill(0xdd, 2)
+    vi.mocked(deriveAddressAtIndex).mockReturnValue(matchingScript)
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([['recovered', entry([STATIC_RECOVERY_MARKER])]])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    expect(spendCalls).toEqual([])
+    expect(result).toEqual({ swept: 0, skipped: 0, txs: [] })
+    expect(idbDeleteBatch).toHaveBeenCalledWith('ldk_spendable_outputs', ['recovered'])
+    // The match triggers the reveal so the funds appear in the balance.
+    expect(peekAddressAtIndex).toHaveBeenCalled()
+  })
+
+  it('keeps a StaticOutput when the channel_keys_id re-derivation does not match', async () => {
+    const otherScript = new Uint8Array(22)
+    otherScript[1] = 0x14
+    otherScript.fill(0x99, 2)
+    vi.mocked(deriveAddressAtIndex).mockReturnValue(otherScript)
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([['unmatched', entry([STATIC_RECOVERY_MARKER])]])
+    )
+    const { keysManager, spendCalls } = makeKeysManager()
+
+    const result = await runSweep(keysManager)
+
+    expect(spendCalls).toEqual([[STATIC_RECOVERY_MARKER]])
+    expect(result.swept).toBe(1)
+    // A non-match must not mutate wallet state (no reveal side effect).
+    expect(peekAddressAtIndex).not.toHaveBeenCalled()
   })
 })
 
@@ -348,7 +558,7 @@ describe('sweepSpendableOutputs (subsidized fallback)', () => {
         attributions: [
           {
             channelIdHex: 'chan-dust',
-            outpoints: [{ txid: 'closetx', vout: 0, valueSats: '3000' }],
+            outpoints: [{ txid: 'chan-dust', vout: 0, valueSats: '3000' }],
           },
         ],
       },
@@ -435,7 +645,7 @@ describe('getPendingSweepInfo', () => {
     vi.mocked(idbGetAll).mockResolvedValue(
       new Map<string, Uint8Array[] | SpendableOutputsEntry>([
         ['a', entry([GOOD_MARKER], 'chan-a', ['1500', '500'])],
-        ['legacy', [new Uint8Array([GOOD_MARKER])]],
+        ['legacy', [new Uint8Array([GOOD_MARKER_B])]],
       ])
     )
 
@@ -445,6 +655,24 @@ describe('getPendingSweepInfo', () => {
     expect(pending?.descriptorCount).toBe(2)
     expect(pending?.pendingSats).toBe(2000n)
     expect(pending?.hasUnknownValue).toBe(true)
+  })
+
+  it('does not double-count outputs persisted under multiple keys (replayed events)', async () => {
+    // LDK replays SpendableOutputs across restarts while the sweep keeps
+    // failing; each replay lands under a fresh key. The banner must count
+    // the underlying output once.
+    vi.mocked(idbGetAll).mockResolvedValue(
+      new Map<string, SpendableOutputsEntry>([
+        ['original', entry([GOOD_MARKER], 'chan-a', ['23000'])],
+        ['replayed', entry([GOOD_MARKER], 'chan-a', ['23000'])],
+      ])
+    )
+
+    const pending = await getPendingSweepInfo()
+
+    expect(pending?.entryCount).toBe(2)
+    expect(pending?.descriptorCount).toBe(1)
+    expect(pending?.pendingSats).toBe(23000n)
   })
 
   it('treats malformed valueSats as unknown value instead of throwing', async () => {

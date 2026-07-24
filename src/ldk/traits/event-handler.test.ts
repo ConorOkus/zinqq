@@ -294,6 +294,7 @@ vi.mock('../../onchain/storage/changeset', () => ({
 
 vi.mock('../sweep', () => ({
   sweepSpendableOutputs: vi.fn(() => Promise.resolve({ swept: 0, skipped: 0, txs: [] })),
+  isWalletOwnedStaticOutput: vi.fn(() => false),
 }))
 
 const mockExtractedTxBytes = new Uint8Array([0xde, 0xad])
@@ -343,6 +344,7 @@ vi.mock('../utils', () => ({
 
 import { createEventHandler } from './event-handler'
 import { idbPut } from '../../storage/idb'
+import { sweepSpendableOutputs, isWalletOwnedStaticOutput } from '../sweep'
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
 
@@ -499,6 +501,21 @@ describe('createEventHandler', () => {
         outpoints: [expect.objectContaining({ vout: 0, valueSats: '0' })],
       })
     )
+  })
+
+  it('skips persisting SpendableOutputs that already pay to the on-chain wallet', async () => {
+    // Wallet-owned StaticOutputs need no sweep — and KeysManager cannot sign
+    // them, so persisting one would poison every future sweep batch.
+    vi.mocked(isWalletOwnedStaticOutput).mockReturnValueOnce(true)
+    handleEvent(new Event_SpendableOutputs())
+    expect(idbPut).not.toHaveBeenCalledWith(
+      'ldk_spendable_outputs',
+      expect.any(String),
+      expect.anything()
+    )
+    // Older pending entries must still get their retry.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sweepSpendableOutputs).toHaveBeenCalled()
   })
 
   it('persists descriptors even when outpoint extraction throws (fund-safety)', () => {
