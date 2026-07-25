@@ -122,12 +122,13 @@ export function selectCheapestParams(
  * The primary gate is now the LIVE menu minimum, fetched via an amountless
  * `lsps2.get_info` on Receive mount (`fetchMinJitReceiveSats`) and derived
  * with `computeMinReceiveSats`. This constant covers the cases where that
- * fetch fails or hasn't resolved yet: set above the effective minimum of the
- * configured LSP (Megalith, ~2,501 sat) — with headroom for any future LSP —
- * so that whichever LSP ends up serving the buy can always service the
- * amount.
+ * fetch fails or hasn't resolved yet: a slight buffer over the effective
+ * minimum of the configured LSP (Megalith, ~2,501 sat). Kept tight rather
+ * than generous — an over-high fallback refuses receives the LSP would
+ * serve, and the quote-time below-minimum backstop still catches anything
+ * the fallback under-blocks.
  */
-export const MIN_JIT_RECEIVE_SATS = 5_000n
+export const MIN_JIT_RECEIVE_SATS = 3_000n
 
 /**
  * Smallest amount, in sats (rounded up), that the menu would accept *and*

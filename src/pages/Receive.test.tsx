@@ -572,9 +572,9 @@ describe('Receive', () => {
       expect(cta).toHaveAttribute('aria-describedby', 'receive-min-hint')
     })
 
-    it('blocks the numpad below the 5,000-sat JIT minimum', async () => {
+    it('blocks the numpad below the 3,000-sat JIT minimum', async () => {
       const user = userEvent.setup()
-      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(49_990_000n))
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(29_990_000n))
 
       renderReceive(
         undefined,
@@ -584,17 +584,17 @@ describe('Receive', () => {
         })
       )
 
-      // 4,999 sats — one below the floor.
-      await user.click(screen.getByRole('button', { name: '4' }))
+      // 2,999 sats — one below the floor.
+      await user.click(screen.getByRole('button', { name: '2' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       await user.click(screen.getByRole('button', { name: '9' }))
 
       const next = screen.getByRole('button', { name: /request/i })
       expect(next).toBeDisabled()
-      expect(screen.getByText(/minimum ₿5,000/i)).toBeInTheDocument()
+      expect(screen.getByText(/minimum ₿3,000/i)).toBeInTheDocument()
 
-      // Adding a digit (49,990) clears the floor and enables the CTA. The label
+      // Adding a digit (29,990) clears the floor and enables the CTA. The label
       // stays "Request" until an amount is confirmed.
       await user.click(screen.getByRole('button', { name: '0' }))
       expect(screen.getByRole('button', { name: /request/i })).toBeEnabled()
@@ -605,7 +605,7 @@ describe('Receive', () => {
     it('lowers the numpad gate to the live LSP menu floor when the mount fetch succeeds', async () => {
       const user = userEvent.setup()
       const fetchMinJitReceiveSats = vi.fn().mockResolvedValue(2_501n)
-      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(3_000_000n))
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(2_750_000n))
 
       renderReceive(
         undefined,
@@ -619,7 +619,7 @@ describe('Receive', () => {
       await waitFor(() => expect(fetchMinJitReceiveSats).toHaveBeenCalledTimes(1))
 
       // 2,500 sats — below the live floor (2,501) → blocked with the LIVE
-      // minimum, not the static 5,000.
+      // minimum, not the static 3,000.
       await user.click(screen.getByRole('button', { name: '2' }))
       await user.click(screen.getByRole('button', { name: '5' }))
       await user.click(screen.getByRole('button', { name: '0' }))
@@ -627,22 +627,22 @@ describe('Receive', () => {
       expect(screen.getByRole('button', { name: /request/i })).toBeDisabled()
       expect(screen.getByText(/minimum ₿2,501/i)).toBeInTheDocument()
 
-      // 3,000 sats — below the static 5,000 but above the live floor → allowed
+      // 2,750 sats — below the static 3,000 but above the live floor → allowed
       // through to Phase A. This is the receive the static constant would have
       // wrongly refused.
       await user.click(screen.getByRole('button', { name: 'Delete' }))
       await user.click(screen.getByRole('button', { name: 'Delete' }))
       await user.click(screen.getByRole('button', { name: 'Delete' }))
       await user.click(screen.getByRole('button', { name: 'Delete' }))
-      await user.click(screen.getByRole('button', { name: '3' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
-      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '2' }))
+      await user.click(screen.getByRole('button', { name: '7' }))
+      await user.click(screen.getByRole('button', { name: '5' }))
       await user.click(screen.getByRole('button', { name: '0' }))
       const next = screen.getByRole('button', { name: /request/i })
       expect(next).toBeEnabled()
       await user.click(next)
       await waitFor(() =>
-        expect(requestJitQuote).toHaveBeenCalledWith(3_000_000n, expect.anything())
+        expect(requestJitQuote).toHaveBeenCalledWith(2_750_000n, expect.anything())
       )
     })
 
@@ -660,7 +660,7 @@ describe('Receive', () => {
 
       await waitFor(() => expect(fetchMinJitReceiveSats).toHaveBeenCalledTimes(1))
 
-      // 5,500 sats — clears the static 5,000 but not the live 6,000 → blocked
+      // 5,500 sats — clears the static 3,000 but not the live 6,000 → blocked
       // up front instead of failing at quote time.
       await user.click(screen.getByRole('button', { name: '5' }))
       await user.click(screen.getByRole('button', { name: '5' }))
@@ -684,13 +684,13 @@ describe('Receive', () => {
 
       await waitFor(() => expect(fetchMinJitReceiveSats).toHaveBeenCalledTimes(1))
 
-      // 4,999 sats — static floor still governs.
-      await user.click(screen.getByRole('button', { name: '4' }))
+      // 2,999 sats — static floor still governs.
+      await user.click(screen.getByRole('button', { name: '2' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       expect(screen.getByRole('button', { name: /request/i })).toBeDisabled()
-      expect(screen.getByText(/minimum ₿5,000/i)).toBeInTheDocument()
+      expect(screen.getByText(/minimum ₿3,000/i)).toBeInTheDocument()
     })
 
     it('does not fetch the live floor when inbound capacity already covers the static floor', async () => {

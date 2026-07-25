@@ -12,9 +12,19 @@ vi.mock('lightningdevkit', () => {
       this.some = some
     }
   }
+  class Option_u64Z {}
+  class Option_u64Z_Some extends Option_u64Z {
+    some: bigint
+    constructor(some: bigint) {
+      super()
+      this.some = some
+    }
+  }
   return {
     Option_ChannelShutdownStateZ,
     Option_ChannelShutdownStateZ_Some,
+    Option_u64Z,
+    Option_u64Z_Some,
     ChannelShutdownState: {
       LDKChannelShutdownState_NotShuttingDown: 0,
       LDKChannelShutdownState_NegotiatingClosingFee: 3,
@@ -36,7 +46,7 @@ vi.mock('../ldk/storage/known-peers', () => {
   }
 })
 
-import { Option_ChannelShutdownStateZ_Some } from 'lightningdevkit'
+import { Option_ChannelShutdownStateZ_Some, Option_u64Z_Some } from 'lightningdevkit'
 import { LdkContext, type LdkContextValue } from '../ldk/ldk-context'
 import { Peers } from './Peers'
 
@@ -45,13 +55,14 @@ import { Peers } from './Peers'
 const ShutdownSomeCtor = Option_ChannelShutdownStateZ_Some as unknown as new (
   some: number
 ) => Option_ChannelShutdownStateZ_Some
+const U64SomeCtor = Option_u64Z_Some as unknown as new (some: bigint) => Option_u64Z_Some
 
 const PUBKEY_BYTES = new Uint8Array([0x02, ...Array.from({ length: 32 }, () => 0xab)])
 
 const NOT_SHUTTING_DOWN = 0
 const NEGOTIATING_CLOSING_FEE = 3
 
-function fakeChannel(shutdownState: number) {
+function fakeChannel(shutdownState: number, reserveSats: bigint | null = 10_000n) {
   return {
     get_channel_id: () => ({ write: () => new Uint8Array([0xab]) }),
     get_counterparty: () => ({ get_node_id: () => PUBKEY_BYTES }),
@@ -61,6 +72,8 @@ function fakeChannel(shutdownState: number) {
     get_is_usable: () => true,
     get_is_channel_ready: () => true,
     get_channel_shutdown_state: () => new ShutdownSomeCtor(shutdownState),
+    get_unspendable_punishment_reserve: () =>
+      reserveSats === null ? {} : new U64SomeCtor(reserveSats),
   }
 }
 
@@ -160,5 +173,26 @@ describe('Peers — channel shutdown state', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Close' }))
     expect(await screen.findByText('probe closeType=none channel=ab')).toBeInTheDocument()
+  })
+})
+
+describe('Peers — channel reserve', () => {
+  it('shows the counterparty-imposed reserve on the channel row', async () => {
+    renderPeers(readyLdk([fakeChannel(NOT_SHUTTING_DOWN, 10_000n)]))
+
+    expect(await screen.findByText('Reserve: ₿10,000')).toBeInTheDocument()
+  })
+
+  it('shows a zero reserve explicitly (zero-reserve channel)', async () => {
+    renderPeers(readyLdk([fakeChannel(NOT_SHUTTING_DOWN, 0n)]))
+
+    expect(await screen.findByText('Reserve: ₿0')).toBeInTheDocument()
+  })
+
+  it('omits the reserve when LDK has not determined it yet', async () => {
+    renderPeers(readyLdk([fakeChannel(NOT_SHUTTING_DOWN, null)]))
+
+    expect(await screen.findByText('Active')).toBeInTheDocument()
+    expect(screen.queryByText(/^Reserve:/)).not.toBeInTheDocument()
   })
 })

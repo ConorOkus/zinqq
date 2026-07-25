@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router'
-import { Option_ChannelShutdownStateZ_Some, ChannelShutdownState } from 'lightningdevkit'
+import {
+  Option_ChannelShutdownStateZ_Some,
+  Option_u64Z_Some,
+  ChannelShutdownState,
+} from 'lightningdevkit'
 import { useLdk } from '../ldk/use-ldk'
 import { bytesToHex } from '../ldk/utils'
 import { formatBtc } from '../utils/format-btc'
@@ -72,6 +76,7 @@ export function CloseChannel() {
 
     const counterparty = match.get_counterparty()
     const shutdownState = match.get_channel_shutdown_state()
+    const reserve = match.get_unspendable_punishment_reserve()
     const channel: ChannelInfoWithId = {
       channelId: match.get_channel_id(),
       channelIdHex,
@@ -82,6 +87,7 @@ export function CloseChannel() {
       inboundCapacityMsat: match.get_inbound_capacity_msat(),
       isUsable: match.get_is_usable(),
       isReady: match.get_is_channel_ready(),
+      reserveSats: reserve instanceof Option_u64Z_Some ? reserve.some : null,
       isShuttingDown:
         shutdownState instanceof Option_ChannelShutdownStateZ_Some &&
         shutdownState.some !== ChannelShutdownState.LDKChannelShutdownState_NotShuttingDown,
