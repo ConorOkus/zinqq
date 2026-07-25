@@ -66,6 +66,16 @@ export type LdkContextValue =
         opts?: { skipPrimary?: boolean }
       ) => Promise<JitQuote>
       /**
+       * Amountless `lsps2.get_info` against the primary LSP — returns the
+       * smallest serviceable JIT receive in sats (`computeMinReceiveSats` of
+       * the live menu). Safe to call on Receive mount: no amount, no LSP-side
+       * commitment, one RPC per call (distinct from the quote no-prewarm
+       * rule, which bans amount-bearing requests on numpad keystrokes).
+       * Throws on connect/RPC failure; callers fall back to
+       * `MIN_JIT_RECEIVE_SATS`.
+       */
+      fetchMinJitReceiveSats: (signal: AbortSignal) => Promise<bigint>
+      /**
        * Phase B — commit a previously-displayed quote and produce a BOLT11
        * invoice. Single-LSP, NOT failover-eligible: `buyChannel` reserves
        * LSP-side liquidity. The signal is ignored once `buyChannel` is in

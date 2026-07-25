@@ -112,6 +112,7 @@ function readyLdk(
     lightningBalanceSats: 0n,
     createInvoice: () => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' }),
     requestJitQuote: () => Promise.reject(new Error('not used in this test')),
+    fetchMinJitReceiveSats: () => Promise.resolve(0n),
     executeJitBuy: () => Promise.reject(new Error('not used in this test')),
     channelChangeCounter: 0,
     peersReconnected: true,

@@ -116,14 +116,16 @@ export function selectCheapestParams(
 }
 
 /**
- * Hard floor (in sats) for a JIT (LSP-channel) receive, enforced in the UI
- * before any quote is requested.
+ * Fallback floor (in sats) for a JIT (LSP-channel) receive, enforced in the
+ * UI before any quote is requested.
  *
- * Set above the effective minimum of the configured LSP (Megalith, ~2,501 sat)
- * — with headroom for any future LSP — so that whichever LSP ends up serving
- * the buy can always service the amount. We can't derive this from a live menu
- * because quotes are never pre-fetched (see the no-prewarm rule), so it is a
- * fixed policy constant.
+ * The primary gate is now the LIVE menu minimum, fetched via an amountless
+ * `lsps2.get_info` on Receive mount (`fetchMinJitReceiveSats`) and derived
+ * with `computeMinReceiveSats`. This constant covers the cases where that
+ * fetch fails or hasn't resolved yet: set above the effective minimum of the
+ * configured LSP (Megalith, ~2,501 sat) — with headroom for any future LSP —
+ * so that whichever LSP ends up serving the buy can always service the
+ * amount.
  */
 export const MIN_JIT_RECEIVE_SATS = 5_000n
 

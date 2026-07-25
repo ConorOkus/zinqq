@@ -30,6 +30,7 @@ import {
 } from './ldk-context'
 import { LDK_CONFIG } from './config'
 import { resolveLspContacts, type LspContact } from './lsp/contacts'
+import { logObservedChannelReserves } from './reserve-probe'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
@@ -248,6 +249,53 @@ function timeoutSignal(parent: AbortSignal, ms: number): AbortSignal {
 }
 
 /**
+ * Ensure a BOLT 8 connection to `contact`. Skips the connect() call when LDK
+ * already has the peer — `new_outbound_connection` rejects a duplicate and
+ * we'd uselessly fail through to fallback. This is the common case for the
+ * LSP we just ran a quote against, or one we auto-reconnected to on startup
+ * because of an existing channel.
+ */
+async function ensureLspPeerConnected(
+  node: LdkNode,
+  contact: LspContact,
+  connect: ConnectFn,
+  opts: { retryConnectOnce: boolean },
+  signal: AbortSignal
+): Promise<void> {
+  const alreadyConnected = (): boolean =>
+    node.peerManager
+      .list_peers()
+      .some((p) => bytesToHex(p.get_counterparty_node_id()) === contact.nodeId)
+
+  if (alreadyConnected()) return
+
+  try {
+    await withAbort(connect(node.peerManager, contact.nodeId, contact.host, contact.port), signal)
+  } catch (firstErr) {
+    if (signal.aborted) throw firstErr
+    // A parallel attempt may have raced us to a connected state.
+    if (alreadyConnected()) {
+      // fall through — connection is up, proceed to LSPS2 RPC
+    } else if (!opts.retryConnectOnce) {
+      throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
+    } else {
+      // Soft retry — mobile WebSockets die when backgrounded.
+      try {
+        await withAbort(
+          connect(node.peerManager, contact.nodeId, contact.host, contact.port),
+          signal
+        )
+      } catch (secondErr) {
+        if (signal.aborted) throw secondErr
+        throw new JitPeerConnectError(
+          `peer_connect (${contact.label}, retry): ${String(secondErr)}`
+        )
+      }
+    }
+  }
+}
+
+/**
  * Phase A — fetch a JIT quote against ONE LSP. Throws typed errors so
  * `runJitQuoteFlow` can classify the failure for failover and telemetry.
  *
@@ -262,42 +310,8 @@ export async function getJitQuote(
   opts: { retryConnectOnce: boolean },
   signal: AbortSignal
 ): Promise<JitQuote> {
-  // Step 0: Ensure peer connection. Skip the connect() call when LDK
-  // already has the peer — `new_outbound_connection` rejects a duplicate
-  // and we'd uselessly fail through to fallback. This is the common case
-  // for the LSP we just ran a quote against, or one we auto-reconnected
-  // to on startup because of an existing channel.
-  const alreadyConnected = (): boolean =>
-    node.peerManager
-      .list_peers()
-      .some((p) => bytesToHex(p.get_counterparty_node_id()) === contact.nodeId)
-
-  if (!alreadyConnected()) {
-    try {
-      await withAbort(connect(node.peerManager, contact.nodeId, contact.host, contact.port), signal)
-    } catch (firstErr) {
-      if (signal.aborted) throw firstErr
-      // A parallel attempt may have raced us to a connected state.
-      if (alreadyConnected()) {
-        // fall through — connection is up, proceed to LSPS2 RPC
-      } else if (!opts.retryConnectOnce) {
-        throw new JitPeerConnectError(`peer_connect (${contact.label}): ${String(firstErr)}`)
-      } else {
-        // Soft retry — mobile WebSockets die when backgrounded.
-        try {
-          await withAbort(
-            connect(node.peerManager, contact.nodeId, contact.host, contact.port),
-            signal
-          )
-        } catch (secondErr) {
-          if (signal.aborted) throw secondErr
-          throw new JitPeerConnectError(
-            `peer_connect (${contact.label}, retry): ${String(secondErr)}`
-          )
-        }
-      }
-    }
-  }
+  // Step 0: Ensure peer connection.
+  await ensureLspPeerConnected(node, contact, connect, opts, signal)
 
   // Step 1: Get opening fee params from LSP.
   const feeMenu = await withAbort(
@@ -346,6 +360,38 @@ export async function getJitQuote(
 
   const openingFeeMsat = calculateOpeningFee(amountMsat, params)
   return { contact, params, menu: feeMenu, openingFeeMsat, amountMsat }
+}
+
+/**
+ * Amountless Phase A read — fetch the primary LSP's live fee menu and derive
+ * the smallest serviceable JIT receive (`computeMinReceiveSats`). Drives the
+ * numpad floor on the Receive screen so it tracks the LSP's real minimum
+ * instead of the static `MIN_JIT_RECEIVE_SATS` headroom constant (which
+ * remains the fallback when this fetch fails).
+ *
+ * Compatible with the no-prewarm rule: that rule bans *amount-bearing* quote
+ * requests fired on numpad keystrokes, where transient mid-typing amounts
+ * trigger below-minimum failures and incident-log noise. This is a single
+ * `lsps2.get_info` per Receive visit with no amount attached — it cannot
+ * fail on anything the user is typing, and makes no LSP-side commitment.
+ *
+ * Primary-only, no failover: the floor is a display gate with a static
+ * fallback, not a payment path. Throws on connect/RPC failure; the caller
+ * degrades to `MIN_JIT_RECEIVE_SATS`.
+ */
+export async function fetchJitFloorSats(
+  node: LdkNode,
+  contact: LspContact,
+  connect: ConnectFn,
+  signal: AbortSignal
+): Promise<bigint> {
+  const budgetSignal = timeoutSignal(signal, PHASE_A_PER_LSP_BUDGET_MS)
+  await ensureLspPeerConnected(node, contact, connect, { retryConnectOnce: false }, budgetSignal)
+  const feeMenu = await withAbort(
+    node.lsps2Client.requestOpeningParams(contact.nodeId, contact.token),
+    budgetSignal
+  )
+  return computeMinReceiveSats(feeMenu)
 }
 
 /** Upper bound on JIT invoice expiry — the pre-clamp default. */
@@ -900,6 +946,14 @@ export function LdkProvider({
     []
   )
 
+  const fetchMinJitReceiveSats = useCallback(async (signal: AbortSignal): Promise<bigint> => {
+    const node = nodeRef.current
+    if (!node) throw new Error('Node not initialized')
+    const contacts = await resolveLspContacts()
+    if (!contacts.primary) throw new Error('LSP not configured')
+    return fetchJitFloorSats(node, contacts.primary, connectAndTrack, signal)
+  }, [])
+
   const executeJitBuyCallback = useCallback(
     async (
       quote: JitQuote,
@@ -1101,6 +1155,10 @@ export function LdkProvider({
           // Megalith (the sole LSP) is seeded into the trust set at init from
           // env config (init.ts), so the event handler already accepts its
           // 0-conf opens — no runtime discovery step is needed.
+
+          // Reserve probe: record the LSP-imposed channel reserve for any
+          // existing channels (see reserve-probe.ts — temporary).
+          logObservedChannelReserves(node.channelManager, 'startup')
 
           // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {
@@ -1484,6 +1542,7 @@ export function LdkProvider({
             setSyncNeeded: setSyncNeededCallback,
             createInvoice,
             requestJitQuote,
+            fetchMinJitReceiveSats,
             executeJitBuy: executeJitBuyCallback,
             sendBolt11Payment,
             sendBolt12Payment,
@@ -1725,6 +1784,7 @@ export function LdkProvider({
     estimateCloseForChannel,
     createInvoice,
     requestJitQuote,
+    fetchMinJitReceiveSats,
     executeJitBuyCallback,
     sendBolt11Payment,
     sendBolt12Payment,
