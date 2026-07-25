@@ -63,7 +63,12 @@ import {
 import { estimateClose, type CloseEstimate } from './close-records/estimate'
 import { recordSweepResult } from './close-records/signals'
 import { reconcileCloseRecords } from './close-records/reconcile'
-import { getCloseRecordsSnapshot, getLastKnownTipHeight } from './close-records/store'
+import {
+  getCloseRecordsSnapshot,
+  getCloseRecordSync,
+  getLastKnownTipHeight,
+} from './close-records/store'
+import { closeConfirmedForAllChannels } from './recovery/recovery-reconcile'
 import { deriveCloseStatus } from './close-records/close-record'
 import { enterRecovery, notifyRecoveryStateChanged } from './recovery/use-recovery'
 import {
@@ -1406,6 +1411,20 @@ export function LdkProvider({
               try {
                 const state = await readRecoveryState()
                 if (!state || state.status === 'sweep_confirmed') return
+
+                // Exit reconcile: once a closing tx CONFIRMED for every
+                // recovery channel, the anchor-CPFP deposit is moot (either
+                // our commitment landed or the counterparty's superseded it)
+                // — clear the false "deposit needed" state. This is how a
+                // restore-time false positive heals itself.
+                if (closeConfirmedForAllChannels(state.channelIds, getCloseRecordSync)) {
+                  console.log(
+                    '[Recovery] closing tx confirmed for all recovery channels — CPFP no longer needed, clearing recovery state'
+                  )
+                  await clearRecoveryState(vssClient)
+                  notifyRecoveryStateChanged()
+                  return
+                }
 
                 // Attempt sweep with current UTXOs
                 const destScript = revealNextAddress(bdkWallet, 'Recovery')

@@ -47,12 +47,18 @@ export async function enterRecovery(
   const existing = await readRecoveryState()
 
   if (existing) {
-    // Aggregate: add channel to existing recovery
+    // Aggregate: add channel to existing recovery. An unknown balance on
+    // either side poisons the sum — a partial total displayed as THE stuck
+    // balance would understate what's recoverable, so keep it null (shown
+    // as "Unknown") rather than pretend precision.
     if (!existing.channelIds.includes(info.channelId)) {
       const updated: RecoveryState = {
         ...existing,
         channelIds: [...existing.channelIds, info.channelId],
-        stuckBalanceSat: existing.stuckBalanceSat + info.localBalanceSat,
+        stuckBalanceSat:
+          existing.stuckBalanceSat === null || info.localBalanceSat === null
+            ? null
+            : existing.stuckBalanceSat + info.localBalanceSat,
         depositNeededSat: await estimateDepositNeeded(),
         updatedAt: Date.now(),
       }

@@ -163,11 +163,19 @@ export async function reconcileCloseRecords(
         }
         let changed = false
 
-        // (a) Discover the closing tx from the funding outspend.
-        const hasCloseTx = record.txs.some(
-          (tx) => tx.role === 'closing' || tx.role === 'commitment'
+        // (a) Discover the closing tx from the funding outspend. Re-checked
+        // until a KNOWN close tx has confirmed — a record may hold only our
+        // own broadcast commitment while the counterparty's commitment is
+        // what actually spent the funding output (supersession; ours can
+        // then never confirm). The confirmed funding spend is ground truth.
+        // Merge unions by txid, so re-discovering an already-recorded tx
+        // just fills in its confirmation height.
+        const hasConfirmedCloseTx = record.txs.some(
+          (tx) =>
+            (tx.role === 'closing' || tx.role === 'commitment') &&
+            tx.confirmedAtHeight !== undefined
         )
-        if (!hasCloseTx && record.fundingTxo) {
+        if (!hasConfirmedCloseTx && record.fundingTxo) {
           const txo = record.fundingTxo
           const spend = await spendQuery(() => deps.esplora.getOutspend(txo.txid, txo.vout))
           if (spend?.spent && spend.txid) {

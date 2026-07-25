@@ -72,6 +72,7 @@ import { revealNextAddress } from '../../onchain/address-utils'
 import { putChangeset } from '../../onchain/storage/changeset'
 import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG, ANCHOR_RESERVE_SATS } from '../../onchain/config'
+import { isInitialScanComplete } from '../../onchain/scan-state'
 import { LDK_CONFIG } from '../config'
 import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../jit-channel-config'
 import { captureError } from '../../storage/error-log'
@@ -91,7 +92,8 @@ export type ConnectionNeededCallback = (nodeIdHex: string, host: string, port: n
 
 export interface RecoveryNeededInfo {
   channelId: string
-  localBalanceSat: number
+  /** Estimated stuck balance from the close record; null when unknown. */
+  localBalanceSat: number | null
   reason: string
 }
 
@@ -671,10 +673,12 @@ function handleEvent(
     const recoveryContext = bumpChannelIdHex
       ? {
           channelId: bumpChannelIdHex,
+          // Null (not 0) when the close record is missing or predates the
+          // balance fact — the UI renders "Unknown" instead of a false ₿0.
           localBalanceSat:
             closeRecord?.expectedAmountSats !== undefined
               ? Number(closeRecord.expectedAmountSats)
-              : 0,
+              : null,
         }
       : null
 
@@ -718,13 +722,24 @@ function handleEvent(
 
       // Fire even when the close record is missing (degraded info beats
       // silently skipping recovery signaling — the old `&& forceCloseInfo`
-      // guard dropped it entirely on replay after a reload).
+      // guard dropped it entirely on replay after a reload). But NOT before
+      // the initial BDK scan: on a restore the wallet is empty by
+      // construction until the scan lands, so "no UTXOs" is meaningless and
+      // this fired a false Recover Funds banner on every restore. A genuinely
+      // stuck close re-triggers after the scan — LDK re-yields bump events on
+      // each new block until the claim confirms.
       if (!hasConfirmedUtxo && onRecoveryNeeded && recoveryContext) {
-        onRecoveryNeeded({
-          ...recoveryContext,
-          reason:
-            'No confirmed on-chain UTXOs available for CPFP fee bump — deposit funds to complete force-close recovery',
-        })
+        if (isInitialScanComplete()) {
+          onRecoveryNeeded({
+            ...recoveryContext,
+            reason:
+              'No confirmed on-chain UTXOs available for CPFP fee bump — deposit funds to complete force-close recovery',
+          })
+        } else {
+          console.log(
+            '[LDK Event] BumpTransaction: no UTXOs but initial scan pending — deferring recovery signal'
+          )
+        }
       }
 
       console.log('[LDK Event] BumpTransaction: handling CPFP fee bump')
