@@ -74,7 +74,6 @@ import { broadcastWithRetry } from './broadcaster'
 import { ONCHAIN_CONFIG, ANCHOR_RESERVE_SATS } from '../../onchain/config'
 import { LDK_CONFIG } from '../config'
 import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../jit-channel-config'
-import { logObservedChannelReserves } from '../reserve-probe'
 import { captureError } from '../../storage/error-log'
 
 export type PaymentEventCallback = (
@@ -389,7 +388,6 @@ function handleEvent(
       'counterparty:',
       bytesToHex(event.counterparty_node_id).substring(0, 16) + '…'
     )
-    logObservedChannelReserves(channelManager, 'channel_ready')
     return
   }
 

@@ -30,7 +30,6 @@ import {
 } from './ldk-context'
 import { LDK_CONFIG } from './config'
 import { resolveLspContacts, type LspContact } from './lsp/contacts'
-import { logObservedChannelReserves } from './reserve-probe'
 import { EsploraClient } from './sync/esplora-client'
 import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
@@ -1155,10 +1154,6 @@ export function LdkProvider({
           // Megalith (the sole LSP) is seeded into the trust set at init from
           // env config (init.ts), so the event handler already accepts its
           // 0-conf opens — no runtime discovery step is needed.
-
-          // Reserve probe: record the LSP-imposed channel reserve for any
-          // existing channels (see reserve-probe.ts — temporary).
-          logObservedChannelReserves(node.channelManager, 'startup')
 
           // Expose node on window for dev console debugging (exclude secret key)
           if (import.meta.env.DEV) {
