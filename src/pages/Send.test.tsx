@@ -97,6 +97,7 @@ function readyLdkContext(
     lightningBalanceSats: 1_000_000n,
     createInvoice: vi.fn(() => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' })),
     requestJitQuote: vi.fn(),
+    fetchMinJitReceiveSats: vi.fn(() => Promise.resolve(0n)),
     executeJitBuy: vi.fn(),
     channelChangeCounter: 0,
     paymentHistory: [],

@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { Option_ChannelShutdownStateZ_Some, ChannelShutdownState } from 'lightningdevkit'
+import {
+  Option_ChannelShutdownStateZ_Some,
+  Option_u64Z_Some,
+  ChannelShutdownState,
+} from 'lightningdevkit'
 import { useLdk } from '../ldk/use-ldk'
 import { parsePeerAddress } from '../ldk/peers/peer-connection'
 import { getKnownPeers, type KnownPeer } from '../ldk/storage/known-peers'
@@ -50,6 +54,7 @@ export function Peers() {
       const counterparty = ch.get_counterparty()
       const peerPubkey = bytesToHex(counterparty.get_node_id())
       const shutdownState = ch.get_channel_shutdown_state()
+      const reserve = ch.get_unspendable_punishment_reserve()
       const info: ChannelInfo = {
         channelIdHex: bytesToHex(ch.get_channel_id().write()),
         counterpartyPubkey: peerPubkey,
@@ -58,6 +63,7 @@ export function Peers() {
         inboundCapacityMsat: ch.get_inbound_capacity_msat(),
         isUsable: ch.get_is_usable(),
         isReady: ch.get_is_channel_ready(),
+        reserveSats: reserve instanceof Option_u64Z_Some ? reserve.some : null,
         isShuttingDown:
           shutdownState instanceof Option_ChannelShutdownStateZ_Some &&
           shutdownState.some !== ChannelShutdownState.LDKChannelShutdownState_NotShuttingDown,
@@ -273,9 +279,12 @@ export function Peers() {
                         </p>
                       )}
                       <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-on-dark-muted)]">
-                        <div className="flex gap-3">
+                        <div className="flex flex-wrap gap-3">
                           <span>Send: {formatBtc(ch.outboundCapacityMsat / 1000n)}</span>
                           <span>Receive: {formatBtc(ch.inboundCapacityMsat / 1000n)}</span>
+                          {ch.reserveSats !== null && (
+                            <span>Reserve: {formatBtc(ch.reserveSats)}</span>
+                          )}
                         </div>
                         <button
                           className="shrink-0 text-xs font-semibold text-red-400 transition-colors active:text-red-300"

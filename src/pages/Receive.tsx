@@ -97,6 +97,7 @@ export function Receive() {
   const generateAddress = onchain.status === 'ready' ? onchain.generateAddress : null
   const createInvoice = ldk.status === 'ready' ? ldk.createInvoice : null
   const requestJitQuote = ldk.status === 'ready' ? ldk.requestJitQuote : null
+  const fetchMinJitReceiveSats = ldk.status === 'ready' ? ldk.fetchMinJitReceiveSats : null
   const executeJitBuy = ldk.status === 'ready' ? ldk.executeJitBuy : null
   const listChannels = ldk.status === 'ready' ? ldk.listChannels : null
   const peersReconnected = ldk.status === 'ready' ? ldk.peersReconnected : false
@@ -120,10 +121,17 @@ export function Receive() {
   const editingNeedsJit =
     !listChannels || usableInboundMsat(listChannels()) < editingAmountSats * 1000n
 
-  // Block advancing past the numpad for a JIT receive below the floor every
-  // configured LSP can service. On-chain receives are unaffected.
+  // Live numpad floor from the primary LSP's fee menu, fetched once on mount
+  // (amountless get_info — see `fetchMinJitReceiveSats`). Null until it
+  // resolves, or when the fetch failed / returned an empty menu; the static
+  // `MIN_JIT_RECEIVE_SATS` headroom constant covers those cases.
+  const [liveJitFloorSats, setLiveJitFloorSats] = useState<bigint | null>(null)
+  const effectiveJitFloorSats = liveJitFloorSats ?? MIN_JIT_RECEIVE_SATS
+
+  // Block advancing past the numpad for a JIT receive below the floor the
+  // LSP can service. On-chain receives are unaffected.
   const belowJitMinimum =
-    editingNeedsJit && editingAmountSats > 0n && editingAmountSats < MIN_JIT_RECEIVE_SATS
+    editingNeedsJit && editingAmountSats > 0n && editingAmountSats < effectiveJitFloorSats
 
   // Start with numpad open when amount is required (first receive / no channels)
   const didInitAmountRef = useRef(false)
@@ -133,6 +141,39 @@ export function Receive() {
       didInitAmountRef.current = true
     }
   }, [ldk.status, needsAmount])
+
+  // Fetch the live JIT floor once, and only when it can matter: the numpad
+  // gate binds only if usable inbound capacity is itself below the static
+  // floor (otherwise any below-floor amount is served by existing capacity,
+  // no JIT). One amountless get_info per Receive visit — no quote, no
+  // LSP-side commitment. Failure degrades to the static floor with a console
+  // note only; an actual LSP outage already surfaces on the quote path.
+  // The ref marks a SETTLED attempt (success or failure), not a started one:
+  // an attempt aborted by cleanup doesn't mark, so StrictMode's dev
+  // double-mount still gets its fetch on the second pass; a settled attempt
+  // does mark, so the effect re-running on context identity churn (the value
+  // rebuilds on the ~10s balance poll) neither refetches nor re-warns while
+  // the user sits on the screen.
+  const floorFetchSettledRef = useRef(false)
+  useEffect(() => {
+    if (floorFetchSettledRef.current) return
+    if (!fetchMinJitReceiveSats || !listChannels) return
+    if (usableInboundMsat(listChannels()) >= MIN_JIT_RECEIVE_SATS * 1000n) return
+    const ctrl = new AbortController()
+    fetchMinJitReceiveSats(ctrl.signal)
+      .then((sats) => {
+        if (ctrl.signal.aborted) return
+        floorFetchSettledRef.current = true
+        // 0 means an empty/degenerate menu — keep the static fallback.
+        if (sats > 0n) setLiveJitFloorSats(sats)
+      })
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return
+        floorFetchSettledRef.current = true
+        console.warn('[Receive] live JIT floor fetch failed, using static floor:', err)
+      })
+    return () => ctrl.abort()
+  }, [fetchMinJitReceiveSats, listChannels])
 
   // Generate on-chain address on mount
   useEffect(() => {
@@ -207,8 +248,11 @@ export function Receive() {
           if (requestCounterRef.current !== thisRequest) return
           if (err instanceof JitPaymentSizeOutOfRangeError) {
             // Below-minimum: render the Review with a disabled CTA and a
-            // suggested minimum derived from the LSP's published menu.
+            // suggested minimum derived from the LSP's published menu. Also
+            // sync the numpad gate to this freshest observed menu so re-entry
+            // blocks the same amount up front.
             const displayMinSats = computeMinReceiveSats(err.menu)
+            if (displayMinSats > 0n) setLiveJitFloorSats(displayMinSats)
             setReceiveState({
               step: 'jit-review',
               kind: 'below-minimum',
@@ -873,7 +917,7 @@ export function Receive() {
             )}
             {belowJitMinimum && (
               <p className="text-sm text-red-400" role="alert">
-                Minimum {formatBtc(MIN_JIT_RECEIVE_SATS)}
+                Minimum {formatBtc(effectiveJitFloorSats)}
               </p>
             )}
           </div>

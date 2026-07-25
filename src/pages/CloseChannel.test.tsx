@@ -22,6 +22,14 @@ vi.mock('lightningdevkit', () => {
       this.some = some
     }
   }
+  class Option_u64Z {}
+  class Option_u64Z_Some extends Option_u64Z {
+    some: bigint
+    constructor(some: bigint) {
+      super()
+      this.some = some
+    }
+  }
   return {
     Option_ChannelShutdownStateZ,
     Option_ChannelShutdownStateZ_Some,
@@ -33,6 +41,8 @@ vi.mock('lightningdevkit', () => {
     Balance_ClaimableOnChannelClose,
     Option_u16Z,
     Option_u16Z_Some,
+    Option_u64Z,
+    Option_u64Z_Some,
     ConfirmationTarget: { LDKConfirmationTarget_ChannelCloseMinimum: 6 },
   }
 })
@@ -66,6 +76,7 @@ function fakeChannel(shutdownState = 0) {
     get_is_usable: () => true,
     get_is_channel_ready: () => true,
     get_channel_shutdown_state: () => new ShutdownSomeCtor(shutdownState),
+    get_unspendable_punishment_reserve: () => ({}),
   }
 }
 
@@ -112,6 +123,7 @@ function readyLdk(
     lightningBalanceSats: 0n,
     createInvoice: () => ({ bolt11: 'lnbc1test', paymentHash: 'abc123' }),
     requestJitQuote: () => Promise.reject(new Error('not used in this test')),
+    fetchMinJitReceiveSats: () => Promise.resolve(0n),
     executeJitBuy: () => Promise.reject(new Error('not used in this test')),
     channelChangeCounter: 0,
     peersReconnected: true,

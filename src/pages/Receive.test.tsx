@@ -102,6 +102,9 @@ function readyLdkContext(
     setSyncNeeded: vi.fn(),
     createInvoice: vi.fn(() => ({ bolt11: 'lnbc1fakeinvoice', paymentHash: 'abc123' })),
     requestJitQuote: vi.fn(),
+    // Default: resolves 0n (empty-menu sentinel) so the static
+    // MIN_JIT_RECEIVE_SATS fallback governs unless a test overrides this.
+    fetchMinJitReceiveSats: vi.fn(() => Promise.resolve(0n)),
     executeJitBuy: vi.fn(),
     sendBolt11Payment: vi.fn(),
     sendBolt12Payment: vi.fn(),
@@ -569,9 +572,9 @@ describe('Receive', () => {
       expect(cta).toHaveAttribute('aria-describedby', 'receive-min-hint')
     })
 
-    it('blocks the numpad below the 5,000-sat JIT minimum', async () => {
+    it('blocks the numpad below the 3,000-sat JIT minimum', async () => {
       const user = userEvent.setup()
-      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(49_990_000n))
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(29_990_000n))
 
       renderReceive(
         undefined,
@@ -581,22 +584,129 @@ describe('Receive', () => {
         })
       )
 
-      // 4,999 sats — one below the floor.
-      await user.click(screen.getByRole('button', { name: '4' }))
+      // 2,999 sats — one below the floor.
+      await user.click(screen.getByRole('button', { name: '2' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       await user.click(screen.getByRole('button', { name: '9' }))
       await user.click(screen.getByRole('button', { name: '9' }))
 
       const next = screen.getByRole('button', { name: /request/i })
       expect(next).toBeDisabled()
-      expect(screen.getByText(/minimum ₿5,000/i)).toBeInTheDocument()
+      expect(screen.getByText(/minimum ₿3,000/i)).toBeInTheDocument()
 
-      // Adding a digit (49,990) clears the floor and enables the CTA. The label
+      // Adding a digit (29,990) clears the floor and enables the CTA. The label
       // stays "Request" until an amount is confirmed.
       await user.click(screen.getByRole('button', { name: '0' }))
       expect(screen.getByRole('button', { name: /request/i })).toBeEnabled()
       await user.click(screen.getByRole('button', { name: /request/i }))
       await waitFor(() => expect(requestJitQuote).toHaveBeenCalled())
+    })
+
+    it('lowers the numpad gate to the live LSP menu floor when the mount fetch succeeds', async () => {
+      const user = userEvent.setup()
+      const fetchMinJitReceiveSats = vi.fn().mockResolvedValue(2_501n)
+      const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(2_750_000n))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []), // no channels → floor fetch fires
+          fetchMinJitReceiveSats,
+          requestJitQuote,
+        })
+      )
+
+      await waitFor(() => expect(fetchMinJitReceiveSats).toHaveBeenCalledTimes(1))
+
+      // 2,500 sats — below the live floor (2,501) → blocked with the LIVE
+      // minimum, not the static 3,000.
+      await user.click(screen.getByRole('button', { name: '2' }))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      expect(screen.getByRole('button', { name: /request/i })).toBeDisabled()
+      expect(screen.getByText(/minimum ₿2,501/i)).toBeInTheDocument()
+
+      // 2,750 sats — below the static 3,000 but above the live floor → allowed
+      // through to Phase A. This is the receive the static constant would have
+      // wrongly refused.
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.click(screen.getByRole('button', { name: '2' }))
+      await user.click(screen.getByRole('button', { name: '7' }))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      const next = screen.getByRole('button', { name: /request/i })
+      expect(next).toBeEnabled()
+      await user.click(next)
+      await waitFor(() =>
+        expect(requestJitQuote).toHaveBeenCalledWith(2_750_000n, expect.anything())
+      )
+    })
+
+    it('raises the numpad gate when the live LSP minimum exceeds the static floor', async () => {
+      const user = userEvent.setup()
+      const fetchMinJitReceiveSats = vi.fn().mockResolvedValue(6_000n)
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          fetchMinJitReceiveSats,
+        })
+      )
+
+      await waitFor(() => expect(fetchMinJitReceiveSats).toHaveBeenCalledTimes(1))
+
+      // 5,500 sats — clears the static 3,000 but not the live 6,000 → blocked
+      // up front instead of failing at quote time.
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      await user.click(screen.getByRole('button', { name: '0' }))
+      expect(screen.getByRole('button', { name: /request/i })).toBeDisabled()
+      expect(screen.getByText(/minimum ₿6,000/i)).toBeInTheDocument()
+    })
+
+    it('falls back to the static floor when the live floor fetch fails', async () => {
+      const user = userEvent.setup()
+      const fetchMinJitReceiveSats = vi.fn().mockRejectedValue(new Error('lsp offline'))
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          fetchMinJitReceiveSats,
+        })
+      )
+
+      await waitFor(() => expect(fetchMinJitReceiveSats).toHaveBeenCalledTimes(1))
+
+      // 2,999 sats — static floor still governs.
+      await user.click(screen.getByRole('button', { name: '2' }))
+      await user.click(screen.getByRole('button', { name: '9' }))
+      await user.click(screen.getByRole('button', { name: '9' }))
+      await user.click(screen.getByRole('button', { name: '9' }))
+      expect(screen.getByRole('button', { name: /request/i })).toBeDisabled()
+      expect(screen.getByText(/minimum ₿3,000/i)).toBeInTheDocument()
+    })
+
+    it('does not fetch the live floor when inbound capacity already covers the static floor', async () => {
+      const fetchMinJitReceiveSats = vi.fn().mockResolvedValue(2_501n)
+
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          // 1M sats inbound — the numpad gate can never bind, so no LSP chatter.
+          listChannels: vi.fn(() => [mockChannel(1_000_000_000n)]),
+          fetchMinJitReceiveSats,
+        })
+      )
+
+      await screen.findByLabelText(/qr code/i)
+      expect(fetchMinJitReceiveSats).not.toHaveBeenCalled()
     })
 
     // With a single LSP (Megalith) and no fallback (HAS_FALLBACK_LSP false), a
