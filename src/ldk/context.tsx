@@ -1400,6 +1400,54 @@ export function LdkProvider({
           const anchorReserveSats = () =>
             node.channelManager.list_channels().length > 0 ? ANCHOR_RESERVE_SATS : 0n
 
+          // Recovery exit reconcile: once a closing tx CONFIRMED for every
+          // recovery channel, the anchor-CPFP deposit is moot (either our
+          // commitment landed or the counterparty's superseded it) — clear
+          // the false "deposit needed" state. This is how a restore-time
+          // false positive heals itself. Runs EVERY tick (cheap: one IDB
+          // read + in-memory record lookups) so the banner clears within a
+          // sync cycle of the close record healing, not after the slower
+          // sweep cadence below.
+          let exitCheckInProgress = false
+          let lastRecoveryDiagnostic = ''
+          const maybeClearResolvedRecovery = () => {
+            if (exitCheckInProgress) return
+            exitCheckInProgress = true
+            void (async () => {
+              try {
+                const state = await readRecoveryState()
+                if (!state || state.status === 'sweep_confirmed') return
+                if (closeConfirmedForAllChannels(state.channelIds, getCloseRecordSync)) {
+                  console.log(
+                    '[Recovery] closing tx confirmed for all recovery channels — CPFP no longer needed, clearing recovery state'
+                  )
+                  await clearRecoveryState(vssClient)
+                  notifyRecoveryStateChanged()
+                } else {
+                  // Diagnostic: say WHY recovery persists so a stuck banner
+                  // is explainable from the console alone. Logged on change
+                  // only — this runs every tick.
+                  const detail = state.channelIds
+                    .map((id) => {
+                      const record = getCloseRecordSync(id)
+                      if (!record) return `${id.slice(0, 8)}…: no close record`
+                      if (!record.fundingTxo) return `${id.slice(0, 8)}…: record lacks fundingTxo`
+                      return `${id.slice(0, 8)}…: no confirmed close tx yet`
+                    })
+                    .join('; ')
+                  if (detail !== lastRecoveryDiagnostic) {
+                    lastRecoveryDiagnostic = detail
+                    console.log('[Recovery] still active —', detail)
+                  }
+                }
+              } catch (err: unknown) {
+                captureError('warning', 'Recovery', 'Exit-reconcile check failed', String(err))
+              } finally {
+                exitCheckInProgress = false
+              }
+            })()
+          }
+
           // Auto-recovery: periodically check if we can sweep stuck outputs.
           // Runs every ~60s (6 ticks) to avoid excessive IDB reads.
           let recoveryTickCount = 0
@@ -1411,20 +1459,6 @@ export function LdkProvider({
               try {
                 const state = await readRecoveryState()
                 if (!state || state.status === 'sweep_confirmed') return
-
-                // Exit reconcile: once a closing tx CONFIRMED for every
-                // recovery channel, the anchor-CPFP deposit is moot (either
-                // our commitment landed or the counterparty's superseded it)
-                // — clear the false "deposit needed" state. This is how a
-                // restore-time false positive heals itself.
-                if (closeConfirmedForAllChannels(state.channelIds, getCloseRecordSync)) {
-                  console.log(
-                    '[Recovery] closing tx confirmed for all recovery channels — CPFP no longer needed, clearing recovery state'
-                  )
-                  await clearRecoveryState(vssClient)
-                  notifyRecoveryStateChanged()
-                  return
-                }
 
                 // Attempt sweep with current UTXOs
                 const destScript = revealNextAddress(bdkWallet, 'Recovery')
@@ -1510,7 +1544,9 @@ export function LdkProvider({
               maybeReconnectPeers()
             }
 
-            // Attempt auto-recovery every ~60s
+            // Clear resolved recovery state promptly (cheap, every tick);
+            // attempt the sweep-based auto-recovery every ~60s.
+            maybeClearResolvedRecovery()
             recoveryTickCount += 1
             if (recoveryTickCount % 6 === 0) {
               maybeAutoRecover()

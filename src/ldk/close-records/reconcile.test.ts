@@ -179,6 +179,27 @@ describe('reconcileCloseRecords', () => {
     expect(getCloseRecordSync('ab')?.txs.some((t) => t.txid === 'commit-tx')).toBe(true)
   })
 
+  it('checks outspends without a new tip while the recorded close tx is unconfirmed', async () => {
+    // Supersession must not wait for the next block: a false "deposit
+    // needed" banner clears only after the real (counterparty) close tx is
+    // discovered, so the mempool window covers unconfirmed-close records too.
+    await upsertCloseRecord(
+      record('ab', {
+        fundingTxo: { txid: 'f0', vout: 1 },
+        txs: [{ txid: 'our-commit', role: 'commitment' }],
+      })
+    )
+    await reconcileCloseRecords(
+      makeDeps({
+        outspends: { 'f0:1': { spent: true, txid: 'their-commit' } },
+        txStatuses: { 'their-commit': { confirmed: true, block_height: 990 } },
+      }),
+      { tipChanged: false, tipHash: 'tiphash' }
+    )
+    const theirs = getCloseRecordSync('ab')?.txs.find((t) => t.txid === 'their-commit')
+    expect(theirs?.confirmedAtHeight).toBe(990)
+  })
+
   it('completes verified on wallet receipt evidence (≥6 confs + in BDK wallet)', async () => {
     await upsertCloseRecord(
       record('ab', {

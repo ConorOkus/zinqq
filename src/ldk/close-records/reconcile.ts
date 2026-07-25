@@ -96,11 +96,19 @@ export async function reconcileCloseRecords(
   const pendingRecords = getCloseRecordsSnapshot().filter((r) => r.completedAt === undefined)
   const fundingMap = getFundingTxoMap()
 
-  // Mempool-window exception: while a record's closing tx is undiscovered,
+  // Mempool-window exception: while a record has no CONFIRMED closing tx,
   // check its funding outspend every tick (Esplora reports unconfirmed
-  // spends). Everything else only moves when a new block arrives.
+  // spends). Matches step (a)'s gate — a recorded-but-unconfirmed commitment
+  // may be superseded by the counterparty's, and waiting for the next block
+  // to discover that leaves a false "deposit needed" banner up for ~10 min.
+  // Everything else only moves when a new block arrives.
   const undiscovered = pendingRecords.filter(
-    (r) => r.fundingTxo && !r.txs.some((tx) => tx.role === 'closing' || tx.role === 'commitment')
+    (r) =>
+      r.fundingTxo &&
+      !r.txs.some(
+        (tx) =>
+          (tx.role === 'closing' || tx.role === 'commitment') && tx.confirmedAtHeight !== undefined
+      )
   )
   if (!info.tipChanged && undiscovered.length === 0) return
   if (pendingRecords.length === 0 && fundingMap.size === 0) return
