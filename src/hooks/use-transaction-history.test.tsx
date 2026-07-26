@@ -34,7 +34,9 @@ function readyOnchain(txs: OnchainTx[]): OnchainContextValue {
     balance: { confirmed: 100_000n, trustedPending: 0n, untrustedPending: 0n },
     generateAddress: () => 'bc1qtest',
     estimateFee: () => Promise.resolve({ fee: 245n, feeRate: 2n }),
-    estimateMaxSendable: () => Promise.resolve({ amount: 99_000n, fee: 1_000n, feeRate: 2n }),
+    estimateMaxSendable: () =>
+      Promise.resolve({ amount: 99_000n, fee: 1_000n, feeRate: 2n, reserveSats: 0n }),
+    approxMaxSpendable: () => 100_000n,
     sendToAddress: () => Promise.resolve('txid123'),
     sendMax: () => Promise.resolve('txid123'),
     syncNow: () => {},

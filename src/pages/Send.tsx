@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
@@ -7,6 +7,12 @@ import { classifyPaymentInput, type ParsedPaymentInput } from '../ldk/payment-in
 import { resolveBip353 } from '../ldk/resolve-bip353'
 import { resolveLnurlPay, fetchLnurlInvoice } from '../lnurl/resolve-lnurl'
 import { ONCHAIN_CONFIG } from '../onchain/config'
+import {
+  BALANCE_TOO_LOW_MESSAGE,
+  FEES_TOO_HIGH_MESSAGE,
+  AMOUNT_DRIFT_MESSAGE,
+} from '../onchain/send-guards'
+import type { MaxSendEstimate } from '../onchain/onchain-context'
 import { formatBtc } from '../utils/format-btc'
 import { msatToSatCeil, msatToSatFloor } from '../utils/msat'
 import { bytesToHex } from '../ldk/utils'
@@ -42,9 +48,17 @@ type SendStep =
       amount: bigint
       fee: bigint
       feeRate: bigint
+      /** Anchor reserve withheld from a send-all (0n for normal sends or no channels). */
+      reserveSats: bigint
       isSendMax: boolean
       fromStep: 'recipient' | 'amount'
       label?: string
+      /**
+       * Set when the confirm-time re-estimate (R5 drift guard) replaced the
+       * reviewed figures — renders an "Amounts were updated" notice so the
+       * user re-verifies before confirming again.
+       */
+      amountsUpdated?: boolean
     }
   | { step: 'oc-success'; txid: string; amount: bigint }
   // Lightning flow
@@ -78,13 +92,30 @@ const PAYMENT_POLL_MS = 1_000
 const MAX_POLL_DURATION_MS = 5 * 60 * 1_000
 const RESOLVE_TIMEOUT_MS = 5_000
 
-function classifyEstimateError(err: unknown): string {
+function classifyEstimateError(err: unknown, isSendMax = false): string {
   const msg = err instanceof Error ? err.message : String(err)
+  // Friendly estimate-time guard messages pass through verbatim (explicit so
+  // the case-sensitive 'network' check below can never rewrite them)
+  if (msg === BALANCE_TOO_LOW_MESSAGE || msg === FEES_TOO_HIGH_MESSAGE) {
+    return msg
+  }
   if (msg.includes('network') || msg.includes('different Bitcoin network')) {
     return 'This address is for a different Bitcoin network'
   }
   if (msg.includes('Invalid') || msg.includes('address')) {
     return 'Invalid Bitcoin address'
+  }
+  // Raw BDK builder errors: a drain build can throw before an amount is even
+  // computed (e.g. "OutputBelowDustLimit", "InsufficientFunds"). Map them so
+  // raw BDK text never reaches the user. A dust error on a send-all means the
+  // balance can't clear the floor; on a normal send it means the amount is
+  // below the recipient script's dust threshold — the balance may be fine.
+  const lower = msg.toLowerCase()
+  if (lower.includes('insufficient')) {
+    return BALANCE_TOO_LOW_MESSAGE
+  }
+  if (lower.includes('dust')) {
+    return isSendMax ? BALANCE_TOO_LOW_MESSAGE : 'Amount is below the minimum for this address'
   }
   return msg
 }
@@ -151,7 +182,29 @@ export function Send() {
 
   const amountSats = amountDigits ? BigInt(amountDigits) : 0n
 
-  // --- Amount screen: Send max approximation ---
+  // --- Amount screen: onchain send-all (Max control) ---
+  // Prefill = confirmed + trusted pending − anchor reserve (from the onchain
+  // context); the exact amount is recomputed at review via estimateMaxSendable.
+  const handleOnchainSendAll = useCallback(() => {
+    if (sendStep.step !== 'amount') return
+    if (onchain.status !== 'ready') return
+    const prefill = onchain.approxMaxSpendable()
+    if (prefill <= 0n) return
+    setInputError(null)
+    setAmountDigits(prefill.toString())
+    setIsSendMax(true)
+  }, [onchain, sendStep])
+
+  // Send-all prefill for the Max control. Memoized: the amount step re-renders
+  // per numpad keystroke, and this crosses the WASM boundary to read the
+  // wallet balance — recompute only when the step or wallet state changes.
+  const sendAllPrefill = useMemo(() => {
+    if (sendStep.step !== 'amount' || sendStep.parsedInput.type !== 'onchain') return 0n
+    if (onchain.status !== 'ready') return 0n
+    return onchain.approxMaxSpendable()
+  }, [sendStep, onchain])
+
+  // --- Amount screen: Send max approximation (lightning/LNURL label) ---
   const handleApproxSendMax = useCallback(() => {
     if (sendStep.step !== 'amount') return
     // For LNURL with maxSat constraint, cap at maxSat
@@ -344,10 +397,12 @@ export function Send() {
 
           // Use parsed amount if present (BIP 321 URI with ?amount=), otherwise use numpad amount
           const effectiveAmount = parsed.amountSats ?? amountSats
-          const effectiveIsSendMax = parsed.amountSats ? false : isSendMax
+          const effectiveIsSendMax = parsed.amountSats !== null ? false : isSendMax
 
-          // Phase 2 validation: dust limit
-          if (effectiveAmount < MIN_DUST_SATS) {
+          // Phase 2 validation: dust limit. Skipped for send-all — its real
+          // amount comes from estimateMaxSendable, whose guards enforce the
+          // recipient script's actual dust floor (294 P2WPKH / 546 P2PKH).
+          if (!effectiveIsSendMax && effectiveAmount < MIN_DUST_SATS) {
             setInputError(`Amount must be at least ${formatBtc(MIN_DUST_SATS)} (dust limit)`)
             return
           }
@@ -358,8 +413,10 @@ export function Send() {
           if (effectiveIsSendMax) {
             try {
               const estimate = await onchain.estimateMaxSendable(parsed.address)
+              // Defense in depth — the context layer's guards already throw
+              // for sub-dust (and therefore non-positive) amounts
               if (estimate.amount <= 0n) {
-                setInputError('Balance too low to cover fees')
+                setInputError(BALANCE_TOO_LOW_MESSAGE)
                 return
               }
               setSendStep({
@@ -368,11 +425,12 @@ export function Send() {
                 amount: estimate.amount,
                 fee: estimate.fee,
                 feeRate: estimate.feeRate,
+                reserveSats: estimate.reserveSats,
                 isSendMax: true,
                 fromStep,
               })
             } catch (err) {
-              const message = classifyEstimateError(err)
+              const message = classifyEstimateError(err, true)
               setInputError(message)
             }
             return
@@ -392,6 +450,7 @@ export function Send() {
               amount: effectiveAmount,
               fee: estimate.fee,
               feeRate: estimate.feeRate,
+              reserveSats: 0n,
               isSendMax: false,
               fromStep,
             })
@@ -587,14 +646,83 @@ export function Send() {
 
     sendingRef.current = true
     setIsBroadcasting(true)
-    const sentAmount = sendStep.amount
     const reviewStep = sendStep
 
+    // Confirm-time guard failure (balance/fees): back to the amount step with
+    // the friendly inline message, reusing the review Back navigation.
+    const returnToAmountWithError = (message: string) => {
+      setInputError(message)
+      handleReviewBack()
+    }
+
+    // R5 drift guard: fresh estimate pinned to the reviewed fee rate (so
+    // fee-cache ticks between review and confirm can't force spurious
+    // refreshes). Returns null after routing a guard failure to the amount
+    // step; rethrows anything else (existing error-screen behavior).
+    const fetchFreshEstimate = async (): Promise<MaxSendEstimate | null> => {
+      try {
+        return await onchain.estimateMaxSendable(reviewStep.address, reviewStep.feeRate)
+      } catch (err) {
+        const message = classifyEstimateError(err, true)
+        if (message === BALANCE_TOO_LOW_MESSAGE || message === FEES_TOO_HIGH_MESSAGE) {
+          returnToAmountWithError(message)
+          return null
+        }
+        throw err
+      }
+    }
+
+    // Replace the reviewed figures with the fresh estimate plus a visible
+    // notice; the user can Confirm again against the refreshed figures
+    // (convergent — each Confirm re-checks against its own review).
+    const showRefreshedReview = (fresh: MaxSendEstimate) => {
+      setSendStep({
+        ...reviewStep,
+        amount: fresh.amount,
+        fee: fresh.fee,
+        feeRate: fresh.feeRate,
+        reserveSats: fresh.reserveSats,
+        amountsUpdated: true,
+      })
+    }
+
     try {
-      const txid = sendStep.isSendMax
-        ? await onchain.sendMax(sendStep.address, sendStep.feeRate)
-        : await onchain.sendToAddress(sendStep.address, sendStep.amount, sendStep.feeRate)
-      setSendStep({ step: 'oc-success', txid, amount: sentAmount })
+      if (reviewStep.isSendMax) {
+        // R5: never broadcast an amount different from the reviewed one.
+        // Re-estimate at the reviewed rate; on drift, refresh the review
+        // instead of broadcasting.
+        const fresh = await fetchFreshEstimate()
+        if (!fresh) return
+        if (fresh.amount !== reviewStep.amount) {
+          showRefreshedReview(fresh)
+          return
+        }
+        try {
+          const txid = await onchain.sendMax(
+            reviewStep.address,
+            reviewStep.feeRate,
+            reviewStep.amount
+          )
+          setSendStep({ step: 'oc-success', txid, amount: reviewStep.amount })
+        } catch (err) {
+          // Typed drift error from the broadcast boundary: nothing was signed
+          // or broadcast — route to a refreshed review, not the error screen.
+          if (err instanceof Error && err.message === AMOUNT_DRIFT_MESSAGE) {
+            const refreshed = await fetchFreshEstimate()
+            if (refreshed) showRefreshedReview(refreshed)
+            return
+          }
+          throw err
+        }
+        return
+      }
+
+      const txid = await onchain.sendToAddress(
+        reviewStep.address,
+        reviewStep.amount,
+        reviewStep.feeRate
+      )
+      setSendStep({ step: 'oc-success', txid, amount: reviewStep.amount })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSendStep({ step: 'error', message, retryStep: reviewStep })
@@ -602,7 +730,7 @@ export function Send() {
       sendingRef.current = false
       setIsBroadcasting(false)
     }
-  }, [onchain, sendStep])
+  }, [onchain, sendStep, handleReviewBack])
 
   // --- Lightning: Confirm send ---
   const handleLnConfirm = useCallback(async () => {
@@ -864,6 +992,19 @@ export function Send() {
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader title="Review" onBack={handleReviewBack} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
+          {sendStep.amountsUpdated && (
+            <p
+              role="status"
+              className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400"
+            >
+              Amounts were updated — conditions changed since your last review.
+            </p>
+          )}
+          {sendStep.isSendMax && (
+            <p className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+              Sending all available onchain funds
+            </p>
+          )}
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">To</span>
             <span className="max-w-[60%] break-all text-right font-mono text-sm font-semibold">
@@ -880,6 +1021,19 @@ export function Send() {
             </span>
             <span className="font-semibold">{formatBtc(sendStep.fee)}</span>
           </div>
+          {sendStep.isSendMax && sendStep.reserveSats > 0n && (
+            <>
+              <p className="-mt-5 text-xs text-[var(--color-on-dark-muted)]">
+                Final fee may vary slightly
+              </p>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+                  Kept for Lightning channel safety
+                </span>
+                <span className="font-semibold">{formatBtc(sendStep.reserveSats)}</span>
+              </div>
+            </>
+          )}
           <hr className="border-dark-border" />
           <div className="flex justify-between">
             <span className="text-lg font-semibold">Total</span>
@@ -941,16 +1095,32 @@ export function Send() {
   // --- Amount screen (shown only when input has no embedded amount) ---
   if (sendStep.step === 'amount') {
     const hasConstraints = sendStep.minSat !== undefined || sendStep.maxSat !== undefined
+    const isOnchainRecipient = sendStep.parsedInput.type === 'onchain'
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader title="Send" onBack={() => setSendStep({ step: 'recipient' })} />
         <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <button
-            className="text-sm text-[var(--color-on-dark-muted)] transition-colors hover:text-on-dark"
-            onClick={handleApproxSendMax}
-          >
-            {formatBtc(unified.total)} available
-          </button>
+          {isOnchainRecipient ? (
+            <button
+              className={`rounded-full border px-4 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                isSendMax
+                  ? 'border-accent bg-accent font-semibold text-white'
+                  : 'border-dark-border text-[var(--color-on-dark-muted)] hover:text-on-dark'
+              }`}
+              onClick={handleOnchainSendAll}
+              disabled={sendAllPrefill <= 0n}
+              aria-pressed={isSendMax}
+            >
+              {`${formatBtc(onchainBalance)} available · Max`}
+            </button>
+          ) : (
+            <button
+              className="text-sm text-[var(--color-on-dark-muted)] transition-colors hover:text-on-dark"
+              onClick={handleApproxSendMax}
+            >
+              {formatBtc(unified.total)} available
+            </button>
+          )}
           <div
             className={`font-display font-bold leading-none tracking-tight ${
               amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'

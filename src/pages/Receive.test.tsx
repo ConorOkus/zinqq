@@ -61,6 +61,7 @@ function readyContext(
     generateAddress: () => 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
     estimateFee: vi.fn().mockResolvedValue({ fee: 150n, feeRate: 1n }),
     estimateMaxSendable: vi.fn().mockResolvedValue({ amount: 49850n, fee: 150n, feeRate: 1n }),
+    approxMaxSpendable: vi.fn(() => 50000n),
     sendToAddress: vi.fn().mockResolvedValue('txid123'),
     sendMax: vi.fn().mockResolvedValue('txid123'),
     syncNow: vi.fn(),

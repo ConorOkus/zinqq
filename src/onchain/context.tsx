@@ -18,6 +18,7 @@ import {
 } from './onchain-context'
 import { fullScanBdkWallet } from './init'
 import { ONCHAIN_CONFIG, MIN_FEE_RATE_SAT_VB, MAX_FEE_SATS, ANCHOR_RESERVE_SATS } from './config'
+import { checkMaxSendGuards, makeDriftCheck } from './send-guards'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { captureError } from '../storage/error-log'
@@ -41,6 +42,12 @@ function persistChangeset(wallet: Wallet): void {
       captureError('critical', 'Onchain', 'Failed to persist changeset', String(err))
     )
   }
+}
+
+/** Spendable balance: confirmed + trusted pending, never untrusted pending. */
+function spendableSats(wallet: Wallet): bigint {
+  const balance = wallet.balance
+  return balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
 }
 
 function discardStagedChanges(wallet: Wallet): void {
@@ -134,29 +141,36 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   /**
    * Shared helper: build a PSBT via callback, get the fee, then discard
    * staged changes. Used by estimateFee and estimateMaxSendable.
+   * Pass `feeRateSatVb` to pin the estimate to a known rate instead of
+   * fetching the current cached one.
    */
   const buildAndEstimate = useCallback(
     async (
-      buildPsbt: (feeRate: FeeRate) => Psbt
+      buildPsbt: (feeRate: FeeRate) => Psbt,
+      feeRateSatVb?: bigint
     ): Promise<{ psbt: Psbt; fee: bigint; feeRate: bigint }> => {
       const wallet = walletRef.current
       const esplora = esploraRef.current
       if (!wallet || !esplora) throw new Error('Wallet not ready')
 
-      const feeRateSatVb = await getFeeRate()
-      const psbt = buildPsbt(new FeeRate(feeRateSatVb))
+      const resolvedFeeRate = feeRateSatVb ?? (await getFeeRate())
+      const psbt = buildPsbt(new FeeRate(resolvedFeeRate))
       const fee = psbt.fee().to_sat()
 
       // Discard staged changes from the estimate build
       discardStagedChanges(wallet)
 
-      return { psbt, fee, feeRate: feeRateSatVb }
+      return { psbt, fee, feeRate: resolvedFeeRate }
     },
     []
   )
 
   const buildSignBroadcast = useCallback(
-    async (buildPsbt: (feeRate: FeeRate) => Psbt, feeRateSatVb?: bigint): Promise<string> => {
+    async (
+      buildPsbt: (feeRate: FeeRate) => Psbt,
+      feeRateSatVb?: bigint,
+      checkPsbt?: (psbt: Psbt) => Error | null
+    ): Promise<string> => {
       const wallet = walletRef.current
       const esplora = esploraRef.current
       if (!wallet || !esplora) throw new Error('Wallet not ready')
@@ -170,6 +184,15 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
           )
         }
         const psbtToSign = buildPsbt(new FeeRate(resolvedFeeRate))
+
+        // Broadcast-boundary assert (R5 drift guard): verify the built tx
+        // before signing or broadcasting anything. On failure the abandoned
+        // build's staged changes are discarded and sync resumes via finally.
+        const checkError = checkPsbt?.(psbtToSign) ?? null
+        if (checkError) {
+          discardStagedChanges(wallet)
+          throw checkError
+        }
 
         const fee = psbtToSign.fee().to_sat()
         if (fee > MAX_FEE_SATS) {
@@ -234,29 +257,51 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   )
 
   const estimateMaxSendable = useCallback(
-    async (address: string): Promise<MaxSendEstimate> => {
+    async (address: string, feeRateSatVb?: bigint): Promise<MaxSendEstimate> => {
       const wallet = walletRef.current
       if (!wallet) throw new Error('Wallet not ready')
 
       const addr = Address.from_string(address, ONCHAIN_CONFIG.network)
-      const { fee, feeRate } = await buildAndEstimate((feeRate) =>
-        // TxBuilder methods consume self — must chain calls
-        wallet.build_tx().drain_wallet().drain_to(addr.script_pubkey).fee_rate(feeRate).finish()
+      // Dust floor for the recipient's script (294 sats P2WPKH, 546 legacy P2PKH).
+      // script_pubkey is a getter returning a fresh ScriptBuf on each access —
+      // required, because drain_to() below consumes the ScriptBuf it is given.
+      const dustFloor = addr.script_pubkey.minimal_non_dust().to_sat()
+      const { fee, feeRate } = await buildAndEstimate(
+        (feeRate) =>
+          // TxBuilder methods consume self — must chain calls
+          wallet.build_tx().drain_wallet().drain_to(addr.script_pubkey).fee_rate(feeRate).finish(),
+        feeRateSatVb
       )
 
       // Total inputs minus fee minus anchor reserve = max sendable amount
-      const balance = wallet.balance
-      const totalAvailable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+      const totalAvailable = spendableSats(wallet)
       const reserve = getAnchorReserve()
       const amount = totalAvailable - fee - reserve
-      if (amount < 0n) {
-        return { amount: 0n, fee, feeRate }
-      }
 
-      return { amount, fee, feeRate }
+      // Estimate-time guards: outcomes knowable now (fee above MAX_FEE_SATS,
+      // amount below the script's dust floor — including negative) surface as
+      // friendly errors at the amount step instead of a post-Confirm failure.
+      // These also gate sendMax's reserve-branch estimate call.
+      const guardError = checkMaxSendGuards(amount, fee, dustFloor)
+      if (guardError) throw guardError
+
+      return { amount, fee, feeRate, reserveSats: reserve }
     },
     [buildAndEstimate, getAnchorReserve]
   )
+
+  /**
+   * Approximate send-all prefill: confirmed + trusted pending minus the anchor
+   * reserve (when channels are open), clamped at 0. Never includes untrusted
+   * pending. Fee is not subtracted; the exact amount comes from
+   * estimateMaxSendable at review time.
+   */
+  const approxMaxSpendable = useCallback((): bigint => {
+    const wallet = walletRef.current
+    if (!wallet) return 0n
+    const amount = spendableSats(wallet) - getAnchorReserve()
+    return amount < 0n ? 0n : amount
+  }, [getAnchorReserve])
 
   const sendToAddress = useCallback(
     async (address: string, amountSats: bigint, feeRateSatVb?: bigint): Promise<string> => {
@@ -266,8 +311,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       // Check anchor reserve: reject if send + fee would leave less than reserve
       const reserve = getAnchorReserve()
       if (reserve > 0n) {
-        const balance = wallet.balance
-        const available = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+        const available = spendableSats(wallet)
         const { fee } = await estimateFee(address, amountSats)
         if (amountSats + fee + reserve > available) {
           throw new Error(
@@ -292,12 +336,27 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   )
 
   const sendMax = useCallback(
-    async (address: string, feeRateSatVb?: bigint): Promise<string> => {
+    async (
+      address: string,
+      feeRateSatVb?: bigint,
+      expectedAmountSats?: bigint
+    ): Promise<string> => {
       const wallet = walletRef.current
       if (!wallet) throw new Error('Wallet not ready')
 
       const reserve = getAnchorReserve()
       const addr = Address.from_string(address, ONCHAIN_CONFIG.network)
+
+      // Confirm-time drift guard (R5): when the caller passes the reviewed
+      // amount, assert the built tx pays the recipient exactly that amount at
+      // the broadcast boundary — before anything is signed or broadcast.
+      // The script hex MUST be captured here, before the build runs:
+      // Recipient.from_address(addr, ...) in the reserve branch consumes addr,
+      // so a check that read addr after the build would hit a destroyed object.
+      const checkDrift =
+        expectedAmountSats === undefined
+          ? undefined
+          : makeDriftCheck(addr.script_pubkey.to_hex_string(), expectedAmountSats)
 
       if (reserve === 0n) {
         // No channels — safe to drain everything
@@ -309,15 +368,18 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
               .drain_to(addr.script_pubkey)
               .fee_rate(feeRate)
               .finish(),
-          feeRateSatVb
+          feeRateSatVb,
+          checkDrift
         )
       }
 
       // Has channels — estimate max sendable then send as fixed amount to preserve reserve.
+      // The estimate reuses the caller's fee rate (when given) so a reviewed
+      // rate stays pinned through the re-estimate.
       // Note: the final tx fee may differ slightly from the drain estimate because the
       // fixed-amount tx includes a change output (for the reserve). This is conservative —
       // the user sends slightly less than the theoretical max.
-      const { amount } = await estimateMaxSendable(addr.toString())
+      const { amount } = await estimateMaxSendable(addr.toString(), feeRateSatVb)
       if (amount <= 0n) {
         throw new Error(
           `Insufficient funds after reserving ${formatBtc(ANCHOR_RESERVE_SATS)} for Lightning channel safety`
@@ -330,7 +392,8 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
             .add_recipient(Recipient.from_address(addr, Amount.from_sat(amount)))
             .fee_rate(feeRate)
             .finish(),
-        feeRateSatVb
+        feeRateSatVb,
+        checkDrift
       )
     },
     [buildSignBroadcast, getAnchorReserve, estimateMaxSendable]
@@ -364,6 +427,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
             generateAddress,
             estimateFee,
             estimateMaxSendable,
+            approxMaxSpendable,
             sendToAddress,
             sendMax,
             syncNow,
@@ -397,6 +461,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
     generateAddress,
     estimateFee,
     estimateMaxSendable,
+    approxMaxSpendable,
     sendToAddress,
     sendMax,
     syncNow,
