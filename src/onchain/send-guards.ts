@@ -27,3 +27,34 @@ export function checkMaxSendGuards(amount: bigint, fee: bigint, dustFloor: bigin
   if (amount < dustFloor) return new Error(BALANCE_TOO_LOW_MESSAGE)
   return null
 }
+
+/**
+ * Typed sentinel for the confirm-time drift guard (R5): the transaction built
+ * at the broadcast boundary would pay the recipient a different amount than
+ * the one the user reviewed. Callers match on this exact message to route back
+ * to a refreshed review instead of the error screen.
+ *
+ * Wording note: must not contain "network", "validation", or "dust" — the
+ * context layer's mapSendError rewrites messages containing those keywords.
+ */
+export const AMOUNT_DRIFT_MESSAGE = 'Send amount changed since review'
+
+/**
+ * Confirm-time drift guard for send-all: compares the reviewed amount against
+ * the recipient output actually present in the built transaction.
+ *
+ * @param expectedSats      the amount the user confirmed on the review screen
+ * @param builtOutputSats   value of the recipient/drain output in the built
+ *                          PSBT, or null when no output pays the recipient
+ * @returns an Error with {@link AMOUNT_DRIFT_MESSAGE} on any mismatch
+ *          (including a missing output), or null when they match exactly
+ */
+export function checkAmountDrift(
+  expectedSats: bigint,
+  builtOutputSats: bigint | null
+): Error | null {
+  if (builtOutputSats === null || builtOutputSats !== expectedSats) {
+    return new Error(AMOUNT_DRIFT_MESSAGE)
+  }
+  return null
+}

@@ -7,7 +7,12 @@ import { classifyPaymentInput, type ParsedPaymentInput } from '../ldk/payment-in
 import { resolveBip353 } from '../ldk/resolve-bip353'
 import { resolveLnurlPay, fetchLnurlInvoice } from '../lnurl/resolve-lnurl'
 import { ONCHAIN_CONFIG } from '../onchain/config'
-import { BALANCE_TOO_LOW_MESSAGE, FEES_TOO_HIGH_MESSAGE } from '../onchain/send-guards'
+import {
+  BALANCE_TOO_LOW_MESSAGE,
+  FEES_TOO_HIGH_MESSAGE,
+  AMOUNT_DRIFT_MESSAGE,
+} from '../onchain/send-guards'
+import type { MaxSendEstimate } from '../onchain/onchain-context'
 import { formatBtc } from '../utils/format-btc'
 import { msatToSatCeil, msatToSatFloor } from '../utils/msat'
 import { bytesToHex } from '../ldk/utils'
@@ -48,6 +53,12 @@ type SendStep =
       isSendMax: boolean
       fromStep: 'recipient' | 'amount'
       label?: string
+      /**
+       * Set when the confirm-time re-estimate (R5 drift guard) replaced the
+       * reviewed figures — renders an "Amounts were updated" notice so the
+       * user re-verifies before confirming again.
+       */
+      amountsUpdated?: boolean
     }
   | { step: 'oc-success'; txid: string; amount: bigint }
   // Lightning flow
@@ -621,14 +632,87 @@ export function Send() {
 
     sendingRef.current = true
     setIsBroadcasting(true)
-    const sentAmount = sendStep.amount
     const reviewStep = sendStep
 
+    // Confirm-time guard failure (balance/fees): back to the amount step with
+    // the friendly inline message (mirrors handleReviewBack's restore logic).
+    const returnToAmountWithError = (message: string) => {
+      setInputError(message)
+      if (reviewStep.fromStep === 'amount' && amountStepDataRef.current) {
+        setSendStep({ step: 'amount', ...amountStepDataRef.current })
+      } else {
+        setSendStep({ step: 'recipient' })
+      }
+    }
+
+    // R5 drift guard: fresh estimate pinned to the reviewed fee rate (so
+    // fee-cache ticks between review and confirm can't force spurious
+    // refreshes). Returns null after routing a guard failure to the amount
+    // step; rethrows anything else (existing error-screen behavior).
+    const fetchFreshEstimate = async (): Promise<MaxSendEstimate | null> => {
+      try {
+        return await onchain.estimateMaxSendable(reviewStep.address, reviewStep.feeRate)
+      } catch (err) {
+        const message = classifyEstimateError(err)
+        if (message === BALANCE_TOO_LOW_MESSAGE || message === FEES_TOO_HIGH_MESSAGE) {
+          returnToAmountWithError(message)
+          return null
+        }
+        throw err
+      }
+    }
+
+    // Replace the reviewed figures with the fresh estimate plus a visible
+    // notice; the user can Confirm again against the refreshed figures
+    // (convergent — each Confirm re-checks against its own review).
+    const showRefreshedReview = (fresh: MaxSendEstimate) => {
+      setSendStep({
+        ...reviewStep,
+        amount: fresh.amount,
+        fee: fresh.fee,
+        feeRate: fresh.feeRate,
+        reserveSats: fresh.reserveSats,
+        amountsUpdated: true,
+      })
+    }
+
     try {
-      const txid = sendStep.isSendMax
-        ? await onchain.sendMax(sendStep.address, sendStep.feeRate)
-        : await onchain.sendToAddress(sendStep.address, sendStep.amount, sendStep.feeRate)
-      setSendStep({ step: 'oc-success', txid, amount: sentAmount })
+      if (reviewStep.isSendMax) {
+        // R5: never broadcast an amount different from the reviewed one.
+        // Re-estimate at the reviewed rate; on drift, refresh the review
+        // instead of broadcasting.
+        const fresh = await fetchFreshEstimate()
+        if (!fresh) return
+        if (fresh.amount !== reviewStep.amount) {
+          showRefreshedReview(fresh)
+          return
+        }
+        try {
+          const txid = await onchain.sendMax(
+            reviewStep.address,
+            reviewStep.feeRate,
+            reviewStep.amount
+          )
+          setSendStep({ step: 'oc-success', txid, amount: reviewStep.amount })
+        } catch (err) {
+          // Typed drift error from the broadcast boundary: nothing was signed
+          // or broadcast — route to a refreshed review, not the error screen.
+          if (err instanceof Error && err.message === AMOUNT_DRIFT_MESSAGE) {
+            const refreshed = await fetchFreshEstimate()
+            if (refreshed) showRefreshedReview(refreshed)
+            return
+          }
+          throw err
+        }
+        return
+      }
+
+      const txid = await onchain.sendToAddress(
+        reviewStep.address,
+        reviewStep.amount,
+        reviewStep.feeRate
+      )
+      setSendStep({ step: 'oc-success', txid, amount: reviewStep.amount })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSendStep({ step: 'error', message, retryStep: reviewStep })
@@ -898,6 +982,14 @@ export function Send() {
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader title="Review" onBack={handleReviewBack} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
+          {sendStep.amountsUpdated && (
+            <p
+              role="status"
+              className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400"
+            >
+              Amounts were updated — conditions changed since your last review.
+            </p>
+          )}
           {sendStep.isSendMax && (
             <p className="text-sm font-medium text-[var(--color-on-dark-muted)]">
               Sending all available onchain funds

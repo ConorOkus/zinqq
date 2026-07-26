@@ -8,6 +8,7 @@ import {
   defaultOnchainContextValue,
 } from '../onchain/onchain-context'
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
+import { AMOUNT_DRIFT_MESSAGE } from '../onchain/send-guards'
 import { Send } from './Send'
 
 vi.mock('../ldk/payment-input', () => ({
@@ -910,6 +911,259 @@ describe('Send', () => {
       expect(screen.queryByText(/sending all available onchain funds/i)).not.toBeInTheDocument()
       expect(screen.queryByText(/kept for lightning channel safety/i)).not.toBeInTheDocument()
       expect(screen.queryByText(/final fee may vary/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('send all confirm-time drift guard (R5)', () => {
+    const estimate = (amount: bigint, reserveSats = 0n) => ({
+      amount,
+      fee: 150n,
+      feeRate: 1n,
+      reserveSats,
+    })
+
+    /** Enter recipient, tap Max, tap Next, and wait for the review screen. */
+    async function tapMaxToReview(user: ReturnType<typeof userEvent.setup>) {
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: /max/i }))
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+    }
+
+    it('re-estimate increased: refreshes review with a notice instead of broadcasting', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValueOnce(estimate(49850n)) // review entry
+          .mockResolvedValueOnce(estimate(59850n)), // confirm-time re-estimate (+10,000)
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      // No notice on first arrival at review
+      expect(screen.queryByText(/amounts were updated/i)).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/amounts were updated/i)).toBeInTheDocument()
+      })
+      // Refreshed figures shown; no broadcast happened
+      expect(screen.getByText('₿59,850')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      expect(screen.queryByText(/sent successfully/i)).not.toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+    })
+
+    it('re-estimate decreased with a new reserve: refreshed review shows the reserve line', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValueOnce(estimate(49850n)) // review entry (no channels)
+          .mockResolvedValueOnce(estimate(39850n, 10000n)), // channel opened mid-flow
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/amounts were updated/i)).toBeInTheDocument()
+      })
+      // U3 rendering kicks in for the now-positive reserve
+      expect(screen.getByText(/kept for lightning channel safety/i)).toBeInTheDocument()
+      expect(screen.getByText('₿10,000')).toBeInTheDocument()
+      expect(screen.getByText('₿39,850')).toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+    })
+
+    it('re-estimate matches: sendMax called once with the reviewed feeRate and expected amount', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext() // default mock resolves 49,850 on every call
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
+      })
+      expect(screen.getByText('₿49,850')).toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).toHaveBeenCalledTimes(1)
+      expect(ctx.sendMax).toHaveBeenCalledWith('bc1qtest', 1n, 49850n)
+    })
+
+    it('confirm-time re-estimate is pinned to the reviewed feeRate', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
+      })
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      // Call 1: review entry (unpinned); call 2: confirm-time, pinned to reviewed rate
+      expect(ctx.estimateMaxSendable).toHaveBeenNthCalledWith(2, 'bc1qtest', 1n)
+    })
+
+    it('confirm after a refresh with stable figures broadcasts the refreshed amount', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValueOnce(estimate(49850n)) // review entry
+          .mockResolvedValue(estimate(59850n)), // first confirm (drift) and second confirm (stable)
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+      await waitFor(() => {
+        expect(screen.getByText(/amounts were updated/i)).toBeInTheDocument()
+      })
+
+      // Confirm again against the refreshed figures — convergent, not looping
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+      await waitFor(() => {
+        expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
+      })
+      expect(screen.getByText('₿59,850')).toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).toHaveBeenCalledTimes(1)
+      expect(ctx.sendMax).toHaveBeenCalledWith('bc1qtest', 1n, 59850n)
+    })
+
+    it('typed drift error from sendMax lands on a refreshed review, not the error screen', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        // Estimates agree, but the broadcast-boundary assert inside sendMax trips
+        sendMax: vi.fn().mockRejectedValue(new Error(AMOUNT_DRIFT_MESSAGE)),
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/amounts were updated/i)).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      expect(screen.queryByText(/send failed/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/sent successfully/i)).not.toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      // Review entry + confirm-time check + post-drift refresh
+      expect(ctx.estimateMaxSendable).toHaveBeenCalledTimes(3)
+    })
+
+    it('confirm-time fee-ceiling rejection returns to the amount step with the inline message', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValueOnce(estimate(49850n)) // review entry
+          .mockRejectedValueOnce(
+            new Error('Network fees are too high right now — try again later.')
+          ),
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Network fees are too high right now — try again later.')
+        ).toBeInTheDocument()
+      })
+      // Back on the amount step — no review, no error screen, no broadcast
+      expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /confirm send/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/send failed/i)).not.toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+    })
+
+    it('confirm-time balance-too-low rejection returns to the amount step with the inline message', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValueOnce(estimate(49850n)) // review entry
+          .mockRejectedValueOnce(new Error('Balance too low to cover fees')),
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Balance too low to cover fees')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /confirm send/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/send failed/i)).not.toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+    })
+
+    it('non-guard confirm-time estimate failure keeps the existing error screen', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValueOnce(estimate(49850n)) // review entry
+          .mockRejectedValueOnce(new Error('Esplora request failed')),
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/send failed/i)).toBeInTheDocument()
+      })
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+    })
+
+    it('normal (non-max) send never triggers the confirm-time re-estimate', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument()
+      })
+      await typeOnNumpad(user, '1000')
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+      await waitFor(() => {
+        expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
+      })
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.estimateMaxSendable).not.toHaveBeenCalled()
+      expect(ctx.sendToAddress).toHaveBeenCalledWith('bc1qtest', 1000n, 1n)
+      expect(ctx.sendMax).not.toHaveBeenCalled()
     })
   })
 

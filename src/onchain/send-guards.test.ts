@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { checkMaxSendGuards, BALANCE_TOO_LOW_MESSAGE, FEES_TOO_HIGH_MESSAGE } from './send-guards'
+import {
+  checkMaxSendGuards,
+  checkAmountDrift,
+  BALANCE_TOO_LOW_MESSAGE,
+  FEES_TOO_HIGH_MESSAGE,
+  AMOUNT_DRIFT_MESSAGE,
+} from './send-guards'
 import { MAX_FEE_SATS } from './config'
 
 describe('checkMaxSendGuards', () => {
@@ -36,5 +42,31 @@ describe('checkMaxSendGuards', () => {
     // Fees may drop later, so "try again later" is the actionable advice
     const err = checkMaxSendGuards(200n, MAX_FEE_SATS + 1n, 294n)
     expect(err?.message).toBe(FEES_TOO_HIGH_MESSAGE)
+  })
+})
+
+describe('checkAmountDrift', () => {
+  it('returns null when the built output matches the reviewed amount exactly', () => {
+    expect(checkAmountDrift(49_850n, 49_850n)).toBeNull()
+  })
+
+  it('flags a built output above the reviewed amount', () => {
+    const err = checkAmountDrift(49_850n, 59_850n)
+    expect(err?.message).toBe(AMOUNT_DRIFT_MESSAGE)
+  })
+
+  it('flags a built output below the reviewed amount', () => {
+    const err = checkAmountDrift(49_850n, 39_850n)
+    expect(err?.message).toBe(AMOUNT_DRIFT_MESSAGE)
+  })
+
+  it('flags a missing recipient output (null)', () => {
+    const err = checkAmountDrift(49_850n, null)
+    expect(err?.message).toBe(AMOUNT_DRIFT_MESSAGE)
+  })
+
+  it('flags a 1-sat drift (no tolerance window)', () => {
+    const err = checkAmountDrift(49_850n, 49_849n)
+    expect(err?.message).toBe(AMOUNT_DRIFT_MESSAGE)
   })
 })
