@@ -8,6 +8,8 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 
 An on-chain output that LDK hands back to the wallet after a channel closes (typically a force-close), which the wallet must spend itself to reclaim the funds — LDK does not spend it automatically. Each spendable output arrives as a descriptor that is persisted locally until a Sweep consumes it; until then the value is real but invisible to the user's balance.
 
+Outputs that already pay one of the wallet's own on-chain addresses are the exception: they need no sweep (their value is already in the balance), the Lightning signer cannot sign them anyway, and one of them in an all-or-nothing Sweep batch fails the whole batch — so they are excluded before persistence rather than swept.
+
 ### Sweep
 
 The named process of spending all persisted Spendable Outputs back into the user's on-chain wallet in a single transaction.
@@ -61,6 +63,10 @@ The LSP's priced offer to open a JIT Channel: a fee and a validity window. A quo
 The set of LSP node identities allowed to open zero-confirmation channels to the wallet. Kept as a set rather than a single configured LSP so additional providers can be added without reworking channel-acceptance logic.
 
 ## Persistence & Recovery
+
+### Event Replay
+
+LDK's redelivery of unresolved events on every node restart — an event is delivered again and again until the condition it reports is resolved, not just until it has been seen once. Delivery therefore carries no freshness information: a handler that treats an event as "this is happening now" mis-fires after every restore. Handlers must be idempotent, and checks that gate on transient state (like wallet emptiness before the Initial Scan) must expect to run against replayed events.
 
 ### Initial Scan
 
