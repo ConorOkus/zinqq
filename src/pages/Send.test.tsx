@@ -53,6 +53,10 @@ vi.mock('../ldk/payment-input', () => ({
         description: 'BIP 321 embedded invoice',
       }
     }
+    // BIP 321 with an explicit zero amount (parses to 0n, not null)
+    if (raw.startsWith('bitcoin:') && /[?&]amount=0(&|$)/.test(raw)) {
+      return { type: 'onchain', address: 'bc1qtest', amountSats: 0n }
+    }
     // BIP 321 with amount
     if (raw.startsWith('bitcoin:') && raw.includes('amount=')) {
       return { type: 'onchain', address: 'bc1qtest', amountSats: 5000n }
@@ -160,6 +164,25 @@ async function submitRecipient(user: ReturnType<typeof userEvent.setup>, input: 
   const recipientInput = screen.getByLabelText(/recipient/i)
   await user.type(recipientInput, input)
   await user.click(screen.getByRole('button', { name: /next/i }))
+}
+
+/** Enter recipient, tap Max, then tap Next to trigger estimateMaxSendable. */
+async function tapMaxAndNext(user: ReturnType<typeof userEvent.setup>) {
+  await submitRecipient(user, 'bc1qtest')
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+  })
+  await user.click(screen.getByRole('button', { name: /max/i }))
+  const nextBtns = screen.getAllByRole('button', { name: /next/i })
+  await user.click(nextBtns[nextBtns.length - 1]!)
+}
+
+/** Enter recipient, tap Max, tap Next, and wait for the review screen. */
+async function tapMaxToReview(user: ReturnType<typeof userEvent.setup>) {
+  await tapMaxAndNext(user)
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+  })
 }
 
 describe('Send', () => {
@@ -409,6 +432,38 @@ describe('Send', () => {
       expect(ctx.sendToAddress).toHaveBeenCalledWith('bc1qtest', 5000n, 1n)
       expect(ctx.sendMax).not.toHaveBeenCalled()
       expect(ctx.estimateMaxSendable).not.toHaveBeenCalled()
+    })
+
+    it('zero-amount URI with a stale Max flag never enters send-all mode', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      // Set the stale flag: onchain recipient -> amount step -> tap Max
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: /max/i }))
+
+      // Back out to the recipient step (isSendMax is not cleared by Back)
+      await user.click(screen.getByRole('button', { name: /back/i }))
+
+      // A BIP21 URI with an explicit zero amount is an embedded amount:
+      // it must override send-all mode, not fall through to a full drain
+      const recipientInput = screen.getByLabelText(/recipient/i)
+      await user.clear(recipientInput)
+      await user.type(recipientInput, 'bitcoin:bc1qtest?amount=0')
+      await user.click(screen.getByRole('button', { name: /next/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/amount must be at least/i)).toBeInTheDocument()
+      })
+      expect(ctx.status).toBe('ready')
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+      expect(ctx.estimateMaxSendable).not.toHaveBeenCalled()
+      expect(screen.queryByRole('button', { name: /confirm send/i })).not.toBeInTheDocument()
     })
   })
 
@@ -694,17 +749,6 @@ describe('Send', () => {
   })
 
   describe('send all estimate-time guards (dust floor and fee ceiling)', () => {
-    /** Enter recipient, tap Max, then tap Next to trigger estimateMaxSendable. */
-    async function tapMaxAndNext(user: ReturnType<typeof userEvent.setup>) {
-      await submitRecipient(user, 'bc1qtest')
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
-      })
-      await user.click(screen.getByRole('button', { name: /max/i }))
-      const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1]!)
-    }
-
     it('dust-floor rejection stays on the amount step with the friendly inline message', async () => {
       const user = userEvent.setup()
       const ctx = readyContext({
@@ -832,20 +876,6 @@ describe('Send', () => {
   })
 
   describe('send all review transparency (R3)', () => {
-    /** Enter recipient, tap Max, tap Next, and wait for the review screen. */
-    async function tapMaxToReview(user: ReturnType<typeof userEvent.setup>) {
-      await submitRecipient(user, 'bc1qtest')
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
-      })
-      await user.click(screen.getByRole('button', { name: /max/i }))
-      const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1]!)
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
-      })
-    }
-
     it('channels open: shows send-all notice, reserve disclosure from the estimate, and fee hedge', async () => {
       const user = userEvent.setup()
       const ctx = readyContext({
@@ -921,20 +951,6 @@ describe('Send', () => {
       feeRate: 1n,
       reserveSats,
     })
-
-    /** Enter recipient, tap Max, tap Next, and wait for the review screen. */
-    async function tapMaxToReview(user: ReturnType<typeof userEvent.setup>) {
-      await submitRecipient(user, 'bc1qtest')
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
-      })
-      await user.click(screen.getByRole('button', { name: /max/i }))
-      const nextBtns = screen.getAllByRole('button', { name: /next/i })
-      await user.click(nextBtns[nextBtns.length - 1]!)
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
-      })
-    }
 
     it('re-estimate increased: refreshes review with a notice instead of broadcasting', async () => {
       const user = userEvent.setup()

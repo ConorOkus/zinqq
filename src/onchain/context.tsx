@@ -18,7 +18,7 @@ import {
 } from './onchain-context'
 import { fullScanBdkWallet } from './init'
 import { ONCHAIN_CONFIG, MIN_FEE_RATE_SAT_VB, MAX_FEE_SATS, ANCHOR_RESERVE_SATS } from './config'
-import { checkMaxSendGuards, checkAmountDrift } from './send-guards'
+import { checkMaxSendGuards, makeDriftCheck } from './send-guards'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { captureError } from '../storage/error-log'
@@ -42,6 +42,12 @@ function persistChangeset(wallet: Wallet): void {
       captureError('critical', 'Onchain', 'Failed to persist changeset', String(err))
     )
   }
+}
+
+/** Spendable balance: confirmed + trusted pending, never untrusted pending. */
+function spendableSats(wallet: Wallet): bigint {
+  const balance = wallet.balance
+  return balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
 }
 
 function discardStagedChanges(wallet: Wallet): void {
@@ -268,8 +274,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       )
 
       // Total inputs minus fee minus anchor reserve = max sendable amount
-      const balance = wallet.balance
-      const totalAvailable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+      const totalAvailable = spendableSats(wallet)
       const reserve = getAnchorReserve()
       const amount = totalAvailable - fee - reserve
 
@@ -294,9 +299,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
   const approxMaxSpendable = useCallback((): bigint => {
     const wallet = walletRef.current
     if (!wallet) return 0n
-    const balance = wallet.balance
-    const spendable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
-    const amount = spendable - getAnchorReserve()
+    const amount = spendableSats(wallet) - getAnchorReserve()
     return amount < 0n ? 0n : amount
   }, [getAnchorReserve])
 
@@ -308,8 +311,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       // Check anchor reserve: reject if send + fee would leave less than reserve
       const reserve = getAnchorReserve()
       if (reserve > 0n) {
-        const balance = wallet.balance
-        const available = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+        const available = spendableSats(wallet)
         const { fee } = await estimateFee(address, amountSats)
         if (amountSats + fee + reserve > available) {
           throw new Error(
@@ -348,20 +350,13 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       // Confirm-time drift guard (R5): when the caller passes the reviewed
       // amount, assert the built tx pays the recipient exactly that amount at
       // the broadcast boundary — before anything is signed or broadcast.
+      // The script hex MUST be captured here, before the build runs:
+      // Recipient.from_address(addr, ...) in the reserve branch consumes addr,
+      // so a check that read addr after the build would hit a destroyed object.
       const checkDrift =
         expectedAmountSats === undefined
           ? undefined
-          : (psbt: Psbt): Error | null => {
-              // script_pubkey is a getter returning a fresh ScriptBuf per access
-              const recipientScriptHex = addr.script_pubkey.to_hex_string()
-              const recipientOutput = psbt.unsigned_tx.output.find(
-                (out) => out.script_pubkey.to_hex_string() === recipientScriptHex
-              )
-              return checkAmountDrift(
-                expectedAmountSats,
-                recipientOutput ? recipientOutput.value.to_sat() : null
-              )
-            }
+          : makeDriftCheck(addr.script_pubkey.to_hex_string(), expectedAmountSats)
 
       if (reserve === 0n) {
         // No channels — safe to drain everything

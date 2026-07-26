@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
@@ -92,7 +92,7 @@ const PAYMENT_POLL_MS = 1_000
 const MAX_POLL_DURATION_MS = 5 * 60 * 1_000
 const RESOLVE_TIMEOUT_MS = 5_000
 
-function classifyEstimateError(err: unknown): string {
+function classifyEstimateError(err: unknown, isSendMax = false): string {
   const msg = err instanceof Error ? err.message : String(err)
   // Friendly estimate-time guard messages pass through verbatim (explicit so
   // the case-sensitive 'network' check below can never rewrite them)
@@ -106,11 +106,16 @@ function classifyEstimateError(err: unknown): string {
     return 'Invalid Bitcoin address'
   }
   // Raw BDK builder errors: a drain build can throw before an amount is even
-  // computed (e.g. "OutputBelowDustLimit", "InsufficientFunds"). Map them to
-  // the friendly balance message so raw BDK text never reaches the user.
+  // computed (e.g. "OutputBelowDustLimit", "InsufficientFunds"). Map them so
+  // raw BDK text never reaches the user. A dust error on a send-all means the
+  // balance can't clear the floor; on a normal send it means the amount is
+  // below the recipient script's dust threshold — the balance may be fine.
   const lower = msg.toLowerCase()
-  if (lower.includes('dust') || lower.includes('insufficient')) {
+  if (lower.includes('insufficient')) {
     return BALANCE_TOO_LOW_MESSAGE
+  }
+  if (lower.includes('dust')) {
+    return isSendMax ? BALANCE_TOO_LOW_MESSAGE : 'Amount is below the minimum for this address'
   }
   return msg
 }
@@ -189,6 +194,15 @@ export function Send() {
     setAmountDigits(prefill.toString())
     setIsSendMax(true)
   }, [onchain, sendStep])
+
+  // Send-all prefill for the Max control. Memoized: the amount step re-renders
+  // per numpad keystroke, and this crosses the WASM boundary to read the
+  // wallet balance — recompute only when the step or wallet state changes.
+  const sendAllPrefill = useMemo(() => {
+    if (sendStep.step !== 'amount' || sendStep.parsedInput.type !== 'onchain') return 0n
+    if (onchain.status !== 'ready') return 0n
+    return onchain.approxMaxSpendable()
+  }, [sendStep, onchain])
 
   // --- Amount screen: Send max approximation (lightning/LNURL label) ---
   const handleApproxSendMax = useCallback(() => {
@@ -383,7 +397,7 @@ export function Send() {
 
           // Use parsed amount if present (BIP 321 URI with ?amount=), otherwise use numpad amount
           const effectiveAmount = parsed.amountSats ?? amountSats
-          const effectiveIsSendMax = parsed.amountSats ? false : isSendMax
+          const effectiveIsSendMax = parsed.amountSats !== null ? false : isSendMax
 
           // Phase 2 validation: dust limit. Skipped for send-all — its real
           // amount comes from estimateMaxSendable, whose guards enforce the
@@ -416,7 +430,7 @@ export function Send() {
                 fromStep,
               })
             } catch (err) {
-              const message = classifyEstimateError(err)
+              const message = classifyEstimateError(err, true)
               setInputError(message)
             }
             return
@@ -635,14 +649,10 @@ export function Send() {
     const reviewStep = sendStep
 
     // Confirm-time guard failure (balance/fees): back to the amount step with
-    // the friendly inline message (mirrors handleReviewBack's restore logic).
+    // the friendly inline message, reusing the review Back navigation.
     const returnToAmountWithError = (message: string) => {
       setInputError(message)
-      if (reviewStep.fromStep === 'amount' && amountStepDataRef.current) {
-        setSendStep({ step: 'amount', ...amountStepDataRef.current })
-      } else {
-        setSendStep({ step: 'recipient' })
-      }
+      handleReviewBack()
     }
 
     // R5 drift guard: fresh estimate pinned to the reviewed fee rate (so
@@ -653,7 +663,7 @@ export function Send() {
       try {
         return await onchain.estimateMaxSendable(reviewStep.address, reviewStep.feeRate)
       } catch (err) {
-        const message = classifyEstimateError(err)
+        const message = classifyEstimateError(err, true)
         if (message === BALANCE_TOO_LOW_MESSAGE || message === FEES_TOO_HIGH_MESSAGE) {
           returnToAmountWithError(message)
           return null
@@ -720,7 +730,7 @@ export function Send() {
       sendingRef.current = false
       setIsBroadcasting(false)
     }
-  }, [onchain, sendStep])
+  }, [onchain, sendStep, handleReviewBack])
 
   // --- Lightning: Confirm send ---
   const handleLnConfirm = useCallback(async () => {
@@ -1086,7 +1096,6 @@ export function Send() {
   if (sendStep.step === 'amount') {
     const hasConstraints = sendStep.minSat !== undefined || sendStep.maxSat !== undefined
     const isOnchainRecipient = sendStep.parsedInput.type === 'onchain'
-    const sendAllPrefill = isOnchainRecipient ? onchain.approxMaxSpendable() : 0n
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader title="Send" onBack={() => setSendStep({ step: 'recipient' })} />

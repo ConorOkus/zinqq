@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   checkMaxSendGuards,
   checkAmountDrift,
+  makeDriftCheck,
   BALANCE_TOO_LOW_MESSAGE,
   FEES_TOO_HIGH_MESSAGE,
   AMOUNT_DRIFT_MESSAGE,
@@ -68,5 +69,59 @@ describe('checkAmountDrift', () => {
   it('flags a 1-sat drift (no tolerance window)', () => {
     const err = checkAmountDrift(49_850n, 49_849n)
     expect(err?.message).toBe(AMOUNT_DRIFT_MESSAGE)
+  })
+})
+
+function fakePsbt(outputs: Array<{ scriptHex: string; sats: bigint }>) {
+  return {
+    unsigned_tx: {
+      output: outputs.map((o) => ({
+        script_pubkey: { to_hex_string: () => o.scriptHex },
+        value: { to_sat: () => o.sats },
+      })),
+    },
+  }
+}
+
+describe('makeDriftCheck', () => {
+  const RECIPIENT = '0014aabbccdd'
+  const CHANGE = '0014eeff0011'
+
+  it('passes when the recipient output matches the reviewed amount exactly', () => {
+    const check = makeDriftCheck(RECIPIENT, 49_850n)
+    expect(check(fakePsbt([{ scriptHex: RECIPIENT, sats: 49_850n }]))).toBeNull()
+  })
+
+  it('finds the recipient output regardless of output order (change first)', () => {
+    const check = makeDriftCheck(RECIPIENT, 49_850n)
+    const psbt = fakePsbt([
+      { scriptHex: CHANGE, sats: 10_000n },
+      { scriptHex: RECIPIENT, sats: 49_850n },
+    ])
+    expect(check(psbt)).toBeNull()
+  })
+
+  it('flags a recipient output that differs from the reviewed amount', () => {
+    const check = makeDriftCheck(RECIPIENT, 49_850n)
+    const psbt = fakePsbt([
+      { scriptHex: RECIPIENT, sats: 59_850n },
+      { scriptHex: CHANGE, sats: 10_000n },
+    ])
+    expect(check(psbt)?.message).toBe(AMOUNT_DRIFT_MESSAGE)
+  })
+
+  it('flags a transaction with no output paying the recipient script', () => {
+    const check = makeDriftCheck(RECIPIENT, 49_850n)
+    expect(check(fakePsbt([{ scriptHex: CHANGE, sats: 49_850n }]))?.message).toBe(
+      AMOUNT_DRIFT_MESSAGE
+    )
+  })
+
+  it('holds no wasm objects: works on plain structural values', () => {
+    // Regression for the consumed-Address bug: the check must be constructible
+    // from a pre-captured hex string and run against any structurally matching
+    // PSBT, with no live BDK objects in the closure.
+    const check = makeDriftCheck(RECIPIENT, 1n)
+    expect(check(fakePsbt([{ scriptHex: RECIPIENT, sats: 1n }]))).toBeNull()
   })
 })

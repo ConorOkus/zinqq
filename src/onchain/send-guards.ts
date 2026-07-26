@@ -28,6 +28,38 @@ export function checkMaxSendGuards(amount: bigint, fee: bigint, dustFloor: bigin
   return null
 }
 
+/** The slice of a built PSBT the drift check inspects. Structurally matches BDK-WASM's Psbt. */
+export type DriftCheckPsbt = {
+  unsigned_tx: {
+    output: Array<{
+      script_pubkey: { to_hex_string(): string }
+      value: { to_sat(): bigint }
+    }>
+  }
+}
+
+/**
+ * Build the broadcast-boundary drift check (R5) from plain values captured
+ * BEFORE any consuming BDK build call. The closure must hold no wasm objects:
+ * builder calls like Recipient.from_address consume their arguments, so a
+ * captured Address or ScriptBuf would be destroyed by the time the check runs
+ * inside buildSignBroadcast ("null pointer passed to rust").
+ */
+export function makeDriftCheck(
+  recipientScriptHex: string,
+  expectedAmountSats: bigint
+): (psbt: DriftCheckPsbt) => Error | null {
+  return (psbt) => {
+    const recipientOutput = psbt.unsigned_tx.output.find(
+      (out) => out.script_pubkey.to_hex_string() === recipientScriptHex
+    )
+    return checkAmountDrift(
+      expectedAmountSats,
+      recipientOutput ? recipientOutput.value.to_sat() : null
+    )
+  }
+}
+
 /**
  * Typed sentinel for the confirm-time drift guard (R5): the transaction built
  * at the broadcast boundary would pay the recipient a different amount than
