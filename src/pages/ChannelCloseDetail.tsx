@@ -66,7 +66,7 @@ function TxRow({ tx, tipHeight }: { tx: CloseRecordTx; tipHeight: number | null 
       : null
 
   return (
-    <div className="flex flex-col gap-1 border-b border-white/10 py-3 last:border-b-0">
+    <div className="flex flex-col gap-1 border-b border-on-dark/10 py-3 last:border-b-0">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">{ROLE_LABELS[tx.role]}</span>
         <span className="text-xs text-[var(--color-on-dark-muted)]">
@@ -82,11 +82,11 @@ function TxRow({ tx, tipHeight }: { tx: CloseRecordTx; tipHeight: number | null 
           href={`${EXPLORER_TX_URL}/${tx.txid}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="truncate font-mono text-xs text-accent underline underline-offset-2"
+          className="truncate font-mono text-xs text-on-dark underline underline-offset-2"
         >
           {tx.txid.slice(0, 10)}…{tx.txid.slice(-10)}
         </a>
-        <button className="shrink-0 text-xs text-accent" onClick={copy}>
+        <button className="shrink-0 text-xs text-on-dark underline" onClick={copy}>
           {copied ? 'Copied' : 'Copy txid'}
         </button>
       </div>
@@ -174,7 +174,7 @@ export function ChannelCloseDetail() {
           </p>
         )}
         {status === 'resolved_unverified' && (
-          <p className="text-center text-sm text-amber-400">
+          <p className="text-center text-sm text-warning">
             The close resolved on-chain, but this wallet couldn&apos;t verify receiving the funds —
             they may have been swept on another device.
           </p>
@@ -182,15 +182,12 @@ export function ChannelCloseDetail() {
       </div>
 
       {needsDeposit && (
-        <Link
-          to="/recover"
-          className="mx-6 mb-4 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400"
-        >
+        <Link to="/recover" className="mx-6 mb-4 rounded-lg bg-warning/10 p-3 text-sm text-warning">
           A small deposit is needed to recover these funds — tap to continue.
         </Link>
       )}
 
-      <div className="mx-6 border-t border-white/10" />
+      <div className="mx-6 border-t border-on-dark/10" />
 
       <div className="flex flex-col px-6 pt-2">
         <DetailRow label="Initiated" value={formatDate(record.createdAt)} />

@@ -1,5 +1,13 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { getStoredTheme, setTheme, THEME_MODES, type ThemeMode } from '../utils/theme'
+
+const THEME_LABELS: Record<ThemeMode, string> = {
+  hybrid: 'Hybrid',
+  light: 'Light',
+  dark: 'Dark',
+}
 
 const SETTINGS_ITEMS = [
   {
@@ -100,6 +108,12 @@ const SETTINGS_ITEMS = [
 
 export function Settings() {
   const navigate = useNavigate()
+  const [theme, setThemeState] = useState<ThemeMode>(getStoredTheme)
+
+  const selectTheme = (mode: ThemeMode) => {
+    setTheme(mode)
+    setThemeState(mode)
+  }
 
   return (
     <div className="flex min-h-dvh flex-col bg-dark text-on-dark">
@@ -120,6 +134,31 @@ export function Settings() {
             <span className="text-sm text-[var(--color-on-dark-muted)]">{item.detail}</span>
           </button>
         ))}
+
+        <div className="mt-2 px-2 py-4">
+          <span className="font-semibold">Appearance</span>
+          <div
+            className="mt-3 flex gap-1.5 rounded-xl bg-dark-elevated p-1"
+            role="radiogroup"
+            aria-label="Appearance"
+          >
+            {THEME_MODES.map((mode) => (
+              <button
+                key={mode}
+                role="radio"
+                aria-checked={theme === mode}
+                className={`h-10 flex-1 rounded-lg text-sm font-semibold transition-colors ${
+                  theme === mode
+                    ? 'bg-on-dark text-dark'
+                    : 'text-[var(--color-on-dark-muted)] active:bg-on-dark/10'
+                }`}
+                onClick={() => selectTheme(mode)}
+              >
+                {THEME_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )

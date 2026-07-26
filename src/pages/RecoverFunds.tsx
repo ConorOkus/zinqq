@@ -36,11 +36,11 @@ export function RecoverFunds() {
     recovery.depositAddress.slice(0, 12) + '...' + recovery.depositAddress.slice(-8)
 
   return (
-    <div className="flex flex-1 flex-col bg-dark text-white">
+    <div className="flex flex-1 flex-col bg-dark text-on-dark">
       {/* Header */}
       <header className="relative flex h-14 shrink-0 items-center justify-center px-4">
         <button
-          className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+          className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-on-dark/10"
           onClick={() => void navigate('/')}
           aria-label="Back"
         >
@@ -72,7 +72,7 @@ export function RecoverFunds() {
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
               Deposit needed
             </span>
-            <span className="font-display text-lg font-bold text-accent">
+            <span className="font-display text-lg font-bold text-amount">
               {formatBtc(recovery.depositNeededSat)}
             </span>
           </div>
@@ -80,7 +80,7 @@ export function RecoverFunds() {
 
         {/* QR Code */}
         <div
-          className="flex h-[200px] w-[200px] items-center justify-center rounded-xl bg-white p-4"
+          className="flex h-[200px] w-[200px] items-center justify-center rounded-xl bg-qr-tile p-4"
           aria-label={`QR code for deposit address ${recovery.depositAddress}`}
         >
           <QRCodeSVG value={`bitcoin:${recovery.depositAddress}`} size={168} />
@@ -92,7 +92,7 @@ export function RecoverFunds() {
             {truncatedAddress}
           </span>
           <button
-            className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white transition-transform active:scale-95"
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-pill px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-on-pill transition-transform active:scale-95"
             onClick={() => void copyAddress()}
           >
             {copied ? (

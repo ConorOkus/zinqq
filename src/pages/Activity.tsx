@@ -30,18 +30,18 @@ export function Activity() {
   const { transactions, isLoading } = useTransactionHistory()
 
   return (
-    <div className="flex min-h-dvh flex-col bg-accent px-6 pb-(--spacing-tab-bar) pt-6">
+    <div className="flex min-h-dvh flex-col bg-field px-6 pb-(--spacing-tab-bar) pt-6">
       <div className="mb-6">
-        <h1 className="font-display text-3xl font-bold text-on-accent">Activity</h1>
+        <h1 className="font-display text-3xl font-bold text-on-field">Activity</h1>
       </div>
 
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-[var(--color-on-accent-muted)]">Loading...</p>
+          <p className="text-[var(--color-on-field-muted)]">Loading...</p>
         </div>
       ) : transactions.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-[var(--color-on-accent-muted)]">No transactions yet</p>
+          <p className="text-[var(--color-on-field-muted)]">No transactions yet</p>
         </div>
       ) : (
         <div className="-mx-6 flex-1 overflow-y-auto">
@@ -50,30 +50,28 @@ export function Activity() {
               <Link
                 key={tx.id}
                 to={`/activity/close/${tx.channelId}`}
-                className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-white/5"
+                className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-on-field/5"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-accent">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-field">
                   <ArrowDownLeft className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-on-accent">
+                  <div className="font-semibold text-on-field">
                     Channel close
                     {CLOSE_BADGES[tx.closeStatus] !== '' && (
-                      <span className="ml-2 text-xs font-normal text-[var(--color-on-accent-muted)]">
+                      <span className="ml-2 text-xs font-normal text-[var(--color-on-field-muted)]">
                         {CLOSE_BADGES[tx.closeStatus]}
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-xs text-[var(--color-on-accent-muted)]">
+                  <div className="mt-0.5 text-xs text-[var(--color-on-field-muted)]">
                     {'\u26A1 '}
                     {formatRelativeTime(tx.timestamp)}
                   </div>
                 </div>
                 <div
                   className={`shrink-0 font-display font-bold ${
-                    tx.status === 'pending'
-                      ? 'text-[var(--color-on-accent-muted)]'
-                      : 'text-on-accent'
+                    tx.status === 'pending' ? 'text-[var(--color-on-field-muted)]' : 'text-on-field'
                   }`}
                 >
                   {tx.amountSats !== null ? `+${formatBtc(tx.amountSats)}` : '\u2014'}
@@ -84,9 +82,9 @@ export function Activity() {
                 key={tx.id}
                 to={`/activity/${tx.id}`}
                 state={{ tx }}
-                className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-white/5"
+                className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-on-field/5"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-accent">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center text-on-field">
                   {tx.direction === 'sent' ? (
                     <ArrowUpRight className="h-5 w-5" />
                   ) : (
@@ -94,24 +92,22 @@ export function Activity() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-on-accent">
+                  <div className="font-semibold text-on-field">
                     {tx.direction === 'sent' ? 'Sent' : 'Received'}
                     {tx.status === 'pending' && (
-                      <span className="ml-2 text-xs font-normal text-[var(--color-on-accent-muted)]">
+                      <span className="ml-2 text-xs font-normal text-[var(--color-on-field-muted)]">
                         Pending
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-xs text-[var(--color-on-accent-muted)]">
+                  <div className="mt-0.5 text-xs text-[var(--color-on-field-muted)]">
                     {tx.layer === 'lightning' && '\u26A1 '}
                     {formatRelativeTime(tx.timestamp)}
                   </div>
                 </div>
                 <div
                   className={`shrink-0 font-display font-bold ${
-                    tx.status === 'pending'
-                      ? 'text-[var(--color-on-accent-muted)]'
-                      : 'text-on-accent'
+                    tx.status === 'pending' ? 'text-[var(--color-on-field-muted)]' : 'text-on-field'
                   }`}
                 >
                   {tx.direction === 'sent' ? '-' : '+'}

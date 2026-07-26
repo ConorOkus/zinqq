@@ -150,7 +150,7 @@ export function Peers() {
         <ScreenHeader title="Peers" backTo="/settings/advanced" />
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6">
           <p className="font-semibold text-on-dark">Lightning node error</p>
-          <p className="text-sm text-red-400">{ldk.error.message}</p>
+          <p className="text-sm text-danger">{ldk.error.message}</p>
         </div>
       </div>
     )
@@ -177,14 +177,14 @@ export function Peers() {
             value={peerAddress}
             onChange={(e) => setPeerAddress(e.target.value)}
             placeholder="pubkey@host:port"
-            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-accent"
+            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-hot"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConnect()
             }}
           />
-          {connectError && <p className="text-sm text-red-400">{connectError}</p>}
+          {connectError && <p className="text-sm text-danger">{connectError}</p>}
           <button
-            className="h-12 w-full rounded-xl bg-accent font-display font-bold text-white transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
+            className="h-12 w-full rounded-xl bg-cta font-display font-bold text-on-cta transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
             onClick={handleConnect}
             disabled={!peerAddress.trim()}
           >
@@ -198,12 +198,12 @@ export function Peers() {
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
               Peers ({connectedCount} connected, {peers.length} saved)
             </span>
-            <button className="text-xs text-accent" onClick={() => void refreshPeers()}>
+            <button className="text-xs text-on-dark underline" onClick={() => void refreshPeers()}>
               Refresh
             </button>
           </div>
 
-          {forgetError && <p className="text-sm text-red-400">{forgetError}</p>}
+          {forgetError && <p className="text-sm text-danger">{forgetError}</p>}
 
           {peers.length === 0 ? (
             <p className="py-4 text-center text-sm text-[var(--color-on-dark-muted)]">
@@ -219,7 +219,7 @@ export function Peers() {
                   <div className="flex items-center gap-3">
                     <div
                       className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                        peer.connected ? 'bg-green-500' : 'bg-gray-500'
+                        peer.connected ? 'bg-success' : 'bg-[var(--color-on-dark-muted)]'
                       }`}
                     />
                     <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-sm">
@@ -227,14 +227,14 @@ export function Peers() {
                     </span>
                     <span
                       className={`shrink-0 text-xs font-semibold ${
-                        peer.connected ? 'text-green-500' : 'text-[var(--color-on-dark-muted)]'
+                        peer.connected ? 'text-success' : 'text-[var(--color-on-dark-muted)]'
                       }`}
                     >
                       {peer.connected ? 'Connected' : 'Offline'}
                     </span>
                     {peer.known && (
                       <button
-                        className="shrink-0 text-xs text-red-400 disabled:opacity-30"
+                        className="shrink-0 text-xs text-danger disabled:opacity-30"
                         onClick={() => void handleForget(peer.pubkey)}
                         disabled={peer.channels.length > 0}
                         title={
@@ -256,7 +256,7 @@ export function Peers() {
                         <span
                           className={`text-xs ${
                             ch.isShuttingDown
-                              ? 'font-semibold text-amber-400'
+                              ? 'font-semibold text-warning'
                               : 'text-[var(--color-on-dark-muted)]'
                           }`}
                         >
@@ -287,7 +287,7 @@ export function Peers() {
                           )}
                         </div>
                         <button
-                          className="shrink-0 text-xs font-semibold text-red-400 transition-colors active:text-red-300"
+                          className="shrink-0 text-xs font-semibold text-danger transition-colors active:text-danger/80"
                           onClick={() =>
                             void navigate('/settings/advanced/peers/close-channel', {
                               state: {

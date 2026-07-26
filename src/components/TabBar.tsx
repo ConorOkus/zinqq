@@ -14,12 +14,12 @@ export function TabBar() {
 
   return (
     <nav
-      className="fixed bottom-0 left-1/2 z-100 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-between bg-accent px-2 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]"
+      className="fixed bottom-0 left-1/2 z-100 flex w-full max-w-[430px] -translate-x-1/2 items-center justify-between bg-field px-2 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]"
       role="navigation"
       aria-label="Main navigation"
     >
       <button
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-accent"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-field"
         onClick={() => void navigate('/scan')}
         aria-label="Scan QR code"
       >
@@ -28,7 +28,7 @@ export function TabBar() {
 
       <button
         className={`flex h-11 w-full max-w-[120px] items-center justify-center rounded-full font-display text-sm font-bold uppercase tracking-wider transition-all ${
-          isWallet ? 'bg-on-accent text-accent' : 'text-[var(--color-on-accent-muted)]'
+          isWallet ? 'bg-tab-active text-on-tab-active' : 'text-[var(--color-on-field-muted)]'
         }`}
         onClick={() => void navigate('/')}
       >
@@ -37,7 +37,7 @@ export function TabBar() {
 
       <button
         className={`flex h-11 w-full max-w-[120px] items-center justify-center rounded-full font-display text-sm font-bold uppercase tracking-wider transition-all ${
-          isActivity ? 'bg-on-accent text-accent' : 'text-[var(--color-on-accent-muted)]'
+          isActivity ? 'bg-tab-active text-on-tab-active' : 'text-[var(--color-on-field-muted)]'
         }`}
         onClick={() => void navigate('/activity')}
       >
@@ -45,7 +45,7 @@ export function TabBar() {
       </button>
 
       <button
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-accent"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-on-field"
         onClick={() => void navigate('/settings')}
         aria-label="Settings menu"
       >

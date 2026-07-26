@@ -193,7 +193,7 @@ export function Restore() {
                     autoComplete="off"
                     autoCapitalize="off"
                     spellCheck={false}
-                    className="w-full rounded-lg bg-dark-elevated px-2 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-accent"
+                    className="w-full rounded-lg bg-dark-elevated px-2 py-2 text-sm text-on-dark outline-none focus:ring-1 focus:ring-hot"
                   />
                 </div>
               ))}
@@ -202,7 +202,7 @@ export function Restore() {
             <button
               onClick={handleSubmit}
               disabled={!isValid}
-              className="mt-4 w-full rounded-xl bg-accent px-6 py-4 font-display font-bold text-white disabled:opacity-40 active:scale-[0.98]"
+              className="mt-4 w-full rounded-xl bg-cta px-6 py-4 font-display font-bold text-on-cta disabled:opacity-40 active:scale-[0.98]"
             >
               Continue
             </button>
@@ -219,7 +219,7 @@ export function Restore() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="h-8 w-8 text-amber-400"
+                className="h-8 w-8 text-warning"
               >
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                 <line x1="12" y1="9" x2="12" y2="13" />
@@ -238,13 +238,13 @@ export function Restore() {
             <div className="flex w-full flex-col gap-3">
               <button
                 onClick={() => void handleRestore()}
-                className="w-full rounded-xl bg-red-600 px-6 py-4 font-display font-bold text-white active:scale-[0.98]"
+                className="w-full rounded-xl bg-hot px-6 py-4 font-display font-bold text-on-hot active:scale-[0.98]"
               >
                 Erase & Restore
               </button>
               <button
                 onClick={() => setState({ status: 'input' })}
-                className="w-full rounded-xl bg-dark-elevated px-6 py-4 font-display font-bold text-white active:scale-[0.98]"
+                className="w-full rounded-xl bg-dark-elevated px-6 py-4 font-display font-bold text-on-dark active:scale-[0.98]"
               >
                 Cancel
               </button>
@@ -254,17 +254,17 @@ export function Restore() {
 
         {state.status === 'restoring' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-on-dark/25 border-t-on-dark" />
             <p className="text-sm text-[var(--color-on-dark-muted)]">{state.message}</p>
           </div>
         )}
 
         {state.status === 'error' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-            <p className="text-sm text-red-400">{state.message}</p>
+            <p className="text-sm text-danger">{state.message}</p>
             <button
               onClick={() => setState({ status: 'input' })}
-              className="rounded-xl bg-dark-elevated px-6 py-3 font-display font-bold text-white active:scale-[0.98]"
+              className="rounded-xl bg-dark-elevated px-6 py-3 font-display font-bold text-on-dark active:scale-[0.98]"
             >
               Try Again
             </button>

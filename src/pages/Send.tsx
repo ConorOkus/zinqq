@@ -847,8 +847,8 @@ export function Send() {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-dark px-6">
         <p className="text-lg font-semibold text-on-dark">Failed to load wallet</p>
-        <p className="mt-2 text-sm text-red-400">{onchain.error.message}</p>
-        <button className="mt-6 text-sm text-accent" onClick={() => void navigate('/')}>
+        <p className="mt-2 text-sm text-danger">{onchain.error.message}</p>
+        <button className="mt-6 text-sm text-on-dark underline" onClick={() => void navigate('/')}>
           Back to Home
         </button>
       </div>
@@ -859,8 +859,8 @@ export function Send() {
   if (sendStep.step === 'oc-success') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent">
-          <Check className="h-10 w-10 text-white" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-badge">
+          <Check className="h-10 w-10 text-on-badge" />
         </div>
         <div>
           <div className="font-display text-4xl font-bold text-on-dark">
@@ -873,7 +873,7 @@ export function Send() {
             href={`${ONCHAIN_CONFIG.explorerUrl}/tx/${sendStep.txid}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full border border-accent px-6 py-3 text-sm text-accent transition-colors hover:bg-accent/10"
+            className="rounded-full border border-dark-border px-6 py-3 text-sm text-on-dark transition-colors hover:bg-on-dark/10"
           >
             View on explorer
           </a>
@@ -883,7 +883,7 @@ export function Send() {
           </p>
         )}
         <button
-          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
           onClick={() => void navigate('/')}
         >
           Done
@@ -896,8 +896,8 @@ export function Send() {
   if (sendStep.step === 'ln-success') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent">
-          <Check className="h-10 w-10 text-white" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-badge">
+          <Check className="h-10 w-10 text-on-badge" />
         </div>
         <div>
           <div className="font-display text-4xl font-bold text-on-dark">
@@ -906,7 +906,7 @@ export function Send() {
           <div className="mt-1 text-[var(--color-on-dark-muted)]">sent successfully</div>
         </div>
         <button
-          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
           onClick={() => void navigate('/')}
         >
           Done
@@ -919,16 +919,16 @@ export function Send() {
   if (sendStep.step === 'error') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500/20">
-          <XClose className="h-10 w-10 text-red-400" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-danger/15">
+          <XClose className="h-10 w-10 text-danger" />
         </div>
         <div>
           <div className="font-display text-2xl font-bold text-on-dark">Send Failed</div>
-          <div className="mt-2 text-sm text-red-400">{sendStep.message}</div>
+          <div className="mt-2 text-sm text-danger">{sendStep.message}</div>
           <div className="mt-1 text-sm text-[var(--color-on-dark-muted)]">Your funds are safe.</div>
         </div>
         <button
-          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
           onClick={() => {
             if (sendStep.retryStep) {
               setSendStep(sendStep.retryStep)
@@ -970,13 +970,13 @@ export function Send() {
 
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-on-dark/20 border-t-on-dark" />
         <p className="text-[var(--color-on-dark-muted)]">{statusText}</p>
         <div className="mt-1 text-xs text-[var(--color-on-dark-muted)]">
           {formatBtc(msatToSatCeil(sendStep.amountMsat))}
         </div>
         <button
-          className="mt-4 text-sm text-red-400 transition-colors hover:text-red-300"
+          className="mt-4 text-sm text-danger transition-colors hover:text-danger/80"
           onClick={handleCancelPayment}
         >
           Cancel
@@ -995,7 +995,7 @@ export function Send() {
           {sendStep.amountsUpdated && (
             <p
               role="status"
-              className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400"
+              className="rounded-lg bg-warning/10 px-3 py-2 text-sm font-medium text-warning"
             >
               Amounts were updated — conditions changed since your last review.
             </p>
@@ -1042,13 +1042,13 @@ export function Send() {
         </div>
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             onClick={() => void handleOcConfirm()}
             disabled={isBroadcasting}
           >
             {isBroadcasting ? (
               <>
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-on-cta/30 border-t-on-cta" />
                 Sending…
               </>
             ) : (
@@ -1082,7 +1082,7 @@ export function Send() {
         </div>
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
-            className="h-14 w-full rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+            className="h-14 w-full rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
             onClick={() => void handleLnConfirm()}
           >
             Confirm Send
@@ -1104,7 +1104,7 @@ export function Send() {
             <button
               className={`rounded-full border px-4 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
                 isSendMax
-                  ? 'border-accent bg-accent font-semibold text-white'
+                  ? 'border-pill bg-pill font-semibold text-on-pill'
                   : 'border-dark-border text-[var(--color-on-dark-muted)] hover:text-on-dark'
               }`}
               onClick={handleOnchainSendAll}
@@ -1122,7 +1122,7 @@ export function Send() {
             </button>
           )}
           <div
-            className={`font-display font-bold leading-none tracking-tight ${
+            className={`font-display font-bold leading-none tracking-tight text-amount ${
               amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
             }`}
             aria-live="polite"
@@ -1136,7 +1136,7 @@ export function Send() {
               {sendStep.maxSat !== undefined && `Max ${formatBtc(sendStep.maxSat)}`}
             </p>
           )}
-          {inputError && <p className="mt-2 text-sm text-red-400">{inputError}</p>}
+          {inputError && <p className="mt-2 text-sm text-danger">{inputError}</p>}
         </div>
         <Numpad onKey={handleNumpadKey} onNext={handleAmountNext} nextDisabled={amountSats <= 0n} />
       </div>
@@ -1167,14 +1167,14 @@ export function Send() {
             placeholder="payment request or user@domain"
             maxLength={2000}
             disabled={isResolving}
-            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+            className="w-full rounded-xl border border-dark-border bg-dark-elevated px-4 py-3 font-mono text-sm text-on-dark placeholder:text-[var(--color-on-dark-muted)] focus:outline-none focus:ring-2 focus:ring-hot disabled:opacity-50"
           />
-          {inputError && <p className="text-sm text-red-400">{inputError}</p>}
+          {inputError && <p className="text-sm text-danger">{inputError}</p>}
         </div>
       </div>
       <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
         <button
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-white font-display text-lg font-bold uppercase tracking-wider text-dark transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-cta font-display text-lg font-bold uppercase tracking-wider text-on-cta transition-transform disabled:cursor-not-allowed disabled:opacity-30 active:scale-[0.98]"
           onClick={
             isResolving
               ? () => {
@@ -1187,7 +1187,7 @@ export function Send() {
         >
           {isResolving ? (
             <>
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-dark/20 border-t-dark" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-on-cta/30 border-t-on-cta" />
               Resolving...
             </>
           ) : (

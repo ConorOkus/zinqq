@@ -8,14 +8,14 @@ export function WalletGate({ children }: { children: ReactNode }) {
 
   if (wallet.status === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center text-gray-400">
+      <div className="flex min-h-screen items-center justify-center text-[var(--color-on-dark-muted)]">
         Loading wallet...
       </div>
     )
   }
 
   if (wallet.status === 'error') {
-    return <div className="p-4 text-red-400">Wallet error: {wallet.error.message}</div>
+    return <div className="p-4 text-danger">Wallet error: {wallet.error.message}</div>
   }
 
   // status === 'ready' — render providers with derived keys, then children
