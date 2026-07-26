@@ -18,6 +18,7 @@ import {
 } from './onchain-context'
 import { fullScanBdkWallet } from './init'
 import { ONCHAIN_CONFIG, MIN_FEE_RATE_SAT_VB, MAX_FEE_SATS, ANCHOR_RESERVE_SATS } from './config'
+import { checkMaxSendGuards } from './send-guards'
 import { startOnchainSyncLoop, type OnchainBalance, type OnchainSyncHandle } from './sync'
 import { putChangeset } from './storage/changeset'
 import { captureError } from '../storage/error-log'
@@ -239,6 +240,10 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       if (!wallet) throw new Error('Wallet not ready')
 
       const addr = Address.from_string(address, ONCHAIN_CONFIG.network)
+      // Dust floor for the recipient's script (294 sats P2WPKH, 546 legacy P2PKH).
+      // script_pubkey is a getter returning a fresh ScriptBuf on each access —
+      // required, because drain_to() below consumes the ScriptBuf it is given.
+      const dustFloor = addr.script_pubkey.minimal_non_dust().to_sat()
       const { fee, feeRate } = await buildAndEstimate((feeRate) =>
         // TxBuilder methods consume self — must chain calls
         wallet.build_tx().drain_wallet().drain_to(addr.script_pubkey).fee_rate(feeRate).finish()
@@ -249,9 +254,13 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       const totalAvailable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
       const reserve = getAnchorReserve()
       const amount = totalAvailable - fee - reserve
-      if (amount < 0n) {
-        return { amount: 0n, fee, feeRate }
-      }
+
+      // Estimate-time guards: outcomes knowable now (fee above MAX_FEE_SATS,
+      // amount below the script's dust floor — including negative) surface as
+      // friendly errors at the amount step instead of a post-Confirm failure.
+      // These also gate sendMax's reserve-branch estimate call.
+      const guardError = checkMaxSendGuards(amount, fee, dustFloor)
+      if (guardError) throw guardError
 
       return { amount, fee, feeRate }
     },

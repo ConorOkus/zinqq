@@ -690,6 +690,142 @@ describe('Send', () => {
     })
   })
 
+  describe('send all estimate-time guards (dust floor and fee ceiling)', () => {
+    /** Enter recipient, tap Max, then tap Next to trigger estimateMaxSendable. */
+    async function tapMaxAndNext(user: ReturnType<typeof userEvent.setup>) {
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: /max/i }))
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+    }
+
+    it('dust-floor rejection stays on the amount step with the friendly inline message', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi.fn().mockRejectedValue(new Error('Balance too low to cover fees')),
+      })
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(screen.getByText('Balance too low to cover fees')).toBeInTheDocument()
+      })
+      // Still on the amount step — no review, no error screen
+      expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /confirm send/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/send failed/i)).not.toBeInTheDocument()
+    })
+
+    it('estimate resolving exactly at the dust threshold proceeds to review (boundary)', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi.fn().mockResolvedValue({ amount: 294n, fee: 150n, feeRate: 1n }),
+      })
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+      expect(screen.getByText('₿294')).toBeInTheDocument()
+    })
+
+    it('fee-ceiling rejection shows the fees-too-high inline message; no review, no broadcast', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockRejectedValue(new Error('Network fees are too high right now — try again later.')),
+      })
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Network fees are too high right now — try again later.')
+        ).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /confirm send/i })).not.toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+    })
+
+    it('maps a raw BDK builder dust error to the friendly balance message', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi.fn().mockRejectedValue(new Error('OutputBelowDustLimit(0)')),
+      })
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(screen.getByText('Balance too low to cover fees')).toBeInTheDocument()
+      })
+      // Raw BDK text never reaches the user
+      expect(screen.queryByText(/OutputBelowDustLimit/i)).not.toBeInTheDocument()
+    })
+
+    it('maps a raw BDK insufficient-funds error to the friendly balance message', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockRejectedValue(new Error('InsufficientFunds { needed: 50000, available: 400 }')),
+      })
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(screen.getByText('Balance too low to cover fees')).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/InsufficientFunds/i)).not.toBeInTheDocument()
+    })
+
+    it('sub-dust Max prefill defers to the estimate guard, not the numpad dust message', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        balance: { confirmed: 200n, trustedPending: 0n, untrustedPending: 0n },
+        approxMaxSpendable: vi.fn(() => 200n),
+        estimateMaxSendable: vi.fn().mockRejectedValue(new Error('Balance too low to cover fees')),
+      })
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(screen.getByText('Balance too low to cover fees')).toBeInTheDocument()
+      })
+      // The numpad dust-limit pre-check must not fire for send-all
+      expect(screen.queryByText(/dust limit/i)).not.toBeInTheDocument()
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.estimateMaxSendable).toHaveBeenCalled()
+    })
+
+    it('normal estimate resolution still reaches review (fee-fetch fallback characterization)', async () => {
+      const user = userEvent.setup()
+      // getFeeRate never throws in the context layer (cached-default fallback);
+      // a normally-resolving estimate must route to review.
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await tapMaxAndNext(user)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+      expect(screen.getByText('₿49,850')).toBeInTheDocument()
+    })
+  })
+
   describe('error done and retry', () => {
     it('shows Try Again button for retryable broadcast error', async () => {
       const user = userEvent.setup()

@@ -7,6 +7,7 @@ import { classifyPaymentInput, type ParsedPaymentInput } from '../ldk/payment-in
 import { resolveBip353 } from '../ldk/resolve-bip353'
 import { resolveLnurlPay, fetchLnurlInvoice } from '../lnurl/resolve-lnurl'
 import { ONCHAIN_CONFIG } from '../onchain/config'
+import { BALANCE_TOO_LOW_MESSAGE, FEES_TOO_HIGH_MESSAGE } from '../onchain/send-guards'
 import { formatBtc } from '../utils/format-btc'
 import { msatToSatCeil, msatToSatFloor } from '../utils/msat'
 import { bytesToHex } from '../ldk/utils'
@@ -80,11 +81,23 @@ const RESOLVE_TIMEOUT_MS = 5_000
 
 function classifyEstimateError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
+  // Friendly estimate-time guard messages pass through verbatim (explicit so
+  // the case-sensitive 'network' check below can never rewrite them)
+  if (msg === BALANCE_TOO_LOW_MESSAGE || msg === FEES_TOO_HIGH_MESSAGE) {
+    return msg
+  }
   if (msg.includes('network') || msg.includes('different Bitcoin network')) {
     return 'This address is for a different Bitcoin network'
   }
   if (msg.includes('Invalid') || msg.includes('address')) {
     return 'Invalid Bitcoin address'
+  }
+  // Raw BDK builder errors: a drain build can throw before an amount is even
+  // computed (e.g. "OutputBelowDustLimit", "InsufficientFunds"). Map them to
+  // the friendly balance message so raw BDK text never reaches the user.
+  const lower = msg.toLowerCase()
+  if (lower.includes('dust') || lower.includes('insufficient')) {
+    return BALANCE_TOO_LOW_MESSAGE
   }
   return msg
 }
@@ -359,8 +372,10 @@ export function Send() {
           const effectiveAmount = parsed.amountSats ?? amountSats
           const effectiveIsSendMax = parsed.amountSats ? false : isSendMax
 
-          // Phase 2 validation: dust limit
-          if (effectiveAmount < MIN_DUST_SATS) {
+          // Phase 2 validation: dust limit. Skipped for send-all — its real
+          // amount comes from estimateMaxSendable, whose guards enforce the
+          // recipient script's actual dust floor (294 P2WPKH / 546 P2PKH).
+          if (!effectiveIsSendMax && effectiveAmount < MIN_DUST_SATS) {
             setInputError(`Amount must be at least ${formatBtc(MIN_DUST_SATS)} (dust limit)`)
             return
           }
@@ -371,8 +386,10 @@ export function Send() {
           if (effectiveIsSendMax) {
             try {
               const estimate = await onchain.estimateMaxSendable(parsed.address)
+              // Defense in depth — the context layer's guards already throw
+              // for sub-dust (and therefore non-positive) amounts
               if (estimate.amount <= 0n) {
-                setInputError('Balance too low to cover fees')
+                setInputError(BALANCE_TOO_LOW_MESSAGE)
                 return
               }
               setSendStep({
