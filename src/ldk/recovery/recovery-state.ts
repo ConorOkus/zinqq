@@ -11,7 +11,8 @@ export type RecoveryStatus = 'needs_recovery' | 'sweep_confirmed'
 
 export interface RecoveryState {
   status: RecoveryStatus
-  stuckBalanceSat: number
+  /** Estimated stuck balance; null when unknown (close record missing at entry). */
+  stuckBalanceSat: number | null
   depositAddress: string
   depositNeededSat: number
   channelIds: string[]

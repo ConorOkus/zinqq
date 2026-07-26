@@ -96,11 +96,19 @@ export async function reconcileCloseRecords(
   const pendingRecords = getCloseRecordsSnapshot().filter((r) => r.completedAt === undefined)
   const fundingMap = getFundingTxoMap()
 
-  // Mempool-window exception: while a record's closing tx is undiscovered,
+  // Mempool-window exception: while a record has no CONFIRMED closing tx,
   // check its funding outspend every tick (Esplora reports unconfirmed
-  // spends). Everything else only moves when a new block arrives.
+  // spends). Matches step (a)'s gate — a recorded-but-unconfirmed commitment
+  // may be superseded by the counterparty's, and waiting for the next block
+  // to discover that leaves a false "deposit needed" banner up for ~10 min.
+  // Everything else only moves when a new block arrives.
   const undiscovered = pendingRecords.filter(
-    (r) => r.fundingTxo && !r.txs.some((tx) => tx.role === 'closing' || tx.role === 'commitment')
+    (r) =>
+      r.fundingTxo &&
+      !r.txs.some(
+        (tx) =>
+          (tx.role === 'closing' || tx.role === 'commitment') && tx.confirmedAtHeight !== undefined
+      )
   )
   if (!info.tipChanged && undiscovered.length === 0) return
   if (pendingRecords.length === 0 && fundingMap.size === 0) return
@@ -163,11 +171,19 @@ export async function reconcileCloseRecords(
         }
         let changed = false
 
-        // (a) Discover the closing tx from the funding outspend.
-        const hasCloseTx = record.txs.some(
-          (tx) => tx.role === 'closing' || tx.role === 'commitment'
+        // (a) Discover the closing tx from the funding outspend. Re-checked
+        // until a KNOWN close tx has confirmed — a record may hold only our
+        // own broadcast commitment while the counterparty's commitment is
+        // what actually spent the funding output (supersession; ours can
+        // then never confirm). The confirmed funding spend is ground truth.
+        // Merge unions by txid, so re-discovering an already-recorded tx
+        // just fills in its confirmation height.
+        const hasConfirmedCloseTx = record.txs.some(
+          (tx) =>
+            (tx.role === 'closing' || tx.role === 'commitment') &&
+            tx.confirmedAtHeight !== undefined
         )
-        if (!hasCloseTx && record.fundingTxo) {
+        if (!hasConfirmedCloseTx && record.fundingTxo) {
           const txo = record.fundingTxo
           const spend = await spendQuery(() => deps.esplora.getOutspend(txo.txid, txo.vout))
           if (spend?.spent && spend.txid) {

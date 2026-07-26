@@ -1,6 +1,7 @@
 import { Wallet, EsploraClient, ChangeSet, type Network } from '@bitcoindevkit/bdk-wallet-web'
 import { ONCHAIN_CONFIG } from './config'
 import { getChangeset, putChangeset } from './storage/changeset'
+import { markInitialScanComplete } from './scan-state'
 import { captureError } from '../storage/error-log'
 import { broadcastWithRetry } from '../ldk/traits/broadcaster'
 
@@ -94,6 +95,7 @@ export async function fullScanBdkWallet(
     )
     wallet.apply_update(update)
     console.log('[BDK] Full scan complete')
+    markInitialScanComplete()
   } catch (err) {
     captureError('warning', 'BDK', 'Full scan failed, wallet may have stale data', String(err))
   }

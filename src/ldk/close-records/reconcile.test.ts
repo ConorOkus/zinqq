@@ -132,6 +132,44 @@ describe('reconcileCloseRecords', () => {
     expect(tx?.confirmedAtHeight).toBe(990)
   })
 
+  it('discovers a superseding close tx when the recorded commitment never confirmed', async () => {
+    // Our own commitment was broadcast and recorded, but the counterparty's
+    // commitment is what actually spent the funding output (restore
+    // false-positive case) — ours can never confirm, theirs is ground truth.
+    await upsertCloseRecord(
+      record('ab', {
+        fundingTxo: { txid: 'f0', vout: 1 },
+        txs: [{ txid: 'our-commit', role: 'commitment' }],
+      })
+    )
+    await reconcileCloseRecords(
+      makeDeps({
+        outspends: { 'f0:1': { spent: true, txid: 'their-commit' } },
+        txStatuses: { 'their-commit': { confirmed: true, block_height: 990 } },
+      }),
+      TIP
+    )
+    const txs = getCloseRecordSync('ab')?.txs
+    const theirs = txs?.find((t) => t.txid === 'their-commit')
+    expect(theirs?.role).toBe('commitment')
+    expect(theirs?.confirmedAtHeight).toBe(990)
+    // Ours stays recorded as a fact; it just never gains a confirmation.
+    expect(txs?.some((t) => t.txid === 'our-commit')).toBe(true)
+  })
+
+  it('stops outspend queries once a close tx has confirmed', async () => {
+    await upsertCloseRecord(
+      record('ab', {
+        fundingTxo: { txid: 'f0', vout: 1 },
+        txs: [{ txid: 'commit-tx', role: 'commitment', confirmedAtHeight: 990 }],
+      })
+    )
+    const deps = makeDeps()
+    const outspendSpy = vi.spyOn(deps.esplora, 'getOutspend')
+    await reconcileCloseRecords(deps, TIP)
+    expect(outspendSpy).not.toHaveBeenCalled()
+  })
+
   it('checks undiscovered closing txs even without a new tip (mempool window)', async () => {
     await upsertCloseRecord(record('ab', { fundingTxo: { txid: 'f0', vout: 1 } }))
     await reconcileCloseRecords(
@@ -139,6 +177,27 @@ describe('reconcileCloseRecords', () => {
       { tipChanged: false, tipHash: 'tiphash' }
     )
     expect(getCloseRecordSync('ab')?.txs.some((t) => t.txid === 'commit-tx')).toBe(true)
+  })
+
+  it('checks outspends without a new tip while the recorded close tx is unconfirmed', async () => {
+    // Supersession must not wait for the next block: a false "deposit
+    // needed" banner clears only after the real (counterparty) close tx is
+    // discovered, so the mempool window covers unconfirmed-close records too.
+    await upsertCloseRecord(
+      record('ab', {
+        fundingTxo: { txid: 'f0', vout: 1 },
+        txs: [{ txid: 'our-commit', role: 'commitment' }],
+      })
+    )
+    await reconcileCloseRecords(
+      makeDeps({
+        outspends: { 'f0:1': { spent: true, txid: 'their-commit' } },
+        txStatuses: { 'their-commit': { confirmed: true, block_height: 990 } },
+      }),
+      { tipChanged: false, tipHash: 'tiphash' }
+    )
+    const theirs = getCloseRecordSync('ab')?.txs.find((t) => t.txid === 'their-commit')
+    expect(theirs?.confirmedAtHeight).toBe(990)
   })
 
   it('completes verified on wallet receipt evidence (≥6 confs + in BDK wallet)', async () => {

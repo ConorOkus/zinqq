@@ -64,7 +64,7 @@ export function RecoverFunds() {
               Stuck balance
             </span>
             <span className="font-display text-lg font-bold">
-              {formatBtc(recovery.stuckBalanceSat)}
+              {recovery.stuckBalanceSat === null ? 'Unknown' : formatBtc(recovery.stuckBalanceSat)}
             </span>
           </div>
           <hr className="border-[var(--color-dark-border)]" />
