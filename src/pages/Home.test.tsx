@@ -21,6 +21,7 @@ function readyOnchain(
     generateAddress: () => 'bc1qtest',
     estimateFee: async () => ({ fee: 245n, feeRate: 2n }),
     estimateMaxSendable: async () => ({ amount: 99000n, fee: 1000n, feeRate: 2n }),
+    approxMaxSpendable: () => 100000n,
     sendToAddress: async () => 'txid123',
     sendMax: async () => 'txid123',
     syncNow: () => {},

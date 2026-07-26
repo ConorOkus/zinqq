@@ -30,6 +30,12 @@ export type OnchainContextValue =
       generateAddress: () => string
       estimateFee: (address: string, amountSats: bigint) => Promise<FeeEstimate>
       estimateMaxSendable: (address: string) => Promise<MaxSendEstimate>
+      /**
+       * Approximate send-all prefill: confirmed + trustedPending minus the anchor
+       * reserve (when Lightning channels are open), clamped at 0. Fee is not
+       * subtracted — the exact amount is recomputed at review via estimateMaxSendable.
+       */
+      approxMaxSpendable: () => bigint
       sendToAddress: (address: string, amountSats: bigint, feeRateSatVb?: bigint) => Promise<string>
       sendMax: (address: string, feeRateSatVb?: bigint) => Promise<string>
       /** Trigger an immediate BDK wallet sync with retries. Used after channel close. */

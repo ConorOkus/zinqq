@@ -258,6 +258,21 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
     [buildAndEstimate, getAnchorReserve]
   )
 
+  /**
+   * Approximate send-all prefill: confirmed + trusted pending minus the anchor
+   * reserve (when channels are open), clamped at 0. Never includes untrusted
+   * pending. Fee is not subtracted; the exact amount comes from
+   * estimateMaxSendable at review time.
+   */
+  const approxMaxSpendable = useCallback((): bigint => {
+    const wallet = walletRef.current
+    if (!wallet) return 0n
+    const balance = wallet.balance
+    const spendable = balance.confirmed.to_sat() + balance.trusted_pending.to_sat()
+    const amount = spendable - getAnchorReserve()
+    return amount < 0n ? 0n : amount
+  }, [getAnchorReserve])
+
   const sendToAddress = useCallback(
     async (address: string, amountSats: bigint, feeRateSatVb?: bigint): Promise<string> => {
       const wallet = walletRef.current
@@ -364,6 +379,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
             generateAddress,
             estimateFee,
             estimateMaxSendable,
+            approxMaxSpendable,
             sendToAddress,
             sendMax,
             syncNow,
@@ -397,6 +413,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
     generateAddress,
     estimateFee,
     estimateMaxSendable,
+    approxMaxSpendable,
     sendToAddress,
     sendMax,
     syncNow,

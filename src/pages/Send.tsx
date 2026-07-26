@@ -151,7 +151,20 @@ export function Send() {
 
   const amountSats = amountDigits ? BigInt(amountDigits) : 0n
 
-  // --- Amount screen: Send max approximation ---
+  // --- Amount screen: onchain send-all (Max control) ---
+  // Prefill = confirmed + trusted pending − anchor reserve (from the onchain
+  // context); the exact amount is recomputed at review via estimateMaxSendable.
+  const handleOnchainSendAll = useCallback(() => {
+    if (sendStep.step !== 'amount') return
+    if (onchain.status !== 'ready') return
+    const prefill = onchain.approxMaxSpendable()
+    if (prefill <= 0n) return
+    setInputError(null)
+    setAmountDigits(prefill.toString())
+    setIsSendMax(true)
+  }, [onchain, sendStep])
+
+  // --- Amount screen: Send max approximation (lightning/LNURL label) ---
   const handleApproxSendMax = useCallback(() => {
     if (sendStep.step !== 'amount') return
     // For LNURL with maxSat constraint, cap at maxSat
@@ -941,16 +954,33 @@ export function Send() {
   // --- Amount screen (shown only when input has no embedded amount) ---
   if (sendStep.step === 'amount') {
     const hasConstraints = sendStep.minSat !== undefined || sendStep.maxSat !== undefined
+    const isOnchainRecipient = sendStep.parsedInput.type === 'onchain'
+    const sendAllPrefill = isOnchainRecipient ? onchain.approxMaxSpendable() : 0n
     return (
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader title="Send" onBack={() => setSendStep({ step: 'recipient' })} />
         <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <button
-            className="text-sm text-[var(--color-on-dark-muted)] transition-colors hover:text-on-dark"
-            onClick={handleApproxSendMax}
-          >
-            {formatBtc(unified.total)} available
-          </button>
+          {isOnchainRecipient ? (
+            <button
+              className={`rounded-full border px-4 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                isSendMax
+                  ? 'border-accent bg-accent font-semibold text-white'
+                  : 'border-dark-border text-[var(--color-on-dark-muted)] hover:text-on-dark'
+              }`}
+              onClick={handleOnchainSendAll}
+              disabled={sendAllPrefill <= 0n}
+              aria-pressed={isSendMax}
+            >
+              {`${formatBtc(onchainBalance)} available · Max`}
+            </button>
+          ) : (
+            <button
+              className="text-sm text-[var(--color-on-dark-muted)] transition-colors hover:text-on-dark"
+              onClick={handleApproxSendMax}
+            >
+              {formatBtc(unified.total)} available
+            </button>
+          )}
           <div
             className={`font-display font-bold leading-none tracking-tight ${
               amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'

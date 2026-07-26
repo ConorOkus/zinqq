@@ -136,6 +136,7 @@ function readyContext(
     generateAddress: () => 'bc1qtest',
     estimateFee: vi.fn().mockResolvedValue({ fee: 150n, feeRate: 1n }),
     estimateMaxSendable: vi.fn().mockResolvedValue({ amount: 49850n, fee: 150n, feeRate: 1n }),
+    approxMaxSpendable: vi.fn(() => 50000n),
     sendToAddress: vi.fn().mockResolvedValue('abc123txid'),
     sendMax: vi.fn().mockResolvedValue('maxabc123txid'),
     syncNow: vi.fn(),
@@ -384,6 +385,28 @@ describe('Send', () => {
       await user.click(screen.getByRole('button', { name: /back/i }))
       expect(screen.getByLabelText(/recipient/i)).toBeInTheDocument()
     })
+
+    it('embedded amount overrides send-all: confirms via sendToAddress, never sendMax', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await submitRecipient(user, 'bitcoin:bc1qtest?amount=0.00005')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /confirm send/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
+      })
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.sendToAddress).toHaveBeenCalledWith('bc1qtest', 5000n, 1n)
+      expect(ctx.sendMax).not.toHaveBeenCalled()
+      expect(ctx.estimateMaxSendable).not.toHaveBeenCalled()
+    })
   })
 
   describe('lightning flow (fixed amount)', () => {
@@ -528,19 +551,112 @@ describe('Send', () => {
     })
   })
 
-  describe('send max', () => {
-    it('tapping balance fills numpad with unified balance', async () => {
+  describe('send all (onchain Max control)', () => {
+    it('shows a Max control with the spendable figure for an onchain recipient', async () => {
       const user = userEvent.setup()
       renderSend(readyContext())
 
       await submitRecipient(user, 'bc1qtest')
       await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+      // Displayed figure is confirmed + trustedPending (50,000), never lightning
+      expect(screen.getByRole('button', { name: /max/i })).toHaveTextContent(
+        '₿50,000 available · Max'
+      )
+    })
+
+    it('tapping Max prefills the spendable amount and enters send-all mode (no channels)', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /max/i }))
+      // Prefill = spendable 50,000, no reserve (no channels) — NOT unified 1,050,000
+      expect(screen.getByText('₿50,000')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /max/i })).toHaveAttribute('aria-pressed', 'true')
+      if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.approxMaxSpendable).toHaveBeenCalled()
+    })
+
+    it('displays spendable but prefills reserve-adjusted amount when channels are open', async () => {
+      const user = userEvent.setup()
+      // Spendable 50,000 includes the 10,000 anchor reserve; prefill helper returns 40,000
+      const ctx = readyContext({ approxMaxSpendable: vi.fn(() => 40000n) })
+      renderSend(ctx)
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: /max/i })).toHaveTextContent(
+        '₿50,000 available · Max'
+      )
+
+      await user.click(screen.getByRole('button', { name: /max/i }))
+      expect(screen.getByText('₿40,000')).toBeInTheDocument()
+    })
+
+    it('exits send-all mode on any numpad keypress', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext())
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /max/i }))
+      expect(screen.getByRole('button', { name: /max/i })).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(screen.getByRole('button', { name: '1' }))
+      expect(screen.getByRole('button', { name: /max/i })).toHaveAttribute('aria-pressed', 'false')
+      // Digits keep editing normally after exiting send-all
+      expect(screen.getByText('₿500,001')).toBeInTheDocument()
+    })
+
+    it('disables the Max control when spendable is zero (untrusted-pending only)', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        balance: { confirmed: 0n, trustedPending: 0n, untrustedPending: 30000n },
+        approxMaxSpendable: vi.fn(() => 0n),
+      })
+      renderSend(ctx)
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+
+      const maxBtn = screen.getByRole('button', { name: /max/i })
+      // Untrusted pending never counts toward the displayed spendable figure
+      expect(maxBtn).toHaveTextContent('₿0 available · Max')
+      expect(maxBtn).toBeDisabled()
+
+      await user.click(maxBtn)
+      // Tap does nothing: amount stays zero, no send-all mode, no error surfaced
+      expect(maxBtn).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.queryByText(/error|failed/i)).not.toBeInTheDocument()
+    })
+
+    it('does not render a Max control for lightning recipients; label behavior unchanged', async () => {
+      const user = userEvent.setup()
+      renderSend(readyContext())
+
+      await submitRecipient(user, 'lnbc_no_amount')
+      await waitFor(() => {
         expect(screen.getByText(/available/i)).toBeInTheDocument()
       })
 
-      // Tap the balance button to fill send-max
+      expect(screen.queryByRole('button', { name: /max/i })).not.toBeInTheDocument()
+
+      // Existing label: tapping fills numpad with unified balance (50,000 + 1,000,000)
       await user.click(screen.getByText(/available/i))
-      // Unified balance = onchain (50000) + lightning (1_000_000) = 1_050_000
       expect(screen.getByText('₿1,050,000')).toBeInTheDocument()
     })
 
@@ -551,10 +667,10 @@ describe('Send', () => {
 
       await submitRecipient(user, 'bc1qtest')
       await waitFor(() => {
-        expect(screen.getByText(/available/i)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
       })
 
-      await user.click(screen.getByText(/available/i))
+      await user.click(screen.getByRole('button', { name: /max/i }))
 
       const nextBtns = screen.getAllByRole('button', { name: /next/i })
       await user.click(nextBtns[nextBtns.length - 1]!)
@@ -569,6 +685,7 @@ describe('Send', () => {
         expect(screen.getByText(/sent successfully/i)).toBeInTheDocument()
       })
       if (ctx.status !== 'ready') throw new Error('unreachable')
+      expect(ctx.estimateMaxSendable).toHaveBeenCalled()
       expect(ctx.sendMax).toHaveBeenCalled()
     })
   })
