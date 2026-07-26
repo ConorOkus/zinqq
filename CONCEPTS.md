@@ -30,9 +30,17 @@ The status of Spendable Outputs that have been persisted but not yet successfull
 
 The persisted per-channel record of a channel close: which transactions participated and in what role (commitment, closing, sweep), amounts, and attribution back to the channel. Close records store measured facts; user-facing status is derived from them rather than stored. A completed Sweep attributes its transaction to the close records of every channel whose outputs it consumed.
 
+A recorded close transaction is a broadcast-time claim, not a resolution — which close actually ended the channel is settled only by a confirmed spend of the channel's funding output, so a record keeps watching that spend until some close transaction has confirmed (a recorded one may turn out to be a Superseded Commitment).
+
 ### Force-Close Recovery
 
 The distinct process of unlocking funds after a force-close whose commitment transaction needs a fee bump to confirm: the user deposits a small amount on-chain, which pays for the child transaction that gets the close confirmed. Distinct from a Sweep — recovery gets the close transaction confirmed, while a sweep reclaims the outputs afterward. Both can be unblocked by an on-chain deposit: recovery uses it to fee-bump the close, a Subsidized Sweep uses it to cover the sweep fee.
+
+Recovery is only ever valid while no closing transaction has confirmed. It is never entered before the wallet's Initial Scan completes (an unscanned wallet looks empty by construction, which would trigger a false deposit ask on every restore), and it exits automatically once any closing transaction confirms for every channel it covers — whether the fee-bumped one or a competing close — because a confirmed close makes the deposit unnecessary.
+
+### Superseded Commitment
+
+A broadcast force-close commitment transaction that can no longer confirm because a competing commitment — typically the counterparty's — already spent the channel's funding output and confirmed. A superseded commitment needs no fee bump and must not hold Force-Close Recovery open; the funds it would have claimed arrive instead via the confirmed close's Spendable Outputs.
 
 ### Broadcast Sentinel
 
@@ -53,6 +61,10 @@ The LSP's priced offer to open a JIT Channel: a fee and a validity window. A quo
 The set of LSP node identities allowed to open zero-confirmation channels to the wallet. Kept as a set rather than a single configured LSP so additional providers can be added without reworking channel-acceptance logic.
 
 ## Persistence & Recovery
+
+### Initial Scan
+
+The on-chain wallet's first full chain scan of a session. Until it completes, the wallet's view of its own funds is empty by construction — especially after a restore, when the wallet is freshly created — so any conclusion drawn from an absence of funds ("no UTXOs, therefore act") is invalid before this point. Checks that reason from wallet emptiness are gated on the Initial Scan having completed.
 
 ### VSS
 
