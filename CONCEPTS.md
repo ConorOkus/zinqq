@@ -75,3 +75,21 @@ The on-chain wallet's first full chain scan of a session. Until it completes, th
 ### VSS
 
 The remote versioned key-value store holding an encrypted backup of the wallet's Lightning state. Every critical persist is a dual write — remote first, local second — with version conflicts resolved by retry, so a wallet restored from seed on a new device recovers its channels and pending funds automatically.
+
+## Interface
+
+### Field Screen
+
+One of the wallet's top-level "outdoor" surfaces — the balance home, the activity list, and the tab bar — whose background carries the scheme's accent rather than a muted room color. In the hybrid Appearance Mode the field is flooded with the accent; in light and dark it matches the rooms, but the role stays distinct so the two families can diverge again without touching screens.
+
+### Room Screen
+
+A focused task surface — sending, receiving, settings, and their descendants — rendered on a muted background so the task, not the brand, dominates. Rooms keep the same visual role in every Appearance Mode; only the palette that fills the role changes (near-black in hybrid and dark, warm paper in light).
+
+### Appearance Mode
+
+The user-selected palette scheme applied to the whole app: hybrid (accent-flooded Field Screens over dark Room Screens — the default), dark, and light. A mode re-points what each color role means; screens reference roles and are themselves mode-agnostic.
+
+### Hot Moment
+
+The single warm ember-colored element a screen is intended to carry — the primary action or a destructive commitment — per the scheme's one-hot-moment-per-screen design rule. Everything else on the screen stays within the neutral field/room palette so the hot element reads as _the_ action.
