@@ -43,6 +43,8 @@ type SendStep =
       amount: bigint
       fee: bigint
       feeRate: bigint
+      /** Anchor reserve withheld from a send-all (0n for normal sends or no channels). */
+      reserveSats: bigint
       isSendMax: boolean
       fromStep: 'recipient' | 'amount'
       label?: string
@@ -398,6 +400,7 @@ export function Send() {
                 amount: estimate.amount,
                 fee: estimate.fee,
                 feeRate: estimate.feeRate,
+                reserveSats: estimate.reserveSats,
                 isSendMax: true,
                 fromStep,
               })
@@ -422,6 +425,7 @@ export function Send() {
               amount: effectiveAmount,
               fee: estimate.fee,
               feeRate: estimate.feeRate,
+              reserveSats: 0n,
               isSendMax: false,
               fromStep,
             })
@@ -894,6 +898,11 @@ export function Send() {
       <div className="flex min-h-dvh flex-col justify-between bg-dark text-on-dark">
         <ScreenHeader title="Review" onBack={handleReviewBack} />
         <div className="flex flex-1 flex-col gap-6 px-6 pt-8">
+          {sendStep.isSendMax && (
+            <p className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+              Sending all available onchain funds
+            </p>
+          )}
           <div className="flex justify-between">
             <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">To</span>
             <span className="max-w-[60%] break-all text-right font-mono text-sm font-semibold">
@@ -910,6 +919,19 @@ export function Send() {
             </span>
             <span className="font-semibold">{formatBtc(sendStep.fee)}</span>
           </div>
+          {sendStep.isSendMax && sendStep.reserveSats > 0n && (
+            <>
+              <p className="-mt-5 text-xs text-[var(--color-on-dark-muted)]">
+                Final fee may vary slightly
+              </p>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium text-[var(--color-on-dark-muted)]">
+                  Kept for Lightning channel safety
+                </span>
+                <span className="font-semibold">{formatBtc(sendStep.reserveSats)}</span>
+              </div>
+            </>
+          )}
           <hr className="border-dark-border" />
           <div className="flex justify-between">
             <span className="text-lg font-semibold">Total</span>

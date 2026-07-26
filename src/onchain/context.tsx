@@ -262,7 +262,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       const guardError = checkMaxSendGuards(amount, fee, dustFloor)
       if (guardError) throw guardError
 
-      return { amount, fee, feeRate }
+      return { amount, fee, feeRate, reserveSats: reserve }
     },
     [buildAndEstimate, getAnchorReserve]
   )

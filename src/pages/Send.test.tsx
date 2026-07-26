@@ -135,7 +135,9 @@ function readyContext(
     balance: { confirmed: 50000n, trustedPending: 0n, untrustedPending: 0n },
     generateAddress: () => 'bc1qtest',
     estimateFee: vi.fn().mockResolvedValue({ fee: 150n, feeRate: 1n }),
-    estimateMaxSendable: vi.fn().mockResolvedValue({ amount: 49850n, fee: 150n, feeRate: 1n }),
+    estimateMaxSendable: vi
+      .fn()
+      .mockResolvedValue({ amount: 49850n, fee: 150n, feeRate: 1n, reserveSats: 0n }),
     approxMaxSpendable: vi.fn(() => 50000n),
     sendToAddress: vi.fn().mockResolvedValue('abc123txid'),
     sendMax: vi.fn().mockResolvedValue('maxabc123txid'),
@@ -723,7 +725,9 @@ describe('Send', () => {
     it('estimate resolving exactly at the dust threshold proceeds to review (boundary)', async () => {
       const user = userEvent.setup()
       const ctx = readyContext({
-        estimateMaxSendable: vi.fn().mockResolvedValue({ amount: 294n, fee: 150n, feeRate: 1n }),
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValue({ amount: 294n, fee: 150n, feeRate: 1n, reserveSats: 0n }),
       })
       renderSend(ctx)
 
@@ -823,6 +827,89 @@ describe('Send', () => {
         expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
       })
       expect(screen.getByText('₿49,850')).toBeInTheDocument()
+    })
+  })
+
+  describe('send all review transparency (R3)', () => {
+    /** Enter recipient, tap Max, tap Next, and wait for the review screen. */
+    async function tapMaxToReview(user: ReturnType<typeof userEvent.setup>) {
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /max/i })).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: /max/i }))
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+    }
+
+    it('channels open: shows send-all notice, reserve disclosure from the estimate, and fee hedge', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValue({ amount: 39850n, fee: 150n, feeRate: 1n, reserveSats: 10000n }),
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+
+      expect(screen.getByText(/sending all available onchain funds/i)).toBeInTheDocument()
+      expect(screen.getByText(/kept for lightning channel safety/i)).toBeInTheDocument()
+      expect(screen.getByText('₿10,000')).toBeInTheDocument()
+      expect(screen.getByText(/final fee may vary/i)).toBeInTheDocument()
+    })
+
+    it('reserve figure comes from the estimate, not a hardcoded constant', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext({
+        estimateMaxSendable: vi
+          .fn()
+          .mockResolvedValue({ amount: 37505n, fee: 150n, feeRate: 1n, reserveSats: 12345n }),
+      })
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+
+      expect(screen.getByText('₿12,345')).toBeInTheDocument()
+      // The default 10,000 anchor constant must not leak onto the screen
+      expect(screen.queryByText('₿10,000')).not.toBeInTheDocument()
+    })
+
+    it('no channels (reserveSats 0): notice shown, no reserve line, no fee hedge', async () => {
+      const user = userEvent.setup()
+      // Default mock resolves with reserveSats: 0n
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await tapMaxToReview(user)
+
+      expect(screen.getByText(/sending all available onchain funds/i)).toBeInTheDocument()
+      expect(screen.queryByText(/kept for lightning channel safety/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/final fee may vary/i)).not.toBeInTheDocument()
+    })
+
+    it('normal (non-max) send renders none of the send-all elements', async () => {
+      const user = userEvent.setup()
+      const ctx = readyContext()
+      renderSend(ctx)
+
+      await submitRecipient(user, 'bc1qtest')
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument()
+      })
+      await typeOnNumpad(user, '1000')
+      const nextBtns = screen.getAllByRole('button', { name: /next/i })
+      await user.click(nextBtns[nextBtns.length - 1]!)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /confirm send/i })).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText(/sending all available onchain funds/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/kept for lightning channel safety/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/final fee may vary/i)).not.toBeInTheDocument()
     })
   })
 

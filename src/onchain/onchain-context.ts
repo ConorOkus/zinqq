@@ -10,6 +10,8 @@ export interface MaxSendEstimate {
   amount: bigint
   fee: bigint
   feeRate: bigint
+  /** Anchor reserve withheld for Lightning channel safety (0n when no channels are open). */
+  reserveSats: bigint
 }
 
 export interface OnchainTransaction {

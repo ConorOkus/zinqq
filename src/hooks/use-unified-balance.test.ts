@@ -19,7 +19,12 @@ function readyOnchain(
     balance: { confirmed: 100_000n, trustedPending: 5_000n, untrustedPending: 500n },
     generateAddress: () => 'bc1qtest',
     estimateFee: async () => ({ fee: 245n, feeRate: 2n }),
-    estimateMaxSendable: async () => ({ amount: 99_000n, fee: 1_000n, feeRate: 2n }),
+    estimateMaxSendable: async () => ({
+      amount: 99_000n,
+      fee: 1_000n,
+      feeRate: 2n,
+      reserveSats: 0n,
+    }),
     approxMaxSpendable: () => 100_000n,
     sendToAddress: async () => 'txid123',
     sendMax: async () => 'txid123',
