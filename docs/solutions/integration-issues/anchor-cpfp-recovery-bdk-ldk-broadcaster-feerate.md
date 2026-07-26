@@ -263,7 +263,7 @@ three bugs.
 
 **Force-close drill (run pre-deploy, on mainnet, against a throwaway node):**
 
-1. Open one anchor channel against LQwD with ≤50k sat capacity.
+1. Open one anchor channel against Megalith (sole LSP since PR #167; LQwD, the incident-era LSP, was removed) with ≤50k sat capacity.
 2. Drain the on-chain wallet to a single UTXO ≈ 2× the channel reserve.
 3. Wait for a low-fee mempool window (≤2 sat/vB at 3-block target via
    mempool.space).
@@ -318,17 +318,18 @@ action.
 
 ## Related solutions docs
 
-- [`anchor-channels-lsp-compatibility.md`](./anchor-channels-lsp-compatibility.md) —
-  prerequisite: enabled anchor channel negotiation. This incident assumed
-  that fix was already applied.
-- [`ldk-anchor-channel-feerate-floor-fix.md`](./ldk-anchor-channel-feerate-floor-fix.md) —
-  direct precedent. That fix lowered the feerate floor; the 3-block
-  target switch in this incident is the successor problem after the floor
-  fix proved insufficient in a different direction.
+- Anchor-channel negotiation was a prerequisite fix for this incident
+  (its doc never landed on main under the retired keep-local convention).
+- The `UrgentOnChainSweep` feerate-floor rationale now lives inline at
+  `src/ldk/traits/fee-estimator.ts`; see
+  [`ldk-lqwd-announce-preference-and-non-anchor-feerate-floor.md`](./ldk-lqwd-announce-preference-and-non-anchor-feerate-floor.md)
+  for the adjacent non-anchor floor. That earlier floor fix is the direct
+  precedent; the 3-block target switch in this incident is the successor
+  problem after the floor fix proved insufficient in a different direction.
 - [`ldk-trait-defensive-hardening-patterns.md`](./ldk-trait-defensive-hardening-patterns.md) —
   background. The broadcaster's substring-based "known" detection is an
   instance of these patterns; this incident extends them.
-- [`bdk-ldk-signer-provider-fund-routing.md`](./bdk-ldk-signer-provider-fund-routing.md) —
+- [`bdk-ldk-force-close-destination-script-interop.md`](./bdk-ldk-force-close-destination-script-interop.md) —
   see-also. Routes force-close and CPFP sweep outputs to the BDK wallet;
   the BDK PSBT signing fix here is the lower layer.
 - [`bdk-wasm-onchain-send-patterns.md`](./bdk-wasm-onchain-send-patterns.md) —
@@ -337,12 +338,20 @@ action.
 - [`ldk-event-handler-patterns.md`](./ldk-event-handler-patterns.md) —
   see-also. `BumpTransactionEvent` flows through this event-handler
   pattern.
-- [`esplora-request-batching-dedup-caching.md`](./esplora-request-batching-dedup-caching.md) —
-  context. The fee-estimator overpay was triggered by the
-  `getCachedFeeRate(1)` reading; the cache itself was working correctly,
-  the wrong target was being asked.
+- The fee-estimator overpay was triggered by the `getCachedFeeRate(1)`
+  reading; the fee cache itself was working correctly, the wrong target was
+  being asked (its batching/caching doc never landed on main — see
+  `docs/plans/2026-04-07-001-feat-esplora-request-batching-caching-plan.md`).
 - [`ldk-event-handler-multi-lsp-trust-set.md`](./ldk-event-handler-multi-lsp-trust-set.md) —
   context. The force-close happened on an LQwD-opened anchor channel.
+- [`ldk-spendable-output-sweep-stuck-retry-and-fee-semantics.md`](./ldk-spendable-output-sweep-stuck-retry-and-fee-semantics.md) —
+  successor. The other half of the pipeline: this doc covers fee-bumping
+  the commitment to confirmation; that one covers sweeping the spendable
+  outputs afterward.
+- [`../logic-errors/force-close-recovery-false-positive-on-vss-restore.md`](../logic-errors/force-close-recovery-false-positive-on-vss-restore.md) —
+  successor. Recovery entry is now gated on Initial Scan completion so a
+  restored wallet doesn't false-trigger the deposit ask this incident's
+  recovery flow introduced.
 - [`lsps2-jit-receive-channel-config.md`](./lsps2-jit-receive-channel-config.md) —
   context. `accept_underpaying_htlcs=true` is set for LSPS2 channels;
   related to the disclosure UX in PR #150 but distinct from this
