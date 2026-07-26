@@ -119,7 +119,7 @@ export function Scan() {
 
         {/* Transient error (invalid QR) */}
         {error?.kind === 'invalid-qr' && (
-          <div className="absolute bottom-8 left-4 right-4 z-10 rounded-xl bg-red-500/90 px-4 py-3 text-center text-sm font-medium text-white">
+          <div className="absolute bottom-8 left-4 right-4 z-10 rounded-xl bg-danger-strong/90 px-4 py-3 text-center text-sm font-medium text-white">
             {errorMessage(error)}
           </div>
         )}

@@ -34,19 +34,19 @@ export function Home() {
           ? ldk.error.message
           : 'Unknown error'
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-accent px-6 pb-(--spacing-tab-bar)">
-        <p className="text-lg font-semibold text-on-accent">Something went wrong</p>
-        <p className="mt-2 text-sm text-[var(--color-on-accent-muted)]">{errorMsg}</p>
+      <div className="flex flex-1 flex-col items-center justify-center bg-field px-6 pb-(--spacing-tab-bar)">
+        <p className="text-lg font-semibold text-on-field">Something went wrong</p>
+        <p className="mt-2 text-sm text-[var(--color-on-field-muted)]">{errorMsg}</p>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-1 flex-col justify-between bg-accent px-6 pt-4 text-on-accent">
+    <div className="flex flex-1 flex-col justify-between bg-field px-6 pt-4 text-on-field">
       <div className="-mx-4 flex justify-between pt-[env(safe-area-inset-top,0px)]">
         {showInstallButton ? (
           <button
-            className="flex h-11 w-11 items-center justify-center rounded-full text-on-accent transition-colors active:bg-black/10"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-on-field transition-colors active:bg-on-field/10"
             onClick={() => (isIos ? setShowIosHint(true) : promptInstall())}
             aria-label="Install app"
           >
@@ -56,7 +56,7 @@ export function Home() {
           <div className="h-11 w-11" />
         )}
         <button
-          className="flex h-11 w-11 items-center justify-center rounded-full text-on-accent transition-colors active:bg-black/10"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-on-field transition-colors active:bg-on-field/10"
           onClick={() => window.location.reload()}
           aria-label="Refresh"
         >
@@ -65,9 +65,9 @@ export function Home() {
       </div>
 
       {showIosHint && (
-        <div className="mx-auto max-w-xs rounded-xl bg-black/20 p-4 text-center text-sm text-on-accent backdrop-blur-sm">
+        <div className="mx-auto max-w-xs rounded-xl bg-on-field/10 p-4 text-center text-sm text-on-field backdrop-blur-sm">
           <p className="font-semibold">Add to Home Screen</p>
-          <p className="mt-1 text-[var(--color-on-accent-muted)]">
+          <p className="mt-1 text-[var(--color-on-field-muted)]">
             Tap the share button in Safari, then select &ldquo;Add to Home Screen&rdquo;
           </p>
           <button className="mt-3 text-xs underline" onClick={() => setShowIosHint(false)}>
@@ -91,14 +91,14 @@ export function Home() {
 
       <div className="flex gap-3 pb-[calc(var(--spacing-tab-bar)+0.75rem+env(safe-area-inset-bottom,0px))]">
         <button
-          className="flex h-[88px] flex-1 items-center justify-center gap-3 rounded-2xl bg-on-accent font-display text-xl font-bold uppercase tracking-wide text-white transition-transform active:scale-[0.97]"
+          className="flex h-[88px] flex-1 items-center justify-center gap-3 rounded-2xl bg-field-cta font-display text-xl font-bold uppercase tracking-wide text-on-field-cta transition-transform active:scale-[0.97]"
           onClick={() => void navigate('/send')}
         >
           Send
           <ArrowUpRight className="h-[22px] w-[22px]" />
         </button>
         <button
-          className="flex h-[88px] flex-1 items-center justify-center gap-3 rounded-2xl border-2 border-on-accent font-display text-xl font-bold uppercase tracking-wide text-on-accent transition-transform active:scale-[0.97]"
+          className="flex h-[88px] flex-1 items-center justify-center gap-3 rounded-2xl border-2 border-[var(--color-field-outline)] font-display text-xl font-bold uppercase tracking-wide text-on-field transition-transform active:scale-[0.97]"
           onClick={() => void navigate('/receive')}
         >
           Request

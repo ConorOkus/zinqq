@@ -172,9 +172,9 @@ export function OpenChannel() {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-dark px-6">
         <p className="text-lg font-semibold text-on-dark">{gatewayError.title}</p>
-        <p className="mt-2 text-sm text-red-400">{gatewayError.msg}</p>
+        <p className="mt-2 text-sm text-danger">{gatewayError.msg}</p>
         <button
-          className="mt-6 text-sm text-accent"
+          className="mt-6 text-sm text-on-dark underline"
           onClick={() => void navigate('/settings/advanced/peers')}
         >
           Back to Peers
@@ -187,7 +187,7 @@ export function OpenChannel() {
   if (currentStep.step === 'opening') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-dark px-8 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-on-dark/25 border-t-on-dark" />
         <div className="text-sm text-[var(--color-on-dark-muted)]">
           {needsConnect ? 'Connecting to peer & opening channel...' : 'Opening channel...'}
         </div>
@@ -199,8 +199,8 @@ export function OpenChannel() {
   if (currentStep.step === 'success') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent">
-          <Check className="h-10 w-10 text-white" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-badge">
+          <Check className="h-10 w-10 text-on-badge" />
         </div>
         <div>
           <div className="font-display text-2xl font-bold text-on-dark">Channel Opening</div>
@@ -210,7 +210,7 @@ export function OpenChannel() {
           </div>
         </div>
         <button
-          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
           onClick={() => void navigate('/')}
         >
           Done
@@ -223,16 +223,16 @@ export function OpenChannel() {
   if (currentStep.step === 'error') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500/20">
-          <XClose className="h-10 w-10 text-red-400" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-danger/15">
+          <XClose className="h-10 w-10 text-danger" />
         </div>
         <div>
           <div className="font-display text-2xl font-bold text-on-dark">Channel Open Failed</div>
-          <div className="mt-2 text-sm text-red-400">{currentStep.message}</div>
+          <div className="mt-2 text-sm text-danger">{currentStep.message}</div>
           <div className="mt-1 text-sm text-[var(--color-on-dark-muted)]">Your funds are safe.</div>
         </div>
         <button
-          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+          className="mt-4 h-14 w-full max-w-[280px] rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
           onClick={() => setCurrentStep({ step: 'amount' })}
         >
           Try Again
@@ -275,7 +275,7 @@ export function OpenChannel() {
         </div>
         <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
           <button
-            className="h-14 w-full rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+            className="h-14 w-full rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
             onClick={() => void handleConfirm()}
           >
             {needsConnect ? 'Connect & Open Channel' : 'Open Channel'}
@@ -294,14 +294,14 @@ export function OpenChannel() {
           {formatBtc(balance)} available
         </span>
         <div
-          className={`font-display font-bold leading-none tracking-tight ${
+          className={`font-display font-bold leading-none tracking-tight text-amount ${
             amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'
           }`}
           aria-live="polite"
         >
           {formatBtc(amountSats)}
         </div>
-        {amountError && <p className="mt-1 text-sm text-red-400">{amountError}</p>}
+        {amountError && <p className="mt-1 text-sm text-danger">{amountError}</p>}
       </div>
       <Numpad onKey={handleNumpadKey} onNext={handleAmountNext} nextDisabled={amountSats <= 0n} />
     </div>

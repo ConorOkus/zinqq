@@ -24,7 +24,7 @@ export function ScreenHeader({ title, backTo, onBack, onClose, rightAction }: Sc
     <header className="relative flex h-(--spacing-header) shrink-0 items-center justify-center px-4">
       {showBack && (
         <button
-          className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+          className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-on-dark/10"
           onClick={handleBack}
           aria-label="Back"
         >
@@ -37,7 +37,7 @@ export function ScreenHeader({ title, backTo, onBack, onClose, rightAction }: Sc
       ) : (
         onClose && (
           <button
-            className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+            className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-colors hover:bg-on-dark/10"
             onClick={onClose}
             aria-label="Close"
           >

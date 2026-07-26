@@ -79,7 +79,7 @@ export function Backup() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="h-8 w-8 text-amber-400"
+                className="h-8 w-8 text-warning"
               >
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                 <line x1="12" y1="9" x2="12" y2="13" />
@@ -111,7 +111,7 @@ export function Backup() {
             </ul>
             <button
               onClick={() => void handleReveal()}
-              className="mt-4 w-full rounded-xl bg-accent px-6 py-4 font-display font-bold text-white active:scale-[0.98]"
+              className="mt-4 w-full rounded-xl bg-cta px-6 py-4 font-display font-bold text-on-cta active:scale-[0.98]"
             >
               Reveal Seed Phrase
             </button>
@@ -132,14 +132,14 @@ export function Backup() {
             {import.meta.env.DEV && (
               <button
                 onClick={() => void navigator.clipboard.writeText(state.words.join(' '))}
-                className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm font-semibold text-amber-400 active:scale-[0.98]"
+                className="w-full rounded-xl border border-warning/30 bg-warning/10 px-6 py-3 text-sm font-semibold text-warning active:scale-[0.98]"
               >
                 Copy to Clipboard (dev only)
               </button>
             )}
             <button
               onClick={() => void navigate('/settings')}
-              className="mt-4 w-full rounded-xl bg-dark-elevated px-6 py-4 font-display font-bold text-white active:scale-[0.98]"
+              className="mt-4 w-full rounded-xl bg-dark-elevated px-6 py-4 font-display font-bold text-on-dark active:scale-[0.98]"
             >
               Done
             </button>
@@ -148,7 +148,7 @@ export function Backup() {
 
         {state.status === 'error' && (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-            <p className="text-sm text-red-400">{state.message}</p>
+            <p className="text-sm text-danger">{state.message}</p>
           </div>
         )}
       </div>

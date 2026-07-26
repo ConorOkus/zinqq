@@ -583,7 +583,7 @@ export function Receive() {
       <div className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col bg-dark text-on-dark">
         <ScreenHeader title="Request" backTo="/" />
         <div className="flex flex-1 items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-on-dark/20 border-t-on-dark" />
         </div>
       </div>
     )
@@ -593,8 +593,8 @@ export function Receive() {
     return (
       <div className="fixed inset-0 z-200 mx-auto flex max-w-[430px] flex-col items-center justify-center bg-dark px-6">
         <p className="text-lg font-semibold text-on-dark">Failed to load wallet</p>
-        <p className="mt-2 text-sm text-red-400">{onchain.error.message}</p>
-        <button className="mt-6 text-sm text-accent" onClick={() => void navigate('/')}>
+        <p className="mt-2 text-sm text-danger">{onchain.error.message}</p>
+        <button className="mt-6 text-sm text-on-dark underline" onClick={() => void navigate('/')}>
           Close
         </button>
       </div>
@@ -610,9 +610,9 @@ export function Receive() {
       >
         <ScreenHeader title="Request" backTo="/" />
         <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-500/20">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-success/15">
             <svg
-              className="h-10 w-10 text-green-400"
+              className="h-10 w-10 text-success"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -626,7 +626,7 @@ export function Receive() {
             {formatBtc(receiveState.amountSats)}
           </p>
           <button
-            className="mt-4 rounded-xl bg-accent px-8 py-3 text-sm font-semibold text-white transition-transform active:scale-95"
+            className="mt-4 rounded-xl bg-cta px-8 py-3 text-sm font-semibold text-on-cta transition-transform active:scale-95"
             onClick={() => void navigate('/')}
           >
             Done
@@ -659,7 +659,7 @@ export function Receive() {
         rightAction={
           showHeaderCopy ? (
             <button
-              className="flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+              className="flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-on-dark/10"
               onClick={() => setShowSheet(true)}
               aria-label="Copy payment request"
             >
@@ -685,7 +685,7 @@ export function Receive() {
               <div className="flex items-baseline justify-between">
                 <span className="text-sm text-[var(--color-on-dark-muted)]">Setup fee</span>
                 <span
-                  className="h-5 w-20 animate-pulse rounded bg-white/10"
+                  className="h-5 w-20 animate-pulse rounded bg-on-dark/10"
                   aria-label="Loading setup fee"
                 />
               </div>
@@ -695,12 +695,12 @@ export function Receive() {
                   You&apos;ll receive
                 </span>
                 <span
-                  className="h-5 w-24 animate-pulse rounded bg-white/10"
+                  className="h-5 w-24 animate-pulse rounded bg-on-dark/10"
                   aria-label="Loading net amount"
                 />
               </div>
             </div>
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-on-dark/20 border-t-on-dark" />
           </div>
         </div>
       ) : receiveState.step === 'jit-review' ? (
@@ -753,7 +753,7 @@ export function Receive() {
                   {receiveState.quote.role === 'fallback' && (
                     <>
                       <hr className="border-dark-border" />
-                      <p className="text-xs text-amber-400" role="status">
+                      <p className="text-xs text-warning" role="status">
                         Preferred provider was unavailable — using a backup provider at a higher
                         fee.
                       </p>
@@ -776,7 +776,7 @@ export function Receive() {
                   <hr className="border-dark-border" />
                   <p
                     id="receive-min-hint"
-                    className="text-sm text-zinc-400"
+                    className="text-sm text-[var(--color-on-dark-muted)]"
                     aria-label={`Minimum receive ${receiveState.displayMinSats.toString()} satoshis`}
                   >
                     Minimum receive: {formatBtc(receiveState.displayMinSats)}
@@ -787,7 +787,7 @@ export function Receive() {
           </div>
           <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
             <button
-              className="flex h-14 w-full items-center justify-center rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
               onClick={handleGenerateInvoice}
               disabled={receiveState.kind !== 'commit'}
               aria-describedby={
@@ -797,7 +797,7 @@ export function Receive() {
               Generate Payment Request
             </button>
             <button
-              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-on-dark transition-transform active:scale-[0.98]"
               onClick={handleReviewBack}
             >
               Back
@@ -808,7 +808,7 @@ export function Receive() {
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
             <p className="text-sm text-[var(--color-on-dark-muted)]">Generating payment request…</p>
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-on-dark/20 border-t-on-dark" />
           </div>
         </div>
       ) : receiveState.step === 'jit-expired' && !editingAmount ? (
@@ -818,9 +818,9 @@ export function Receive() {
         // Cancel they land here instead of on a dead QR.
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/20">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-warning/15">
               <svg
-                className="h-8 w-8 text-amber-400"
+                className="h-8 w-8 text-warning"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -840,13 +840,13 @@ export function Receive() {
           </div>
           <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
             <button
-              className="flex h-14 w-full items-center justify-center rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
               onClick={handleErrorRetry}
             >
               Generate new request
             </button>
             <button
-              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-on-dark transition-transform active:scale-[0.98]"
               onClick={handleReviewBack}
             >
               Back
@@ -856,9 +856,9 @@ export function Receive() {
       ) : receiveState.step === 'jit-error' ? (
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/20">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-danger/15">
               <svg
-                className="h-8 w-8 text-red-400"
+                className="h-8 w-8 text-danger"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -877,13 +877,13 @@ export function Receive() {
           </div>
           <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
             <button
-              className="flex h-14 w-full items-center justify-center rounded-xl bg-accent font-display text-lg font-bold text-white transition-transform active:scale-[0.98]"
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
               onClick={handleErrorRetry}
             >
               Try again
             </button>
             <button
-              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+              className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-on-dark transition-transform active:scale-[0.98]"
               onClick={handleReviewBack}
             >
               Back
@@ -895,28 +895,28 @@ export function Receive() {
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8">
             {(!needsAmount || confirmedAmountSats > 0n) && (
               <button
-                className="text-sm text-[var(--color-on-dark-muted)] transition-colors active:text-accent"
+                className="text-sm text-[var(--color-on-dark-muted)] transition-colors active:text-on-dark"
                 onClick={handleCancelAmount}
               >
                 Cancel
               </button>
             )}
             <p
-              className={`font-display font-bold text-on-dark ${amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'}`}
+              className={`font-display font-bold text-amount ${amountDigits.length > 5 ? 'text-5xl' : 'text-7xl'}`}
               aria-live="polite"
             >
               {formatBtc(editingAmountSats)}
             </p>
             {confirmedAmountSats > 0n && (
               <button
-                className="text-sm text-red-400 transition-colors active:text-red-300"
+                className="text-sm text-danger transition-colors active:text-danger/80"
                 onClick={handleRemoveAmount}
               >
                 Remove amount
               </button>
             )}
             {belowJitMinimum && (
-              <p className="text-sm text-red-400" role="alert">
+              <p className="text-sm text-danger" role="alert">
                 Minimum {formatBtc(effectiveJitFloorSats)}
               </p>
             )}
@@ -931,14 +931,14 @@ export function Receive() {
       ) : (
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">
-            {addressError && <p className="text-sm text-red-400">{addressError}</p>}
-            {invoiceError && <p className="text-sm text-red-400">{invoiceError}</p>}
+            {addressError && <p className="text-sm text-danger">{addressError}</p>}
+            {invoiceError && <p className="text-sm text-danger">{invoiceError}</p>}
 
             {address && (
               <>
                 {confirmedAmountSats > 0n && (
                   <button
-                    className="text-sm text-accent transition-colors active:text-accent/80"
+                    className="transition-opacity active:opacity-80"
                     onClick={handleEditAmount}
                   >
                     <span className="font-display text-lg font-bold text-on-dark">
@@ -956,7 +956,7 @@ export function Receive() {
                     {/* Page 1: Unified BIP 321 QR */}
                     <div className="flex w-full shrink-0 snap-center justify-center">
                       <div
-                        className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
+                        className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-qr-tile p-5"
                         aria-label={`QR code for Bitcoin address ${address}${confirmedAmountSats > 0n ? `, amount ${formatBtc(confirmedAmountSats)}` : ''}`}
                       >
                         <QRCodeSVG value={qrValue} size={220} />
@@ -967,7 +967,7 @@ export function Receive() {
                     {showBolt12 && (
                       <div className="flex w-full shrink-0 snap-center justify-center">
                         <div
-                          className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-white p-5"
+                          className="flex h-[260px] w-[260px] items-center justify-center rounded-2xl bg-qr-tile p-5"
                           aria-label="QR code for BOLT 12 offer"
                         >
                           <QRCodeSVG value={bolt12Uri.toUpperCase()} size={220} />
@@ -980,10 +980,10 @@ export function Receive() {
                   {showBolt12 && (
                     <div className="mt-4 flex justify-center gap-2" aria-hidden="true">
                       <span
-                        className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'unified' ? 'bg-white' : 'bg-white/30'}`}
+                        className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'unified' ? 'bg-on-dark' : 'bg-[var(--color-dot-idle)]'}`}
                       />
                       <span
-                        className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'bolt12' ? 'bg-white' : 'bg-white/30'}`}
+                        className={`h-2 w-2 rounded-full transition-colors ${activeQrPage === 'bolt12' ? 'bg-on-dark' : 'bg-[var(--color-dot-idle)]'}`}
                       />
                     </div>
                   )}
@@ -1007,14 +1007,14 @@ export function Receive() {
             <div className="flex flex-col gap-3 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
               <button
                 ref={amountButtonRef}
-                className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+                className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-on-dark transition-transform active:scale-[0.98]"
                 onClick={handleEditAmount}
               >
                 {confirmedAmountSats > 0n ? 'Edit amount' : 'Add amount'}
               </button>
               {typeof navigator.share === 'function' && (
                 <button
-                  className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-accent transition-transform active:scale-[0.98]"
+                  className="flex h-14 w-full items-center justify-center rounded-xl bg-dark-elevated text-sm font-semibold text-on-dark transition-transform active:scale-[0.98]"
                   onClick={() => void handleShare()}
                 >
                   Share
@@ -1031,7 +1031,7 @@ export function Receive() {
               {copyValue}
             </p>
             <button
-              className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-accent text-sm font-semibold text-white transition-transform active:scale-[0.98]"
+              className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-pill text-sm font-semibold text-on-pill transition-transform active:scale-[0.98]"
               onClick={() => void handleCopy()}
             >
               {copied ? 'Copied!' : 'Copy'}

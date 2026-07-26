@@ -107,7 +107,7 @@ export function TransactionDetail() {
       </div>
 
       {/* Divider */}
-      <div className="mx-6 border-t border-white/10" />
+      <div className="mx-6 border-t border-on-dark/10" />
 
       {/* Detail rows */}
       <div className="flex flex-col px-6 pt-2">
@@ -122,7 +122,7 @@ export function TransactionDetail() {
               href={`${EXPLORER_TX_URL}/${tx.id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-semibold text-accent underline underline-offset-2"
+              className="font-semibold text-on-dark underline underline-offset-2"
             >
               {tx.id.slice(0, 8)}...{tx.id.slice(-8)}
             </a>

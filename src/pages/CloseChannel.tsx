@@ -176,9 +176,9 @@ export function CloseChannel() {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-dark px-6">
         <p className="text-lg font-semibold text-on-dark">Lightning node error</p>
-        <p className="mt-2 text-sm text-red-400">{ldk.error.message}</p>
+        <p className="mt-2 text-sm text-danger">{ldk.error.message}</p>
         <button
-          className="mt-6 text-sm text-accent"
+          className="mt-6 text-sm text-on-dark underline"
           onClick={() => void navigate('/settings/advanced/peers')}
         >
           Back to Peers
@@ -194,8 +194,8 @@ export function CloseChannel() {
       estimate?.timelockBlocks != null ? humanizeBlocks(estimate.timelockBlocks) : '~14 days'
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent">
-          <Check className="h-10 w-10 text-white" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-badge">
+          <Check className="h-10 w-10 text-on-badge" />
         </div>
         <div>
           <div className="font-display text-2xl font-bold text-on-dark">Channel Closing</div>
@@ -207,13 +207,13 @@ export function CloseChannel() {
         </div>
         <div className="flex w-full max-w-[280px] flex-col gap-3">
           <button
-            className="mt-4 h-14 w-full rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+            className="mt-4 h-14 w-full rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
             onClick={() => void navigate(`/activity/close/${channelIdHex}`)}
           >
             Track Progress
           </button>
           <button
-            className="h-14 w-full rounded-xl border-2 border-white/20 font-display text-lg font-bold text-on-dark transition-transform active:scale-[0.98]"
+            className="h-14 w-full rounded-xl border-2 border-dark-border font-display text-lg font-bold text-on-dark transition-transform active:scale-[0.98]"
             onClick={() => void navigate('/')}
           >
             Done
@@ -227,18 +227,18 @@ export function CloseChannel() {
   if (currentStep.step === 'error') {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-dark px-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500/20">
-          <XClose className="h-10 w-10 text-red-400" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-danger/15">
+          <XClose className="h-10 w-10 text-danger" />
         </div>
         <div>
           <div className="font-display text-2xl font-bold text-on-dark">Close Failed</div>
-          <div className="mt-2 text-sm text-red-400">{currentStep.message}</div>
+          <div className="mt-2 text-sm text-danger">{currentStep.message}</div>
           <div className="mt-1 text-sm text-[var(--color-on-dark-muted)]">Your funds are safe.</div>
         </div>
         <div className="flex w-full max-w-[280px] flex-col gap-3">
           {currentStep.canForceClose && (
             <button
-              className="h-14 w-full rounded-xl border-2 border-red-500 font-display text-lg font-bold text-red-400 transition-transform active:scale-[0.98]"
+              className="h-14 w-full rounded-xl border-2 border-danger font-display text-lg font-bold text-danger transition-transform active:scale-[0.98]"
               onClick={() =>
                 setCurrentStep({
                   step: 'confirm',
@@ -251,7 +251,7 @@ export function CloseChannel() {
             </button>
           )}
           <button
-            className="h-14 w-full rounded-xl bg-white font-display text-lg font-bold text-dark transition-transform active:scale-[0.98]"
+            className="h-14 w-full rounded-xl bg-cta font-display text-lg font-bold text-on-cta transition-transform active:scale-[0.98]"
             onClick={() =>
               setCurrentStep({
                 step: 'confirm',
@@ -363,7 +363,7 @@ export function CloseChannel() {
             <button
               className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
                 !isForce
-                  ? 'bg-accent text-white'
+                  ? 'bg-cta text-on-cta'
                   : 'bg-dark-elevated text-[var(--color-on-dark-muted)]'
               }`}
               onClick={() => setCurrentStep({ ...currentStep, closeType: 'cooperative' })}
@@ -373,7 +373,7 @@ export function CloseChannel() {
             <button
               className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
                 isForce
-                  ? 'bg-red-500/20 text-red-400'
+                  ? 'bg-danger/15 text-danger'
                   : 'bg-dark-elevated text-[var(--color-on-dark-muted)]'
               }`}
               onClick={() => setCurrentStep({ ...currentStep, closeType: 'force' })}
@@ -384,7 +384,7 @@ export function CloseChannel() {
         </div>
 
         {isForce ? (
-          <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+          <div className="rounded-lg bg-danger/10 p-3 text-sm text-danger">
             Force closing moves your balance on-chain without the LSP&apos;s cooperation. It may
             cost more, and your funds are locked for {timelineLabel} while the network verifies the
             close. You wait; the other side doesn&apos;t.
@@ -397,14 +397,14 @@ export function CloseChannel() {
         )}
 
         {isForce && estimate?.isAnchor === false && (
-          <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
+          <div className="rounded-lg bg-warning/10 p-3 text-sm text-warning">
             This channel doesn&apos;t support anchor outputs, so the force-close transaction
             can&apos;t be fee-bumped. If network fees spike, confirmation may take much longer.
           </div>
         )}
 
         {pendingHtlcs > 0 && (
-          <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">
+          <div className="rounded-lg bg-warning/10 p-3 text-sm text-warning">
             {pendingHtlcs === 1
               ? '1 in-flight payment'
               : `${String(pendingHtlcs)} in-flight payments`}{' '}
@@ -416,7 +416,7 @@ export function CloseChannel() {
       <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-4">
         <button
           className={`h-14 w-full rounded-xl font-display text-lg font-bold transition-transform active:scale-[0.98] disabled:opacity-30 ${
-            isForce ? 'bg-red-500 text-white' : 'bg-accent text-white'
+            isForce ? 'bg-danger-strong text-white' : 'bg-hot text-on-hot'
           }`}
           onClick={handleConfirm}
           disabled={isClosing}

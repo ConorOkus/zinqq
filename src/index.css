@@ -58,27 +58,63 @@
   src: url('/fonts/Inter-700.ttf') format('truetype');
 }
 
-/* --- Design Tokens --- */
+/* --- Design Tokens ---
+ *
+ * Bone + ember scheme (see design/ "Zinqq Color Schemes").
+ * Three appearance modes, switched via data-theme on <html>:
+ *   hybrid (default) — bone accent floods Home/Activity/tab bar,
+ *                      Send/Receive/Settings stay warm near-black
+ *   dark             — warm near-black everywhere, ember on the action
+ *   light            — warm paper everywhere, ember on the action
+ *
+ * The @theme block holds the hybrid/dark base values; the
+ * :root[data-theme='...'] blocks below re-point the variables per mode.
+ */
 
 @theme {
   /* Typography */
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-display: 'Space Grotesk', system-ui, sans-serif;
 
-  /* Accent color — swap this one line to change the entire vibe */
-  --color-accent: #7c3aed;
+  /* Brand anchors — bone accent + ember hot moment */
+  --color-accent: #e4d7be;
+  --color-on-accent: #1a140a;
+  --color-hot: #d9481f;
+  --color-on-hot: #ffffff;
 
-  /* Core palette */
-  --color-dark: #0a0a0a;
-  --color-dark-surface: #141414;
-  --color-dark-elevated: #1a1a1a;
-  --color-dark-border: #2a2a2a;
+  /* Dark rooms (Send / Receive / Settings). In light mode these
+     re-point to warm paper — "dark" names the role, not the value. */
+  --color-dark: #12100c;
+  --color-dark-surface: #1c1913;
+  --color-dark-elevated: #231f18;
+  --color-dark-border: #2e2921;
+  --color-on-dark: #f6f0e4;
 
-  /* Text on accent background */
-  --color-on-accent: #0a0a0a;
+  /* Field screens (Home / Activity / tab bar) */
+  --color-field: #e4d7be;
+  --color-on-field: #1a140a;
+  --color-field-cta: #1a140a;
+  --color-on-field-cta: #ffffff;
+  --color-tab-active: #1a140a;
+  --color-on-tab-active: #e4d7be;
 
-  /* Text on dark background */
-  --color-on-dark: #ffffff;
+  /* Primary action in dark rooms (numpad Next, Share, …) */
+  --color-cta: #f6f0e4;
+  --color-on-cta: #12100c;
+
+  /* Single hot/brand moments */
+  --color-amount: #f6f0e4;
+  --color-pill: #e4d7be;
+  --color-on-pill: #1a140a;
+  --color-badge: #e4d7be;
+  --color-on-badge: #1a140a;
+  --color-qr-tile: #ffffff;
+
+  /* Status */
+  --color-danger: #f87171;
+  --color-danger-strong: #dc2626;
+  --color-warning: #fbbf24;
+  --color-success: #4ade80;
 
   /* Layout */
   --spacing-tab-bar: 64px;
@@ -97,10 +133,58 @@
   }
 }
 
-/* Muted text colors (rgba not supported in @theme) */
+/* Muted text + translucent tokens (rgba not supported in @theme) */
 :root {
-  --color-on-accent-muted: rgba(0, 0, 0, 0.5);
-  --color-on-dark-muted: rgba(255, 255, 255, 0.45);
+  --color-on-dark-muted: rgba(246, 240, 228, 0.45);
+  --color-on-field-muted: rgba(26, 20, 10, 0.55);
+  --color-field-outline: #1a140a;
+  --color-dot-idle: rgba(255, 255, 255, 0.3);
+}
+
+/* --- Dark mode: warm near-black throughout, ember once per screen --- */
+:root[data-theme='dark'] {
+  --color-field: #12100c;
+  --color-on-field: #f6f0e4;
+  --color-on-field-muted: rgba(246, 240, 228, 0.45);
+  --color-field-cta: #d9481f;
+  --color-field-outline: rgba(255, 255, 255, 0.22);
+  --color-tab-active: #231f18;
+  --color-on-tab-active: #f6f0e4;
+  --color-cta: #d9481f;
+  --color-on-cta: #ffffff;
+  --color-amount: #d9481f;
+  --color-pill: #d9481f;
+  --color-on-pill: #ffffff;
+  --color-dot-idle: rgba(255, 255, 255, 0.25);
+}
+
+/* --- Light mode: warm paper throughout, ember once per screen --- */
+:root[data-theme='light'] {
+  --color-dark: #f6f1e5;
+  --color-dark-surface: #efe8d8;
+  --color-dark-elevated: #fcf8f0;
+  --color-dark-border: rgba(26, 20, 10, 0.16);
+  --color-on-dark: #1a140a;
+  --color-on-dark-muted: rgba(26, 20, 10, 0.55);
+  --color-field: #f6f1e5;
+  --color-on-field: #1a140a;
+  --color-on-field-muted: rgba(26, 20, 10, 0.55);
+  --color-field-cta: #d9481f;
+  --color-field-outline: rgba(26, 20, 10, 0.16);
+  --color-tab-active: #1a140a;
+  --color-on-tab-active: #f6f1e5;
+  --color-cta: #1a140a;
+  --color-on-cta: #f6f1e5;
+  --color-amount: #d9481f;
+  --color-pill: #d9481f;
+  --color-on-pill: #ffffff;
+  --color-badge: #1a140a;
+  --color-on-badge: #f6f1e5;
+  --color-qr-tile: #fcf8f0;
+  --color-dot-idle: rgba(26, 20, 10, 0.16);
+  --color-danger: #b42318;
+  --color-warning: #b45309;
+  --color-success: #1b7a3d;
 }
 
 /* --- App Shell --- */
@@ -119,7 +203,8 @@ body {
 /* --- Focus / Accessibility --- */
 
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  /* Ember reads on bone, paper and near-black alike */
+  outline: 2px solid var(--color-hot);
   outline-offset: 2px;
 }
 

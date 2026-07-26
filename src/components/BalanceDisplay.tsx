@@ -36,7 +36,7 @@ export function BalanceDisplay({ balance, pending, breakdown, loading }: Balance
     return (
       <div className="flex flex-1 flex-col items-start justify-start pt-[20vh]">
         <div className="flex h-[clamp(2.5rem,12vw,5rem)] items-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-on-accent/30 border-t-on-accent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-on-field/30 border-t-on-field" />
         </div>
       </div>
     )
@@ -46,26 +46,26 @@ export function BalanceDisplay({ balance, pending, breakdown, loading }: Balance
     <div className="flex flex-1 flex-col items-start justify-start pt-[20vh]">
       {visible ? (
         <div
-          className="max-w-full break-all font-display font-bold leading-none tracking-tight text-on-accent"
+          className="max-w-full break-all font-display font-bold leading-none tracking-tight text-on-field"
           style={{ fontSize: 'clamp(2.5rem, 12vw, 5rem)' }}
         >
           {formatBtc(balance)}
         </div>
       ) : (
-        <div className="font-display text-4xl font-bold tracking-widest text-on-accent">
+        <div className="font-display text-4xl font-bold tracking-widest text-on-field">
           &#8226;&#8226;&#8226;&#8226;&#8226;&#8226;
         </div>
       )}
       {pending !== undefined && pending > 0n && visible && (
-        <div className="mt-1 text-sm text-[var(--color-on-accent-muted)]">
+        <div className="mt-1 text-sm text-[var(--color-on-field-muted)]">
           +{formatBtc(pending)} pending
         </div>
       )}
       {breakdown && visible && (
-        <div className="mt-1 text-sm text-[var(--color-on-accent-muted)]">{breakdown}</div>
+        <div className="mt-1 text-sm text-[var(--color-on-field-muted)]">{breakdown}</div>
       )}
       <button
-        className="mt-3 flex items-center gap-2 py-2 text-sm font-medium text-[var(--color-on-accent-muted)]"
+        className="mt-3 flex items-center gap-2 py-2 text-sm font-medium text-[var(--color-on-field-muted)]"
         onClick={toggle}
         aria-label={visible ? 'Hide balance' : 'Show balance'}
       >
