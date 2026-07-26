@@ -2,6 +2,7 @@
 title: 'Standalone HTML Design Prototype Workflow with BIP 177 Amount Formatting'
 category: design-patterns
 date: 2026-03-15
+last_updated: 2026-07-26
 severity: p3
 tags:
   - ui-ux
@@ -171,18 +172,20 @@ HTML is a CSS Grid of 12 buttons with `data-key` attributes. Bottom-left is empt
 | Hardcoded balance/fee values            | Wire to wallet service state                                                     |
 | Module-level mutable `sendAmount`       | React `useState` or `useReducer`                                                 |
 | `:has()` selector for tab bar hiding    | Conditionally render based on route in React                                     |
-| `parseFloat` for BTC-to-sats conversion | Use fixed-point string parsing (see `btcStringToSats` in `src/onchain/bip21.ts`) |
+| `parseFloat` for BTC-to-sats conversion | Use fixed-point string parsing (see `btcStringToSats` in `src/onchain/bip321.ts`) |
 
-## Key Decision: CSS Strategy Before Porting
+## Key Decision: CSS Strategy Before Porting — RESOLVED (2026-07-26)
 
-The prototype uses custom BEM classes with CSS custom properties. The production app uses Tailwind. Before porting, decide:
+The prototype uses custom BEM classes with CSS custom properties. The production app uses Tailwind. The options considered were:
 
 1. **Extend Tailwind theme** with prototype's tokens — lower friction, keeps Tailwind ecosystem
 2. **CSS Modules with tokens** — direct lift of prototype CSS, more files
-3. Extract the `:root` token block into a standalone `tokens.css` either way
+
+**Outcome: option 1, evolved.** PR #184 ported the token idea into Tailwind v4's `@theme` in `src/index.css` — but as _semantic role tokens_ (`--color-field`, `--color-cta`, …) re-pointed per appearance mode via `:root[data-theme='…']` blocks, rather than the prototype's one-line accent swap. Production also moved off this prototype's violet `#7c3aed` to the bone + ember scheme with three appearance modes (hybrid/light/dark). See [Three-Mode Theming via Re-Pointed Semantic Role Tokens in Tailwind v4](tailwind-v4-semantic-role-token-three-mode-theming.md) for the production pattern; the `design/` prototype retains the old single-theme violet tokens and is a visual-iteration sandbox, not the source of truth for production colors.
 
 ## Related Documentation
 
+- **Production theming successor:** `docs/solutions/design-patterns/tailwind-v4-semantic-role-token-three-mode-theming.md`
 - **Brainstorm:** `docs/brainstorms/2026-03-15-ui-ux-design-system-brainstorm.md`
 - **Plan:** `docs/plans/2026-03-15-001-feat-ui-ux-design-prototype-plan.md`
 - **PR:** [#12 — feat: add mobile-first UI/UX design prototype](https://github.com/ConorOkus/browser-wallet/pull/12)
