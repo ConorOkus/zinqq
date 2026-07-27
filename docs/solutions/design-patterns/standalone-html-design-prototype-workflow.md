@@ -165,13 +165,13 @@ HTML is a CSS Grid of 12 buttons with `data-key` attributes. Bottom-left is empt
 
 ## Pitfalls to Avoid When Porting
 
-| Prototype Pattern                       | Production Fix                                                                   |
-| --------------------------------------- | -------------------------------------------------------------------------------- |
-| `innerHTML` for icon swap (XSS risk)    | Use React SVG components                                                         |
-| No `.catch()` on clipboard API          | Always handle clipboard permission denial                                        |
-| Hardcoded balance/fee values            | Wire to wallet service state                                                     |
-| Module-level mutable `sendAmount`       | React `useState` or `useReducer`                                                 |
-| `:has()` selector for tab bar hiding    | Conditionally render based on route in React                                     |
+| Prototype Pattern                       | Production Fix                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------- |
+| `innerHTML` for icon swap (XSS risk)    | Use React SVG components                                                          |
+| No `.catch()` on clipboard API          | Always handle clipboard permission denial                                         |
+| Hardcoded balance/fee values            | Wire to wallet service state                                                      |
+| Module-level mutable `sendAmount`       | React `useState` or `useReducer`                                                  |
+| `:has()` selector for tab bar hiding    | Conditionally render based on route in React                                      |
 | `parseFloat` for BTC-to-sats conversion | Use fixed-point string parsing (see `btcStringToSats` in `src/onchain/bip321.ts`) |
 
 ## Key Decision: CSS Strategy Before Porting — RESOLVED (2026-07-26)
