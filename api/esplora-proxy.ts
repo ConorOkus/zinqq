@@ -108,7 +108,7 @@ async function proxyToEsplora(request: Request): Promise<Response> {
     const upstream = await fetch(targetUrl, {
       method: request.method,
       headers,
-      body: request.method === 'POST' ? await request.text() : undefined,
+      body: request.method === 'POST' ? await request.arrayBuffer() : undefined,
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     })
 
@@ -118,7 +118,9 @@ async function proxyToEsplora(request: Request): Promise<Response> {
       expiresAt = 0
     }
 
-    return new Response(await upstream.text(), {
+    // Body must pass through as raw bytes: /tx/:txid/raw and /block/:hash/raw
+    // are binary, and .text() corrupts them (invalid UTF-8 becomes U+FFFD).
+    return new Response(await upstream.arrayBuffer(), {
       status: upstream.status,
       headers: {
         'Content-Type': upstream.headers.get('content-type') ?? 'text/plain',
