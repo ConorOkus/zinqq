@@ -14,6 +14,7 @@ interface LdkConfig {
   lspHost: string
   lspPort: number
   lspToken?: string
+  lspLabel: string
 
   genesisBlockHash: string
 }
@@ -35,6 +36,7 @@ const DEFAULTS: LdkConfig = {
   lspNodeId: '',
   lspHost: '',
   lspPort: 9735,
+  lspLabel: 'megalith',
   genesisBlockHash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
 }
 
@@ -55,6 +57,7 @@ export const LDK_CONFIG: LdkConfig = {
     ((import.meta.env.VITE_LSP_PORT as string | undefined) ?? String(DEFAULTS.lspPort)).trim()
   ),
   lspToken: ((import.meta.env.VITE_LSP_TOKEN as string | undefined) ?? DEFAULTS.lspToken)?.trim(),
+  lspLabel: (import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim() || DEFAULTS.lspLabel,
 }
 
 if (!LDK_CONFIG.wsProxyUrl) {
