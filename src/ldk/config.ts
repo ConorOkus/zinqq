@@ -16,6 +16,19 @@ interface LdkConfig {
   lspToken?: string
   lspLabel: string
 
+  /**
+   * Comma-separated hex-encoded blinded message paths to a static invoice
+   * server, obtained out-of-band from the server operator. Empty disables the
+   * async-payments recipient role.
+   *
+   * Single-recipient only: the server issues these paths against a unique
+   * `recipient_id`, so one path set names one wallet. A bundle-baked value
+   * cannot serve multiple users.
+   */
+  staticInvoiceServerPaths: string
+  /** Node id every configured path must introduce at. Pins server identity. */
+  staticInvoiceServerNodeId: string
+
   genesisBlockHash: string
 }
 
@@ -37,6 +50,8 @@ const DEFAULTS: LdkConfig = {
   lspHost: '',
   lspPort: 9735,
   lspLabel: 'megalith',
+  staticInvoiceServerPaths: '',
+  staticInvoiceServerNodeId: '',
   genesisBlockHash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
 }
 
@@ -58,6 +73,14 @@ export const LDK_CONFIG: LdkConfig = {
   ),
   lspToken: ((import.meta.env.VITE_LSP_TOKEN as string | undefined) ?? DEFAULTS.lspToken)?.trim(),
   lspLabel: (import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim() || DEFAULTS.lspLabel,
+  staticInvoiceServerPaths: (
+    (import.meta.env.VITE_STATIC_INVOICE_SERVER_PATHS as string | undefined) ??
+    DEFAULTS.staticInvoiceServerPaths
+  ).trim(),
+  staticInvoiceServerNodeId: (
+    (import.meta.env.VITE_STATIC_INVOICE_SERVER_NODE_ID as string | undefined) ??
+    DEFAULTS.staticInvoiceServerNodeId
+  ).trim(),
 }
 
 if (!LDK_CONFIG.wsProxyUrl) {
@@ -95,5 +118,27 @@ if (LDK_CONFIG.lspNodeId !== '') {
         `${LDK_CONFIG.lspNodeId.substring(0, 16)}... as "${DEFAULTS.lspLabel}". ` +
         'Set VITE_LSP_LABEL when pointing at a different LSP.'
     )
+  }
+}
+
+// Validate the static invoice server config. Empty paths disable the
+// async-payments recipient role. Only the hex *shape* is checked here — the
+// actual decode is WASM-backed and lives in async-receive/server-paths.ts,
+// because this module is imported by tests that never initialize WASM.
+if (LDK_CONFIG.staticInvoiceServerPaths !== '') {
+  if (!/^[0-9a-f]{66}$/.test(LDK_CONFIG.staticInvoiceServerNodeId)) {
+    throw new Error(
+      '[LDK Config] staticInvoiceServerPaths is set but staticInvoiceServerNodeId is not a ' +
+        '66-character lowercase hex public key. Both are required to pin the server identity.'
+    )
+  }
+
+  const entries = LDK_CONFIG.staticInvoiceServerPaths.split(',').map((entry) => entry.trim())
+  for (const [index, entry] of entries.entries()) {
+    if (!/^[0-9a-f]+$/.test(entry) || entry.length % 2 !== 0) {
+      throw new Error(
+        `[LDK Config] staticInvoiceServerPaths entry ${index} is not even-length lowercase hex.`
+      )
+    }
   }
 }
