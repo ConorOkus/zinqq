@@ -10,10 +10,11 @@
 import { LDK_CONFIG } from '../config'
 
 /**
- * Telemetry / display tag for an LSP. Only `'megalith'` is configured today;
- * the `string & {}` arm keeps the known label typo-checked (and autocompleted)
- * while the orchestration stays label-agnostic, so additional LSPs can be added
- * without changing this type.
+ * Telemetry / display tag for an LSP. Sourced from `VITE_LSP_LABEL`, defaulting
+ * to `'megalith'` — the label must track whatever node the env vars point at, or
+ * logs and telemetry misattribute a candidate LSP's behavior to Megalith. The
+ * `string & {}` arm keeps the known label typo-checked (and autocompleted) while
+ * the orchestration stays label-agnostic.
  */
 export type LspLabel = 'megalith' | (string & {})
 
@@ -40,9 +41,9 @@ export interface LspContactPair {
 }
 
 /**
- * Resolve the primary (Megalith, via env vars) LSP contact. `primary` is null
- * when the env config is empty (LSPS2 disabled). `fallback` is currently always
- * null — the slot is kept for a future second LSP.
+ * Resolve the primary (Megalith by default, via env vars) LSP contact. `primary`
+ * is null when the env config is empty (LSPS2 disabled). `fallback` is currently
+ * always null — the slot is kept for a future second LSP.
  *
  * Returns a `Promise` (though resolution is synchronous today) so a future
  * async discovery step can be reintroduced without changing call sites.
@@ -55,7 +56,7 @@ export function resolveLspContacts(): Promise<LspContactPair> {
           host: LDK_CONFIG.lspHost,
           port: LDK_CONFIG.lspPort,
           token: LDK_CONFIG.lspToken ?? null,
-          label: 'megalith',
+          label: LDK_CONFIG.lspLabel,
         }
       : null
   return Promise.resolve({ primary, fallback: null })

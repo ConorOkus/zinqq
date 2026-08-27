@@ -103,7 +103,11 @@ export class LSPS2Client {
   ): Promise<JsonRpcResponse> {
     const id = crypto.randomUUID()
     const payload = serializeJsonRpcRequest(id, method, params)
-    const logParams = { ...params, token: params.token ? '[REDACTED]' : null }
+    // Only rewrite `token` when the request actually carries one (lsps2.get_info).
+    // Unconditionally adding it made lsps2.buy — which takes no token per spec —
+    // log `"token":null`, reading as if the token had been dropped.
+    const logParams =
+      'token' in params ? { ...params, token: params.token ? '[REDACTED]' : null } : params
     console.log('[LSPS2] Sending:', method, JSON.stringify(logParams))
     const pubkeyBytes = hexToBytes(lspNodeId)
     return this.sendRequest(pubkeyBytes, payload)

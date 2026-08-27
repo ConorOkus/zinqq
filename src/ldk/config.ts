@@ -14,6 +14,7 @@ interface LdkConfig {
   lspHost: string
   lspPort: number
   lspToken?: string
+  lspLabel: string
 
   genesisBlockHash: string
 }
@@ -35,6 +36,7 @@ const DEFAULTS: LdkConfig = {
   lspNodeId: '',
   lspHost: '',
   lspPort: 9735,
+  lspLabel: 'megalith',
   genesisBlockHash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
 }
 
@@ -55,6 +57,7 @@ export const LDK_CONFIG: LdkConfig = {
     ((import.meta.env.VITE_LSP_PORT as string | undefined) ?? String(DEFAULTS.lspPort)).trim()
   ),
   lspToken: ((import.meta.env.VITE_LSP_TOKEN as string | undefined) ?? DEFAULTS.lspToken)?.trim(),
+  lspLabel: (import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim() || DEFAULTS.lspLabel,
 }
 
 if (!LDK_CONFIG.wsProxyUrl) {
@@ -81,6 +84,16 @@ if (LDK_CONFIG.lspNodeId !== '') {
   if (!LDK_CONFIG.lspHost) {
     throw new Error(
       '[LDK Config] lspHost is empty but lspNodeId is set. Both are required for LSPS2.'
+    )
+  }
+  // Warn rather than throw: the default label is correct for Megalith deployments,
+  // but silently applying it to some other node is the exact misattribution
+  // VITE_LSP_LABEL exists to prevent.
+  if (!(import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim()) {
+    console.warn(
+      `[LDK Config] VITE_LSP_LABEL is unset — telemetry will tag LSP ` +
+        `${LDK_CONFIG.lspNodeId.substring(0, 16)}... as "${DEFAULTS.lspLabel}". ` +
+        'Set VITE_LSP_LABEL when pointing at a different LSP.'
     )
   }
 }
