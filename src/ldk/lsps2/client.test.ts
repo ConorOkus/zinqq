@@ -43,13 +43,21 @@ describe('LSPS2Client request logging', () => {
   })
 
   it('redacts the token on get_info instead of printing it', async () => {
-    const { client } = makeClient({ opening_fee_params_menu: [FEE_PARAMS] })
+    const { client, payloads } = makeClient({ opening_fee_params_menu: [FEE_PARAMS] })
 
     await client.requestOpeningParams(LSP_ID, 'secret-token')
 
     const sent = logs.find((l) => l.includes('lsps2.get_info'))
     expect(sent).toContain('[REDACTED]')
     expect(sent).not.toContain('secret-token')
+
+    // Redaction must be log-only. If it ever moved before serialization, the LSP
+    // would receive the literal '[REDACTED]' and every token-gated receive would
+    // fail — while the console assertions above stayed green.
+    const wire = payloads.find((p) => p.includes('lsps2.get_info'))
+    expect(wire).toBeDefined()
+    expect(wire).toContain('secret-token')
+    expect(wire).not.toContain('[REDACTED]')
   })
 
   it('logs a null token on get_info when none is configured', async () => {

@@ -86,4 +86,14 @@ if (LDK_CONFIG.lspNodeId !== '') {
       '[LDK Config] lspHost is empty but lspNodeId is set. Both are required for LSPS2.'
     )
   }
+  // Warn rather than throw: the default label is correct for Megalith deployments,
+  // but silently applying it to some other node is the exact misattribution
+  // VITE_LSP_LABEL exists to prevent.
+  if (!(import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim()) {
+    console.warn(
+      `[LDK Config] VITE_LSP_LABEL is unset — telemetry will tag LSP ` +
+        `${LDK_CONFIG.lspNodeId.substring(0, 16)}... as "${DEFAULTS.lspLabel}". ` +
+        'Set VITE_LSP_LABEL when pointing at a different LSP.'
+    )
+  }
 }
