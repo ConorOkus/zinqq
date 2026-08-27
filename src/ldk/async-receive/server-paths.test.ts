@@ -154,6 +154,18 @@ describe('decodeServerPaths', () => {
     if (!result.ok) expect(result.reason).toContain('unresolvable introduction node')
   })
 
+  it('rejects a non-hex entry before it reaches the decoder', () => {
+    const result = decodeServerPaths(['zz'], NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('not even-length lowercase hex')
+  })
+
+  it('rejects an odd-length entry before it reaches the decoder', () => {
+    const result = decodeServerPaths(['abc'], NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('not even-length lowercase hex')
+  })
+
   it('does not return a partial path set on failure', () => {
     const result = decodeServerPaths(['01', '01', 'ff'], NODE_A, graph)
     expect(result.ok).toBe(false)

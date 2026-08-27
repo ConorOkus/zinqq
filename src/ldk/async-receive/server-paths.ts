@@ -28,6 +28,8 @@ export function splitServerPathEntries(raw: string): string[] {
     .filter((entry) => entry !== '')
 }
 
+const HEX_ENTRY = /^(?:[0-9a-f]{2})+$/
+
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2)
   for (let i = 0; i < bytes.length; i++) {
@@ -48,16 +50,22 @@ export function introductionNodeIdHex(
   path: BlindedMessagePath,
   networkGraph: ReadOnlyNetworkGraph
 ): string | null {
-  const introduction = path.introduction_node()
-  if (introduction instanceof IntroductionNode_NodeId) {
-    return bytesToHex(introduction.node_id)
-  }
+  try {
+    const introduction = path.introduction_node()
+    if (introduction instanceof IntroductionNode_NodeId) {
+      return bytesToHex(introduction.node_id)
+    }
 
-  const resolved = path.public_introduction_node_id(networkGraph)
-  if (!resolved) return null
-  const bytes = resolved.as_slice()
-  if (!bytes || bytes.length === 0) return null
-  return bytesToHex(bytes)
+    const resolved = path.public_introduction_node_id(networkGraph)
+    if (!resolved) return null
+    const bytes = resolved.as_slice()
+    if (!bytes || bytes.length === 0) return null
+    return bytesToHex(bytes)
+  } catch {
+    // An unresolvable compact introduction node can throw out of WASM. Treat it
+    // as a failed identity check, never as a pass.
+    return null
+  }
 }
 
 /**
@@ -78,6 +86,13 @@ export function decodeServerPaths(
   const paths: BlindedMessagePath[] = []
 
   for (const [index, entry] of entries.entries()) {
+    // `config.ts` already validates the hex shape at load, but this function is
+    // the module boundary — re-check so a bad entry can never reach hexToBytes,
+    // where a non-hex pair would silently decode to a zero byte.
+    if (!HEX_ENTRY.test(entry)) {
+      return { ok: false, reason: `path ${index} is not even-length lowercase hex` }
+    }
+
     const result = BlindedMessagePath.constructor_read(hexToBytes(entry))
     if (!(result instanceof Result_BlindedMessagePathDecodeErrorZ_OK)) {
       return { ok: false, reason: `path ${index} failed to decode as a blinded message path` }
