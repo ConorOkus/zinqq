@@ -15,11 +15,13 @@ const channelConfigSetters = vi.hoisted(() => ({
   set_accept_underpaying_htlcs: vi.fn(),
 }))
 const setManuallyAcceptInboundChannels = vi.hoisted(() => vi.fn())
+const setEnableHtlcHold = vi.hoisted(() => vi.fn())
 
 vi.mock('lightningdevkit', () => ({
   UserConfig: {
     constructor_default: vi.fn(() => ({
       set_manually_accept_inbound_channels: setManuallyAcceptInboundChannels,
+      set_enable_htlc_hold: setEnableHtlcHold,
       get_channel_handshake_config: vi.fn(() => handshakeConfigSetters),
       get_channel_handshake_limits: vi.fn(() => handshakeLimitsSetters),
       get_channel_config: vi.fn(() => channelConfigSetters),
@@ -77,5 +79,13 @@ describe('createUserConfig', () => {
   it('accepts underpaying HTLCs (LSP deducts opening fee before forwarding)', () => {
     createUserConfig()
     expect(channelConfigSetters.set_accept_underpaying_htlcs).toHaveBeenCalledWith(true)
+  })
+
+  // The flag is the only lever that sets `htlc_hold` in our advertised
+  // features, which async payments needs. Its holding behaviour is inert on a
+  // leaf node that never forwards.
+  it('enables htlc_hold so the feature bit is advertised', () => {
+    createUserConfig()
+    expect(setEnableHtlcHold).toHaveBeenCalledWith(true)
   })
 })

@@ -60,7 +60,7 @@ function hasMessage(msg: OnionMessage): boolean {
   return (msg as unknown as { ptr: bigint }).ptr !== 0n
 }
 
-function buildNode(seedByte: number) {
+function buildNode(seedByte: number, userConfig?: UserConfig) {
   const logger = Logger.new_impl({ log: () => {} })
   const feeEstimator = FeeEstimator.new_impl({ get_est_sat_per_1000_weight: () => 253 })
   const broadcaster = BroadcasterInterface.new_impl({ broadcast_transactions: () => {} })
@@ -113,7 +113,7 @@ function buildNode(seedByte: number) {
     keysManager.as_EntropySource(),
     keysManager.as_NodeSigner(),
     keysManager.as_SignerProvider(),
-    UserConfig.constructor_default(),
+    userConfig ?? UserConfig.constructor_default(),
     ChainParameters.constructor_new(Network.LDKNetwork_Regtest, bestBlock),
     Math.floor(Date.now() / 1000)
   )
@@ -187,6 +187,30 @@ describe('async-receive handshake (real WASM)', () => {
         false
       )
   }
+
+  // Regression guard for the feature bit async payments needs. `enable_htlc_hold`
+  // is the only lever that sets it, so a refactor dropping that call — or an LDK
+  // default change — would silently go back to advertising "not supported",
+  // which is what the LSP observed before this was turned on.
+  it('advertises htlc_hold in the features built from the real wallet config', async () => {
+    const { createUserConfig } = await import('../user-config')
+    const node = buildNode(7, createUserConfig())
+    const handler = node.channelManager.as_BaseMessageHandler()
+
+    expect(
+      handler.provided_init_features(new Uint8Array(33).fill(2)).supports_htlc_hold()
+    ).toBeTruthy()
+    expect(handler.provided_node_features().supports_htlc_hold()).toBeTruthy()
+  })
+
+  it('does not advertise htlc_hold under LDK defaults', () => {
+    const node = buildNode(7)
+    const handler = node.channelManager.as_BaseMessageHandler()
+
+    expect(
+      handler.provided_init_features(new Uint8Array(33).fill(2)).supports_htlc_hold()
+    ).toBeFalsy()
+  })
 
   it('builds a real ChannelManager and onion messenger', () => {
     const node = buildNode(7)
