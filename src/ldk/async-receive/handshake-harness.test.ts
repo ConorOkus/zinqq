@@ -218,6 +218,72 @@ describe('async-receive handshake (real WASM)', () => {
   // nothing while no channel is usable. The handshake's reply path has to
   // terminate at this node through a channel peer, so the channel gate in
   // `register.ts` is a precondition LDK enforces, not a precaution we invented.
+  // The wire shape for server paths is hex of `Vec<BlindedMessagePath>::write()`
+  // — ldk-node's uniffi convention. The bindings expose no vector reader, so the
+  // parser segments the blob itself. This proves the segmentation against paths
+  // built by real LDK rather than mocks.
+  //
+  // Caveat worth keeping visible: the 2-byte count prefix here is constructed by
+  // hand from LDK's CollectionLength encoding, because the JS bindings cannot
+  // call Rust's `Vec::write()`. Per-path decode and round-trip segmentation are
+  // proven; the prefix width still needs confirming against a real server blob.
+  it('decodes a hand-framed Vec<BlindedMessagePath> blob built from real paths', async () => {
+    const server = buildNode(9)
+    const a = serverPath(server).write()
+    const b = serverPath(server).write()
+
+    const bytes = new Uint8Array(2 + a.length + b.length)
+    bytes[0] = 0
+    bytes[1] = 2
+    bytes.set(a, 2)
+    bytes.set(b, 2 + a.length)
+    const hex = Array.from(bytes)
+      .map((x) => x.toString(16).padStart(2, '0'))
+      .join('')
+
+    const { decodeServerPaths } = await import('./server-paths')
+    const serverNodeIdHex = Array.from(server.nodeId)
+      .map((x) => x.toString(16).padStart(2, '0'))
+      .join('')
+
+    const graph = server.networkGraph.read_only()
+    try {
+      const result = decodeServerPaths(hex, serverNodeIdHex, graph)
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.paths).toHaveLength(2)
+    } finally {
+      // The bindings require read locks to be released explicitly; the
+      // finalizer throws instead of freeing.
+      graph.free()
+    }
+  })
+
+  it('rejects a real blob whose paths introduce at a different node', async () => {
+    const server = buildNode(9)
+    const stranger = buildNode(11)
+    const a = serverPath(server).write()
+
+    const bytes = new Uint8Array(2 + a.length)
+    bytes[0] = 0
+    bytes[1] = 1
+    bytes.set(a, 2)
+    const hex = Array.from(bytes)
+      .map((x) => x.toString(16).padStart(2, '0'))
+      .join('')
+
+    const { decodeServerPaths } = await import('./server-paths')
+    const strangerHex = Array.from(stranger.nodeId)
+      .map((x) => x.toString(16).padStart(2, '0'))
+      .join('')
+
+    const graph = server.networkGraph.read_only()
+    try {
+      expect(decodeServerPaths(hex, strangerHex, graph).ok).toBe(false)
+    } finally {
+      graph.free()
+    }
+  })
+
   it('enqueues nothing while no channel is usable, even after registering', () => {
     const recipient = buildNode(7)
     const server = buildNode(9)

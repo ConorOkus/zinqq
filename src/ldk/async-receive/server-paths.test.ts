@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
-// Every LDK-touching test in this repo mocks `lightningdevkit` — nothing here
-// initializes real WASM (see src/ldk/sweep.test.ts for the same pattern).
-// `constructor_read` is steered per-entry by the hex value: a 1-byte entry
-// whose value is the marker.
+// Mocked LDK. The blob under test is `u16 count || path || path ...`, and each
+// mock "path" is a 3-byte record: [marker, 0xAA, 0xBB]. `constructor_read`
+// consumes the first 3 bytes and ignores trailing data, mirroring the real
+// binding's behaviour (verified against real WASM in handshake-harness.test.ts),
+// and `write()` returns those 3 bytes so the caller can segment by round-trip.
 //
-// Marker 0x01 -> decodes, introduces at NODE_A (an explicit NodeId)
-// Marker 0x02 -> decodes, introduces at NODE_B (an explicit NodeId)
-// Marker 0x03 -> decodes, compact introduction node resolved via the graph
-// Marker 0x04 -> decodes, compact introduction node the graph cannot resolve
-// Marker 0xff -> fails to decode
+// marker 0x01 -> introduces at NODE_A   0x02 -> NODE_B
+// marker 0x03 -> compact node resolved via graph to NODE_A
+// marker 0x04 -> compact node the graph cannot resolve
+// marker 0xff -> fails to decode
 const NODE_A = 'aa'.repeat(33)
 const NODE_B = 'bb'.repeat(33)
 
@@ -21,7 +21,6 @@ vi.mock('lightningdevkit', () => {
     }
   }
   class Result_BlindedMessagePathDecodeErrorZ_Err {}
-
   class IntroductionNode {}
   class IntroductionNode_NodeId extends IntroductionNode {
     node_id: Uint8Array
@@ -43,13 +42,15 @@ vi.mock('lightningdevkit', () => {
     constructor(marker: number) {
       this.marker = marker
     }
+    write() {
+      return new Uint8Array([this.marker, 0xaa, 0xbb])
+    }
     introduction_node() {
       if (this.marker === 0x01) return new IntroductionNode_NodeId(hexToBytes(NODE_A))
       if (this.marker === 0x02) return new IntroductionNode_NodeId(hexToBytes(NODE_B))
       return new IntroductionNode_DirectedShortChannelId()
     }
     public_introduction_node_id() {
-      // 0x03 resolves through the graph to NODE_A; 0x04 resolves to nothing.
       if (this.marker === 0x03) return { as_slice: () => hexToBytes(NODE_A) }
       return null
     }
@@ -58,7 +59,9 @@ vi.mock('lightningdevkit', () => {
   class BlindedMessagePath {
     static constructor_read(ser: Uint8Array) {
       const marker = ser[0] ?? 0
-      if (marker === 0xff) return new Result_BlindedMessagePathDecodeErrorZ_Err()
+      if (marker === 0xff || ser.length < 3) {
+        return new Result_BlindedMessagePathDecodeErrorZ_Err()
+      }
       return new Result_BlindedMessagePathDecodeErrorZ_OK(new FakePath(marker))
     }
   }
@@ -73,101 +76,108 @@ vi.mock('lightningdevkit', () => {
   }
 })
 
-const { splitServerPathEntries, decodeServerPaths, introductionNodeIdHex } =
-  await import('./server-paths')
-const { BlindedMessagePath, Result_BlindedMessagePathDecodeErrorZ_OK } =
-  await import('lightningdevkit')
+const { decodeServerPaths, introductionNodeIdHex } = await import('./server-paths')
+const ldk = (await import('lightningdevkit')) as unknown as Record<
+  string,
+  { constructor_read: (b: Uint8Array) => { res?: unknown } }
+>
 
-// The graph is only consulted for compact introduction nodes, and the mock
-// resolves those from the marker, so a placeholder suffices.
 const graph = {} as never
 
-function pathFor(marker: string) {
-  const result = BlindedMessagePath.constructor_read(new Uint8Array([Number.parseInt(marker, 16)]))
-  expect(result).toBeInstanceOf(Result_BlindedMessagePathDecodeErrorZ_OK)
-  return (result as unknown as { res: unknown }).res as never
+/** Build `u16 count || 3-byte path records` from marker bytes. */
+function blob(markers: number[], countOverride?: number): string {
+  const count = countOverride ?? markers.length
+  const bytes = [count >> 8, count & 0xff]
+  for (const m of markers) bytes.push(m, 0xaa, 0xbb)
+  return bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-describe('splitServerPathEntries', () => {
-  it('returns no entries for an empty setting', () => {
-    expect(splitServerPathEntries('')).toEqual([])
-  })
-
-  it('parses a single entry', () => {
-    expect(splitServerPathEntries('01')).toEqual(['01'])
-  })
-
-  it('parses multiple entries in order, tolerating whitespace', () => {
-    expect(splitServerPathEntries(' 01 , 02 ,03 ')).toEqual(['01', '02', '03'])
-  })
-
-  it('drops empty segments from trailing or doubled commas', () => {
-    expect(splitServerPathEntries('01,,02,')).toEqual(['01', '02'])
-  })
-})
+function pathFor(marker: number) {
+  const r = ldk.BlindedMessagePath!.constructor_read(new Uint8Array([marker, 0xaa, 0xbb]))
+  return r.res as never
+}
 
 describe('introductionNodeIdHex', () => {
   it('reads an explicit introduction node id directly', () => {
-    expect(introductionNodeIdHex(pathFor('01'), graph)).toBe(NODE_A)
+    expect(introductionNodeIdHex(pathFor(0x01), graph)).toBe(NODE_A)
   })
 
   it('resolves a compact introduction node through the network graph', () => {
-    expect(introductionNodeIdHex(pathFor('03'), graph)).toBe(NODE_A)
+    expect(introductionNodeIdHex(pathFor(0x03), graph)).toBe(NODE_A)
   })
 
   it('returns null when a compact introduction node cannot be resolved', () => {
-    expect(introductionNodeIdHex(pathFor('04'), graph)).toBeNull()
+    expect(introductionNodeIdHex(pathFor(0x04), graph)).toBeNull()
   })
 })
 
 describe('decodeServerPaths', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('accepts a set where every path introduces at the configured node id', () => {
-    const result = decodeServerPaths(['01', '01'], NODE_A, graph)
+  it('decodes every path in the vector and pins each to the server node id', () => {
+    const result = decodeServerPaths(blob([0x01, 0x01]), NODE_A, graph)
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.paths).toHaveLength(2)
   })
 
-  it('accepts an empty entry list without consulting the decoder', () => {
-    const result = decodeServerPaths([], NODE_A, graph)
-    expect(result).toEqual({ ok: true, paths: [] })
+  it('treats an empty setting as the feature being off', () => {
+    expect(decodeServerPaths('', NODE_A, graph)).toEqual({ ok: true, paths: [] })
   })
 
-  it('rejects the whole set when one entry fails to decode', () => {
-    const result = decodeServerPaths(['01', 'ff'], NODE_A, graph)
+  it('rejects a non-hex blob', () => {
+    const result = decodeServerPaths('zzzz', NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('not even-length lowercase hex')
+  })
+
+  it('rejects a blob too short to hold a length prefix', () => {
+    const result = decodeServerPaths('00', NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('too short')
+  })
+
+  it('rejects a blob declaring zero paths', () => {
+    const result = decodeServerPaths(blob([], 0), NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('zero paths')
+  })
+
+  it('rejects the extended length encoding rather than guessing at it', () => {
+    const result = decodeServerPaths(blob([0x01], 0xffff), NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('extended length encoding')
+  })
+
+  it('rejects a blob that ends before the declared path count', () => {
+    const result = decodeServerPaths(blob([0x01], 3), NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toMatch(/ended before path|failed to decode/)
+  })
+
+  it('rejects trailing bytes after the declared paths', () => {
+    const result = decodeServerPaths(blob([0x01, 0x01], 1), NODE_A, graph)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('trailing byte')
+  })
+
+  it('rejects the whole set when one path fails to decode', () => {
+    const result = decodeServerPaths(blob([0x01, 0xff]), NODE_A, graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('path 1 failed to decode')
   })
 
   it('rejects the whole set when one path introduces at a different node', () => {
-    const result = decodeServerPaths(['01', '02'], NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01, 0x02]), NODE_A, graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('expected')
   })
 
   it('rejects a path whose introduction node cannot be resolved', () => {
-    const result = decodeServerPaths(['04'], NODE_A, graph)
+    const result = decodeServerPaths(blob([0x04]), NODE_A, graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('unresolvable introduction node')
   })
 
-  it('rejects a non-hex entry before it reaches the decoder', () => {
-    const result = decodeServerPaths(['zz'], NODE_A, graph)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toContain('not even-length lowercase hex')
-  })
-
-  it('rejects an odd-length entry before it reaches the decoder', () => {
-    const result = decodeServerPaths(['abc'], NODE_A, graph)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toContain('not even-length lowercase hex')
-  })
-
   it('does not return a partial path set on failure', () => {
-    const result = decodeServerPaths(['01', '01', 'ff'], NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01, 0x01, 0xff]), NODE_A, graph)
     expect(result.ok).toBe(false)
     expect(result).not.toHaveProperty('paths')
   })

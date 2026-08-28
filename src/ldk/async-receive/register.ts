@@ -1,6 +1,6 @@
 import type { ChannelManager, ReadOnlyNetworkGraph } from 'lightningdevkit'
 import { Result_NoneNoneZ_OK } from 'lightningdevkit'
-import { decodeServerPaths, splitServerPathEntries } from './server-paths'
+import { decodeServerPaths } from './server-paths'
 
 /**
  * Registration of this wallet as an async-payments recipient with a static
@@ -21,7 +21,7 @@ export interface RegisterDeps {
     'list_usable_channels' | 'set_paths_to_static_invoice_server'
   >
   networkGraph: ReadOnlyNetworkGraph
-  /** Raw `staticInvoiceServerPaths` config value. */
+  /** Raw `staticInvoiceServerPaths` config value: hex of `Vec<BlindedMessagePath>`. */
   pathsConfig: string
   /** Raw `staticInvoiceServerNodeId` config value. */
   serverNodeId: string
@@ -46,8 +46,7 @@ export function createStaticInvoiceServerRegistrar(): (deps: RegisterDeps) => Re
   return function register(deps: RegisterDeps): RegistrationOutcome {
     if (registered) return { status: 'skipped', reason: 'already registered this session' }
 
-    const entries = splitServerPathEntries(deps.pathsConfig)
-    if (entries.length === 0) {
+    if (deps.pathsConfig.trim() === '') {
       return { status: 'skipped', reason: 'no static invoice server paths configured' }
     }
 
@@ -65,7 +64,7 @@ export function createStaticInvoiceServerRegistrar(): (deps: RegisterDeps) => Re
       return { status: 'skipped', reason: 'no usable channel yet' }
     }
 
-    const decoded = decodeServerPaths(entries, deps.serverNodeId, deps.networkGraph)
+    const decoded = decodeServerPaths(deps.pathsConfig, deps.serverNodeId, deps.networkGraph)
     if (!decoded.ok) {
       return { status: 'failed', reason: decoded.reason }
     }

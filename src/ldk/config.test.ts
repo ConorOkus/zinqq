@@ -59,10 +59,10 @@ describe('LDK_CONFIG static invoice server validation', () => {
   })
 
   it('accepts well-formed paths with a valid node id', async () => {
-    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abcd,ef01')
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', '0001aabbcc')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
     const { LDK_CONFIG: config } = await loadConfig()
-    expect(config.staticInvoiceServerPaths).toBe('abcd,ef01')
+    expect(config.staticInvoiceServerPaths).toBe('0001aabbcc')
     expect(config.staticInvoiceServerNodeId).toBe(NODE_ID)
   })
 
@@ -78,16 +78,16 @@ describe('LDK_CONFIG static invoice server validation', () => {
     await expect(loadConfig()).rejects.toThrow(/staticInvoiceServerNodeId/)
   })
 
-  it('throws on a non-hex path entry', async () => {
-    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abcd,zzzz')
+  it('throws on a non-hex blob', async () => {
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abcdzzzz')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
-    await expect(loadConfig()).rejects.toThrow(/entry 1 is not even-length lowercase hex/)
+    await expect(loadConfig()).rejects.toThrow(/not even-length lowercase hex/)
   })
 
-  it('throws on an odd-length path entry', async () => {
+  it('throws on an odd-length blob', async () => {
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abc')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
-    await expect(loadConfig()).rejects.toThrow(/entry 0 is not even-length lowercase hex/)
+    await expect(loadConfig()).rejects.toThrow(/not even-length lowercase hex/)
   })
 })
 

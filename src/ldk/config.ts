@@ -17,8 +17,9 @@ interface LdkConfig {
   lspLabel: string
 
   /**
-   * Comma-separated hex-encoded blinded message paths to a static invoice
-   * server, obtained out-of-band from the server operator. Empty disables the
+   * Hex-encoded `Vec<BlindedMessagePath>` addressed to a static invoice server,
+   * obtained out-of-band from the server operator. This is the shape ldk-node's
+   * uniffi bindings emit for async-recipient paths. Empty disables the
    * async-payments recipient role.
    *
    * Single-recipient only: the server issues these paths against a unique
@@ -133,12 +134,10 @@ if (LDK_CONFIG.staticInvoiceServerPaths !== '') {
     )
   }
 
-  const entries = LDK_CONFIG.staticInvoiceServerPaths.split(',').map((entry) => entry.trim())
-  for (const [index, entry] of entries.entries()) {
-    if (!/^[0-9a-f]+$/.test(entry) || entry.length % 2 !== 0) {
-      throw new Error(
-        `[LDK Config] staticInvoiceServerPaths entry ${index} is not even-length lowercase hex.`
-      )
-    }
+  if (!/^(?:[0-9a-f]{2})+$/.test(LDK_CONFIG.staticInvoiceServerPaths)) {
+    throw new Error(
+      '[LDK Config] staticInvoiceServerPaths is not even-length lowercase hex. Expected hex of ' +
+        "the server's Vec<BlindedMessagePath> blob."
+    )
   }
 }

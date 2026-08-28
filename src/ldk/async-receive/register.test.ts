@@ -38,6 +38,9 @@ vi.mock('lightningdevkit', () => {
     constructor(marker: number) {
       this.marker = marker
     }
+    write() {
+      return new Uint8Array([this.marker, 0xaa, 0xbb])
+    }
     introduction_node() {
       return new IntroductionNode_NodeId(hexToBytes(this.marker === 0x02 ? NODE_B : NODE_A))
     }
@@ -49,7 +52,9 @@ vi.mock('lightningdevkit', () => {
   class BlindedMessagePath {
     static constructor_read(ser: Uint8Array) {
       const marker = ser[0] ?? 0
-      if (marker === 0xff) return new Result_BlindedMessagePathDecodeErrorZ_Err()
+      if (marker === 0xff || ser.length < 3) {
+        return new Result_BlindedMessagePathDecodeErrorZ_Err()
+      }
       return new Result_BlindedMessagePathDecodeErrorZ_OK(new FakePath(marker))
     }
   }
@@ -86,11 +91,18 @@ function makeManager(options: { usableChannels?: number; accept?: boolean } = {}
   }
 }
 
+/** Build `u16 count || 3-byte path records` from marker bytes. */
+function blob(markers: number[]): string {
+  const bytes = [markers.length >> 8, markers.length & 0xff]
+  for (const m of markers) bytes.push(m, 0xaa, 0xbb)
+  return bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 function deps(overrides: Record<string, unknown> = {}) {
   return {
     channelManager: makeManager() as never,
     networkGraph: {} as never,
-    pathsConfig: '01',
+    pathsConfig: blob([0x01]),
     serverNodeId: NODE_A,
     hasPersistedOffer: false,
     ...overrides,
@@ -102,7 +114,9 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(deps({ channelManager: manager as never, pathsConfig: '01,01' }))
+    const outcome = register(
+      deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0x01]) })
+    )
 
     expect(outcome).toEqual({ status: 'registered', pathCount: 2 })
     expect(manager.set_paths_to_static_invoice_server).toHaveBeenCalledTimes(1)
@@ -165,7 +179,9 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(deps({ channelManager: manager as never, pathsConfig: '01,ff' }))
+    const outcome = register(
+      deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0xff]) })
+    )
 
     expect(outcome.status).toBe('failed')
     expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()
@@ -175,7 +191,9 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(deps({ channelManager: manager as never, pathsConfig: '01,02' }))
+    const outcome = register(
+      deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0x02]) })
+    )
 
     expect(outcome.status).toBe('failed')
     expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()

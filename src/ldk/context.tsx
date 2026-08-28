@@ -1303,6 +1303,9 @@ export function LdkProvider({
           // handshake is four onion-message legs and LDK advances it on its own
           // timer, not on ours.
           const registerWithInvoiceServer = createStaticInvoiceServerRegistrar()
+          // Stops re-acquiring the network-graph read lock every tick once
+          // registration can no longer change outcome.
+          let registrationSettled = false
           let asyncPollsRemaining = ASYNC_OFFER_POLL_BUDGET
 
           asyncReceiveTick = async () => {
@@ -1312,19 +1315,34 @@ export function LdkProvider({
             try {
               const persistedAsyncOffer = (await getPersistedAsyncOffer()) ?? null
 
-              const outcome = registerWithInvoiceServer({
-                channelManager: node.channelManager,
-                networkGraph: node.networkGraph.read_only(),
-                pathsConfig: LDK_CONFIG.staticInvoiceServerPaths,
-                serverNodeId: LDK_CONFIG.staticInvoiceServerNodeId,
-                hasPersistedOffer: persistedAsyncOffer !== null,
-              })
-              if (outcome.status === 'failed') {
-                captureError('warning', 'LDK', `Async-receive registration: ${outcome.reason}`)
-              } else if (outcome.status === 'registered') {
-                console.log(
-                  `[ldk] async-receive registered with ${outcome.pathCount} server path(s)`
-                )
+              if (!registrationSettled) {
+                // read_only() takes a lock on the network graph that must be
+                // released explicitly — the bindings' finalizer throws rather
+                // than freeing it, so an unfreed lock surfaces as an unhandled
+                // error rather than quiet garbage.
+                const readOnlyGraph = node.networkGraph.read_only()
+                try {
+                  const outcome = registerWithInvoiceServer({
+                    channelManager: node.channelManager,
+                    networkGraph: readOnlyGraph,
+                    pathsConfig: LDK_CONFIG.staticInvoiceServerPaths,
+                    serverNodeId: LDK_CONFIG.staticInvoiceServerNodeId,
+                    hasPersistedOffer: persistedAsyncOffer !== null,
+                  })
+                  if (outcome.status === 'failed') {
+                    captureError('warning', 'LDK', `Async-receive registration: ${outcome.reason}`)
+                    registrationSettled = true
+                  } else if (outcome.status === 'registered') {
+                    console.log(
+                      `[ldk] async-receive registered with ${outcome.pathCount} server path(s)`
+                    )
+                    registrationSettled = true
+                  } else if (persistedAsyncOffer !== null) {
+                    registrationSettled = true
+                  }
+                } finally {
+                  readOnlyGraph.free()
+                }
               }
 
               const asyncOffer = readAsyncReceiveOffer(node.channelManager)
