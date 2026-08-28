@@ -441,6 +441,25 @@ describe('createEventHandler', () => {
     )
   })
 
+  // F3 in the async-payments plan claims a payment against the async-receive
+  // offer settles through this handler with no new code. The claim branch is
+  // purpose-agnostic — it turns only on `preimage()` — so pin that a BOLT 12
+  // offer purpose reaches `claim_funds` rather than the timeout warning.
+  it('claims a BOLT 12 offer payment, not just BOLT 11', () => {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+    const event = new Event_PaymentClaimable()
+    event.purpose = {
+      preimage: () => new ldk.Option_ThirtyTwoBytesZ_Some(new Uint8Array([9, 9, 9])),
+      constructor: { name: 'PaymentPurpose_Bolt12OfferPayment' },
+    }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+
+    handleEvent(event)
+
+    expect(mockClaimFunds).toHaveBeenCalledWith(new Uint8Array([9, 9, 9]))
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
   it('warns when PaymentClaimable has no preimage', () => {
     /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
     const event = Object.assign(new Event_PaymentClaimable(), {
