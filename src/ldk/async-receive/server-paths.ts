@@ -68,6 +68,10 @@ export function introductionNodeIdHex(
  * Decode a hex-encoded `Vec<BlindedMessagePath>` and pin every path to the
  * configured server node id.
  *
+ * There is no per-element length prefix, so the blob cannot be parsed by
+ * skipping elements — each path must be fully decoded to find where the next
+ * begins. That is a structural constraint of the encoding, not a shortcut here.
+ *
  * Segmentation works because `constructor_read` consumes only the bytes one
  * path needs and tolerates trailing data, and re-serializing the decoded path
  * reproduces exactly those bytes — so the round-trip length is how far to
@@ -92,12 +96,22 @@ export function decodeServerPaths(
     return { ok: false, reason: 'server paths blob is too short to contain a length prefix' }
   }
 
-  // LDK writes a collection length as a big-endian u16, escaping to 0xffff plus
-  // a BigSize for very large collections. A path set that large is not a real
-  // input, so reject the escape rather than guessing at the wider encoding.
+  // Framing confirmed against lightning 0.3.0+git rev 3dfcc4cc:
+  // `impl_for_vec!(BlindedMessagePath)` (util/ser.rs:1162) uses the plain
+  // variant — a CollectionLength followed by each element written directly,
+  // with no per-element length prefix. CollectionLength (util/ser.rs:567-577)
+  // is a big-endian u16 below 0xffff, escaping to an 0xffff marker followed by
+  // a u64 of `len - 0xffff`.
+  //
+  // Reading only the u16 form is deliberate, not an oversight: the escape needs
+  // 65,535+ paths, which is not a real input. Reject it loudly rather than
+  // widening the parser for a case that would signal a malformed blob anyway.
   const count = ((bytes[0] ?? 0) << 8) | (bytes[1] ?? 0)
   if (count === 0xffff) {
-    return { ok: false, reason: 'server paths blob uses the extended length encoding' }
+    return {
+      ok: false,
+      reason: "server paths blob uses CollectionLength's extended (0xffff) encoding",
+    }
   }
   if (count === 0) {
     return { ok: false, reason: 'server paths blob declares zero paths' }

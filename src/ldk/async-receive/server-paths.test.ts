@@ -143,7 +143,7 @@ describe('decodeServerPaths', () => {
   it('rejects the extended length encoding rather than guessing at it', () => {
     const result = decodeServerPaths(blob([0x01], 0xffff), NODE_A, graph)
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toContain('extended length encoding')
+    if (!result.ok) expect(result.reason).toContain('extended (0xffff) encoding')
   })
 
   it('rejects a blob that ends before the declared path count', () => {

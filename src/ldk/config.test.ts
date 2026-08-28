@@ -40,6 +40,7 @@ describe('LDK_CONFIG', () => {
 // under stubbed env vars.
 describe('LDK_CONFIG static invoice server validation', () => {
   const NODE_ID = 'aa'.repeat(33)
+  const ACK = 'single-recipient-deployment'
 
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -58,9 +59,10 @@ describe('LDK_CONFIG static invoice server validation', () => {
     expect(config.staticInvoiceServerPaths).toBe('')
   })
 
-  it('accepts well-formed paths with a valid node id', async () => {
+  it('accepts well-formed paths with a valid node id and the recipient ack', async () => {
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', '0001aabbcc')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', ACK)
     const { LDK_CONFIG: config } = await loadConfig()
     expect(config.staticInvoiceServerPaths).toBe('0001aabbcc')
     expect(config.staticInvoiceServerNodeId).toBe(NODE_ID)
@@ -69,24 +71,49 @@ describe('LDK_CONFIG static invoice server validation', () => {
   it('throws when paths are set but the node id is empty', async () => {
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abcd')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', '')
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', ACK)
     await expect(loadConfig()).rejects.toThrow(/staticInvoiceServerNodeId/)
   })
 
   it('throws when the node id is not 66-character lowercase hex', async () => {
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abcd')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', 'AA'.repeat(33))
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', ACK)
     await expect(loadConfig()).rejects.toThrow(/staticInvoiceServerNodeId/)
+  })
+
+  it('throws when paths are set without the single-recipient acknowledgement', async () => {
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', '0001aabbcc')
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', '')
+    await expect(loadConfig()).rejects.toThrow(/RECIPIENT_ACK/)
+  })
+
+  it('throws when the acknowledgement is set to the wrong value', async () => {
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', '0001aabbcc')
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', 'yes')
+    await expect(loadConfig()).rejects.toThrow(/RECIPIENT_ACK/)
+  })
+
+  it('does not require the acknowledgement when the feature is off', async () => {
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', '')
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', '')
+    const { LDK_CONFIG: config } = await loadConfig()
+    expect(config.staticInvoiceServerPaths).toBe('')
   })
 
   it('throws on a non-hex blob', async () => {
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abcdzzzz')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', ACK)
     await expect(loadConfig()).rejects.toThrow(/not even-length lowercase hex/)
   })
 
   it('throws on an odd-length blob', async () => {
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', 'abc')
     vi.stubEnv('VITE_STATIC_INVOICE_SERVER_NODE_ID', NODE_ID)
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK', ACK)
     await expect(loadConfig()).rejects.toThrow(/not even-length lowercase hex/)
   })
 })

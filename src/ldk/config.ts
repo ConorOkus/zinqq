@@ -29,6 +29,11 @@ interface LdkConfig {
   staticInvoiceServerPaths: string
   /** Node id every configured path must introduce at. Pins server identity. */
   staticInvoiceServerNodeId: string
+  /**
+   * Explicit acknowledgement that this build serves exactly one recipient.
+   * Required whenever paths are set — see the validation below for why.
+   */
+  staticInvoiceServerRecipientAck: string
 
   genesisBlockHash: string
 }
@@ -53,6 +58,7 @@ const DEFAULTS: LdkConfig = {
   lspLabel: 'megalith',
   staticInvoiceServerPaths: '',
   staticInvoiceServerNodeId: '',
+  staticInvoiceServerRecipientAck: '',
   genesisBlockHash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
 }
 
@@ -81,6 +87,10 @@ export const LDK_CONFIG: LdkConfig = {
   staticInvoiceServerNodeId: (
     (import.meta.env.VITE_STATIC_INVOICE_SERVER_NODE_ID as string | undefined) ??
     DEFAULTS.staticInvoiceServerNodeId
+  ).trim(),
+  staticInvoiceServerRecipientAck: (
+    (import.meta.env.VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK as string | undefined) ??
+    DEFAULTS.staticInvoiceServerRecipientAck
   ).trim(),
 }
 
@@ -122,6 +132,9 @@ if (LDK_CONFIG.lspNodeId !== '') {
   }
 }
 
+/** Literal the operator must set to affirm a single-recipient deployment. */
+const SINGLE_RECIPIENT_ACK = 'single-recipient-deployment'
+
 // Validate the static invoice server config. Empty paths disable the
 // async-payments recipient role. Only the hex *shape* is checked here — the
 // actual decode is WASM-backed and lives in async-receive/server-paths.ts,
@@ -131,6 +144,27 @@ if (LDK_CONFIG.staticInvoiceServerPaths !== '') {
     throw new Error(
       '[LDK Config] staticInvoiceServerPaths is set but staticInvoiceServerNodeId is not a ' +
         '66-character lowercase hex public key. Both are required to pin the server identity.'
+    )
+  }
+
+  // Single-recipient correctness gate, not a roadmap note.
+  //
+  // The server issues these paths against a recipient_id that "must uniquely
+  // identify the recipient", and its store keys on it —
+  // static_invoices/<sha256(recipient_id)>/<invoice_slot>. Shipping one bundle
+  // to two wallets therefore does not degrade gracefully: both register under
+  // the same id and overwrite each other's static invoices in a shared
+  // keyspace, silently corrupting the thing the server exists to serve.
+  //
+  // Nothing at runtime can detect that another wallet shares the id, so the
+  // only place to catch it is here, at deploy time.
+  if (LDK_CONFIG.staticInvoiceServerRecipientAck !== SINGLE_RECIPIENT_ACK) {
+    throw new Error(
+      '[LDK Config] staticInvoiceServerPaths is set, so ' +
+        `VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK must be "${SINGLE_RECIPIENT_ACK}". ` +
+        'These paths encode one recipient_id and the server keys its static-invoice ' +
+        'store on it, so serving this bundle to more than one wallet makes them ' +
+        "overwrite each other's invoices. Set this only for a single-recipient build."
     )
   }
 
