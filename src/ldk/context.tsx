@@ -40,7 +40,15 @@ import {
   type ChannelManagerPersistScheduler,
 } from './storage/persist-cm'
 import { getKnownPeers, putKnownPeer, deleteKnownPeer } from './storage/known-peers'
-import { getPersistedOffer, putPersistedOffer } from './storage/offer'
+import {
+  clearPersistedAsyncOffer,
+  getPersistedAsyncOffer,
+  getPersistedOffer,
+  putPersistedAsyncOffer,
+  putPersistedOffer,
+} from './storage/offer'
+import { createStaticInvoiceServerRegistrar } from './async-receive/register'
+import { readAsyncReceiveOffer, resolvePublishedOffer } from './async-receive/offer'
 import { persistPayment, loadAllPayments } from './storage/payment-history'
 import { bytesToHex, hexToBytes } from './utils'
 import { msatToSatFloor } from '../utils/msat'
@@ -690,6 +698,14 @@ export async function runJitQuoteFlow(args: {
   }
 }
 
+/**
+ * Chain-sync ticks to keep polling for the async-receive offer before giving up
+ * and demoting to the self-built offer. At the 60s tick interval this is ~10
+ * minutes, which leaves room for the handshake's four onion-message legs plus
+ * LDK's own retry timers.
+ */
+const ASYNC_OFFER_POLL_BUDGET = 10
+
 export function LdkProvider({
   children,
   ldkSeed,
@@ -1107,6 +1123,13 @@ export function LdkProvider({
 
   useEffect(() => {
     let cancelled = false
+    // Assigned once the node exists; a no-op until then so the sync loop can
+    // reference it unconditionally.
+    let asyncReceiveTick: () => Promise<void> = async () => {}
+    // The wallet's own offer, tracked separately from published state because
+    // the async-receive offer supersedes it once the handshake completes.
+    let publishedSelfBuiltOffer: string | null = null
+    const publishedAsyncOfferRef: { current: string | null } = { current: null }
     let syncHandle: { stop: () => void } | null = null
     let peerTimerId: ReturnType<typeof setInterval> | null = null
     let cleanupEventHandlerFn: (() => void) | null = null
@@ -1273,6 +1296,70 @@ export function LdkProvider({
           const esplora = new EsploraClient(LDK_CONFIG.esploraUrl)
           const confirmables = [node.channelManager.as_Confirm(), node.chainMonitor.as_Confirm()]
 
+          // Async-payments recipient role, driven from the chain-sync tick below.
+          //
+          // Inert unless static invoice server paths are configured. Registration
+          // is one-shot; polling continues for the life of the session because the
+          // handshake is four onion-message legs and LDK advances it on its own
+          // timer, not on ours.
+          const registerWithInvoiceServer = createStaticInvoiceServerRegistrar()
+          let asyncPollsRemaining = ASYNC_OFFER_POLL_BUDGET
+
+          asyncReceiveTick = async () => {
+            if (cancelled) return
+            if (LDK_CONFIG.staticInvoiceServerPaths === '') return
+
+            try {
+              const persistedAsyncOffer = (await getPersistedAsyncOffer()) ?? null
+
+              const outcome = registerWithInvoiceServer({
+                channelManager: node.channelManager,
+                networkGraph: node.networkGraph.read_only(),
+                pathsConfig: LDK_CONFIG.staticInvoiceServerPaths,
+                serverNodeId: LDK_CONFIG.staticInvoiceServerNodeId,
+                hasPersistedOffer: persistedAsyncOffer !== null,
+              })
+              if (outcome.status === 'failed') {
+                captureError('warning', 'LDK', `Async-receive registration: ${outcome.reason}`)
+              } else if (outcome.status === 'registered') {
+                console.log(
+                  `[ldk] async-receive registered with ${outcome.pathCount} server path(s)`
+                )
+              }
+
+              const asyncOffer = readAsyncReceiveOffer(node.channelManager)
+              if (asyncOffer === null && asyncPollsRemaining > 0) asyncPollsRemaining -= 1
+
+              const resolved = resolvePublishedOffer({
+                asyncOffer,
+                persistedAsyncOffer,
+                selfBuiltOffer: publishedSelfBuiltOffer,
+                revalidationExhausted: asyncPollsRemaining === 0,
+              })
+
+              if (resolved.demoted && persistedAsyncOffer !== null) {
+                await clearPersistedAsyncOffer()
+                captureError(
+                  'warning',
+                  'LDK',
+                  'Async-receive offer could not be reconfirmed; falling back to the self-built offer'
+                )
+              } else if (asyncOffer !== null && asyncOffer !== persistedAsyncOffer) {
+                await putPersistedAsyncOffer(asyncOffer)
+                console.log('[ldk] async-receive offer published')
+              }
+
+              if (resolved.offer !== null && resolved.offer !== publishedAsyncOfferRef.current) {
+                publishedAsyncOfferRef.current = resolved.source === 'async' ? resolved.offer : null
+                setState((prev) =>
+                  prev.status === 'ready' ? { ...prev, bolt12Offer: resolved.offer } : prev
+                )
+              }
+            } catch (err) {
+              captureError('warning', 'LDK', 'Async-receive tick failed', String(err))
+            }
+          }
+
           syncHandle = startSyncLoop({
             confirmables,
             watchState,
@@ -1289,15 +1376,23 @@ export function LdkProvider({
               setState((prev) => (prev.status === 'ready' ? { ...prev, syncStatus } : prev))
             },
             schedulePersist,
+            // Async-payments recipient role. Rides the chain-sync tick because
+            // that is the tick that already drives `timer_tick_occurred`, which
+            // is what advances LDK's side of the handshake. The self-built
+            // offer's exponential backoff is the wrong budget here: it spends
+            // ~93s total, less than two ticks.
+            //
             // Close-record healing. Uses the primary proxy Esplora client
             // only (never the mempool.space fallback — recurring outspend
             // polling there would leak IP + channel set). Gated internally:
             // zero cost when no close is pending.
-            onSynced: (info) =>
-              reconcileCloseRecords(
+            onSynced: async (info) => {
+              await reconcileCloseRecords(
                 { channelManager: node.channelManager, esplora, bdkWallet },
                 info
-              ),
+              )
+              await asyncReceiveTick()
+            },
           })
 
           // Periodic reconnection: check every 3rd tick (~30s) for channel
@@ -1625,9 +1720,13 @@ export function LdkProvider({
             try {
               const existing = attempt === 0 ? await getPersistedOffer() : undefined
               if (existing) {
-                setState((prev) =>
-                  prev.status === 'ready' ? { ...prev, bolt12Offer: existing } : prev
-                )
+                publishedSelfBuiltOffer = existing
+                // The async-receive offer supersedes this one once resolved.
+                if (publishedAsyncOfferRef.current === null) {
+                  setState((prev) =>
+                    prev.status === 'ready' ? { ...prev, bolt12Offer: existing } : prev
+                  )
+                }
                 return
               }
 
@@ -1661,9 +1760,12 @@ export function LdkProvider({
               }
               const offerStr = offerResult.res.to_str()
               await putPersistedOffer(offerStr)
-              setState((prev) =>
-                prev.status === 'ready' ? { ...prev, bolt12Offer: offerStr } : prev
-              )
+              publishedSelfBuiltOffer = offerStr
+              if (publishedAsyncOfferRef.current === null) {
+                setState((prev) =>
+                  prev.status === 'ready' ? { ...prev, bolt12Offer: offerStr } : prev
+                )
+              }
               console.log('[ldk] BOLT 12 offer created and persisted')
             } catch (err) {
               captureError('error', 'LDK', 'Failed to load/create BOLT 12 offer', String(err))
