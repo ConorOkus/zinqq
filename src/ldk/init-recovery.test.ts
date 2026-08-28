@@ -201,6 +201,7 @@ vi.mock('lightningdevkit', () => ({
   UserConfig: {
     constructor_default: vi.fn(() => ({
       set_manually_accept_inbound_channels: vi.fn(),
+      set_enable_htlc_hold: vi.fn(),
       get_channel_handshake_config: vi.fn(() => ({
         set_negotiate_scid_privacy: vi.fn(),
         set_negotiate_anchors_zero_fee_htlc_tx: vi.fn(),

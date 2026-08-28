@@ -11,6 +11,20 @@ export function createUserConfig(): UserConfig {
   const config = UserConfig.constructor_default()
   config.set_manually_accept_inbound_channels(true)
 
+  // Advertise the `htlc_hold` feature bit, which async payments needs.
+  //
+  // This flag does two things, and the second is the one we're after: it makes
+  // us willing to hold HTLCs for channel peers that ask, *and* it is the only
+  // lever that sets `htlc_hold` in our init and node features. Leaving it false
+  // is why the LSP reported `HtlcHold: not supported` for every connected peer.
+  //
+  // LDK's docs warn this "should only be set to true for nodes which expect to
+  // be online reliably", which a browser wallet plainly is not. That warning is
+  // about the holding half, and it does not bite here: holding only applies to
+  // HTLCs we forward, and this is a leaf node with one channel to the LSP that
+  // never forwards. So the behaviour is inert and the advertisement is real.
+  config.set_enable_htlc_hold(true)
+
   // LSPS2 JIT channels require option_scid_alias (reference channel before confirmation)
   const handshakeConfig = config.get_channel_handshake_config()
   handshakeConfig.set_negotiate_scid_privacy(true)
