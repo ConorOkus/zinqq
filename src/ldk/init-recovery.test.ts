@@ -237,6 +237,8 @@ vi.mock('lightningdevkit', () => ({
   DefaultMessageRouter: {
     constructor_new: vi.fn(() => ({ as_MessageRouter: () => ({}) })),
   },
+  // The LSP-relay router wraps DefaultMessageRouter and hands LDK its own impl.
+  MessageRouter: { new_impl: vi.fn(() => ({})) },
   OnionMessenger: { constructor_new: vi.fn(() => ({ as_OnionMessageHandler: () => ({}) })) },
   UtilMethods: {
     constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read: vi.fn(() => {

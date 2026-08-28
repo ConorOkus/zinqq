@@ -14,7 +14,6 @@ import {
   ProbabilisticScoringFeeParameters,
   MultiThreadedLockableScore,
   DefaultRouter,
-  DefaultMessageRouter,
   OnionMessenger,
   UtilMethods,
   Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK,
@@ -54,6 +53,7 @@ import {
   type RecoveryNeededCallback,
 } from './traits/event-handler'
 import { createBdkSignerProvider } from './traits/bdk-signer-provider'
+import { createLspRelayMessageRouter } from './onion/lsp-relay-router'
 import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { drainPendingBroadcasts } from './traits/broadcaster'
@@ -539,10 +539,28 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     lockableScore.as_LockableScore(),
     ProbabilisticScoringFeeParameters.constructor_default()
   )
-  const messageRouter = DefaultMessageRouter.constructor_new(
+  // Falls back to relaying through the LSP when the default router cannot
+  // reach a destination directly, which with an RGS-only graph is every
+  // introduction node that is not already our peer. See the module docs.
+  const messageRouter = createLspRelayMessageRouter({
     networkGraph,
-    keysManager.as_EntropySource()
-  )
+    entropySource: keysManager.as_EntropySource(),
+    lspNodeId: LDK_CONFIG.lspNodeId,
+    onRelay: (introductionNode) => {
+      console.log(`[ldk] relaying onion message via LSP to ${introductionNode.substring(0, 16)}…`)
+    },
+    onUnroutable: (reason, introductionNode) => {
+      // Loud on purpose. Before this, an unroutable onion message was dropped
+      // in silence and the only symptom was a BOLT 12 payment that never
+      // completed.
+      captureError(
+        'warning',
+        'LDK',
+        `Onion message unroutable (${reason})`,
+        introductionNode ?? 'unresolved introduction node'
+      )
+    },
+  })
 
   // 8. Restore ChannelMonitors from IndexedDB
   const monitorEntries = await idbGetAll<Uint8Array>('ldk_channel_monitors')
@@ -562,7 +580,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       chainMonitor.as_Watch(),
       broadcaster,
       router.as_Router(),
-      messageRouter.as_MessageRouter(),
+      messageRouter,
       logger,
       createUserConfig(),
       restoredMonitors
@@ -630,7 +648,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       chainMonitor.as_Watch(),
       broadcaster,
       router.as_Router(),
-      messageRouter.as_MessageRouter(),
+      messageRouter,
       logger,
       keysManager.as_EntropySource(),
       keysManager.as_NodeSigner(),
@@ -659,7 +677,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     keysManager.as_NodeSigner(),
     logger,
     channelManager.as_NodeIdLookUp(),
-    messageRouter.as_MessageRouter(),
+    messageRouter,
     channelManager.as_OffersMessageHandler(),
     channelManager.as_AsyncPaymentsMessageHandler(),
     channelManager.as_DNSResolverMessageHandler(),
