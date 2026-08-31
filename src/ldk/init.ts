@@ -112,6 +112,11 @@ export interface LdkNode {
   trustedLspIds: Set<string>
 }
 
+/** First 16 hex chars of a node id — the shortening this file already logs by. */
+function short(nodeIdHex: string): string {
+  return `${nodeIdHex.substring(0, 16)}...`
+}
+
 export interface InitResult {
   node: LdkNode
   watchState: WatchState
@@ -547,17 +552,28 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     entropySource: keysManager.as_EntropySource(),
     lspNodeId: LDK_CONFIG.lspNodeId,
     onRelay: (introductionNode) => {
-      console.log(`[ldk] relaying onion message via LSP to ${introductionNode.substring(0, 16)}…`)
+      console.log(
+        `[LDK Init] relaying onion message via LSP ${short(LDK_CONFIG.lspNodeId)} to ${short(introductionNode)}`
+      )
     },
-    onUnroutable: (reason, introductionNode) => {
+    onUnroutable: (reason, introductionNode, peerHexes) => {
       // Loud on purpose. Before this, an unroutable onion message was dropped
       // in silence and the only symptom was a BOLT 12 payment that never
       // completed.
+      //
+      // The peer list is part of the report because the failure it most often
+      // explains is an LSP that is connected but does not advertise
+      // `onion_messages`: LDK then never offers it here, which is
+      // indistinguishable from a disconnect unless the set is printed.
       captureError(
         'warning',
         'LDK',
         `Onion message unroutable (${reason})`,
-        introductionNode ?? 'unresolved introduction node'
+        [
+          `destination=${introductionNode === null ? 'unresolved introduction node' : short(introductionNode)}`,
+          `lsp=${LDK_CONFIG.lspNodeId === '' ? 'not configured' : short(LDK_CONFIG.lspNodeId)}`,
+          `onion-message peers=${peerHexes.length === 0 ? 'none' : `[${peerHexes.map(short).join(', ')}]`}`,
+        ].join(' ')
       )
     },
   })

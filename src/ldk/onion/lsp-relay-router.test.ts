@@ -223,7 +223,8 @@ describe('createLspRelayMessageRouter', () => {
     expect(result).not.toBeInstanceOf(Result_OnionMessagePathNoneZ_OK)
     expect(onUnroutable).toHaveBeenCalledWith(
       'introduction node SCID is not in the network graph',
-      null
+      null,
+      [lsp.hex]
     )
     expect(onRelay).not.toHaveBeenCalled()
   })
@@ -249,7 +250,9 @@ describe('createLspRelayMessageRouter', () => {
     )
 
     expect(result).not.toBeInstanceOf(Result_OnionMessagePathNoneZ_OK)
-    expect(onUnroutable).toHaveBeenCalledWith('LSP is not a connected peer', stranger.hex)
+    // The empty peer set is the whole diagnosis: an LSP that is connected but
+    // does not advertise `onion_messages` never reaches the router at all.
+    expect(onUnroutable).toHaveBeenCalledWith('LSP is not a connected peer', stranger.hex, [])
   })
 
   it('leaves a directly reachable destination to the default router', () => {
