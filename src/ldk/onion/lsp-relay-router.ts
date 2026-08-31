@@ -1,5 +1,7 @@
 import {
+  BlindedMessagePath,
   DefaultMessageRouter,
+  Destination,
   Destination_BlindedPath,
   Destination_Node,
   IntroductionNode_NodeId,
@@ -7,9 +9,10 @@ import {
   OnionMessagePath,
   Result_OnionMessagePathNoneZ,
   Result_OnionMessagePathNoneZ_OK,
-  type Destination,
   type EntropySource,
   type NetworkGraph,
+  type NodeId,
+  type ReadOnlyNetworkGraph,
 } from 'lightningdevkit'
 import { bytesToHex, hexToBytes } from '../utils'
 
@@ -77,6 +80,55 @@ function firstNodeHex(destination: Destination): string | null {
 }
 
 /**
+ * Pubkey bytes behind a `NodeId`, or null when the lookup found nothing.
+ *
+ * The bindings signal "None" by handing back a struct around a null pointer
+ * rather than JS `null`, so the pointer has to be checked before the accessor
+ * is called — going through to it traps the runtime.
+ */
+function nodeIdBytes(nodeId: NodeId): Uint8Array | null {
+  if (!nodeId || (nodeId as unknown as { ptr?: bigint }).ptr === 0n) return null
+  const bytes = nodeId.as_slice()
+  return bytes && bytes.length === 33 ? bytes : null
+}
+
+/**
+ * A destination whose introduction node is a plain pubkey.
+ *
+ * A blinded path from a real offer usually carries its introduction node in
+ * compact form — a directed short-channel-id — and resolving that to a pubkey
+ * is exactly the lookup an RGS-only graph *can* answer, because it is a channel
+ * lookup.
+ *
+ * `Destination.resolve()` is the API for this and it does not work through
+ * these bindings: the mutation does not stick, so the destination still reads
+ * as compact afterwards (verified against real WASM in the tests). Resolving by
+ * hand and rebuilding the path is the way to get a destination LDK can send to
+ * — an unresolved compact introduction node makes its own send path fail with
+ * `UnresolvedIntroductionNode`.
+ *
+ * Returns a clone of the original when the path is already resolved, when the
+ * SCID is not in our graph, or for a non-blinded destination.
+ */
+function resolveDestination(destination: Destination, graph: ReadOnlyNetworkGraph): Destination {
+  if (!(destination instanceof Destination_BlindedPath)) return destination.clone()
+
+  const path = destination.blinded_path
+  if (path.introduction_node() instanceof IntroductionNode_NodeId) return destination.clone()
+
+  const introductionNode = nodeIdBytes(path.public_introduction_node_id(graph))
+  if (introductionNode === null) return destination.clone()
+
+  return Destination.constructor_blinded_path(
+    BlindedMessagePath.constructor_from_blinded_path(
+      introductionNode,
+      path.blinding_point(),
+      path.blinded_hops()
+    )
+  )
+}
+
+/**
  * A `MessageRouter` that falls back to relaying through the LSP when the
  * default router cannot reach a destination directly.
  *
@@ -97,10 +149,10 @@ export function createLspRelayMessageRouter({
       // Resolve a compact introduction node to a pubkey first. This is the one
       // thing RGS *can* answer: compact resolution is a channel lookup, and
       // channels are what the snapshot carries.
-      const resolved = destination.clone()
       const readOnlyGraph = networkGraph.read_only()
+      let resolved: Destination
       try {
-        resolved.resolve(readOnlyGraph)
+        resolved = resolveDestination(destination, readOnlyGraph)
       } finally {
         // Deliberately manual: this lock's finalizer throws rather than
         // no-ops, and an unfreed one surfaces detached from this call site.
