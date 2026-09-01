@@ -23,8 +23,6 @@ export interface RegisterDeps {
   networkGraph: ReadOnlyNetworkGraph
   /** Raw `staticInvoiceServerPaths` config value: hex of `Vec<BlindedMessagePath>`. */
   pathsConfig: string
-  /** Raw `staticInvoiceServerNodeId` config value. */
-  serverNodeId: string
   /**
    * Whether a previous session already completed the handshake. The bindings
    * say the registration call "only needs to be called once when the server
@@ -64,7 +62,7 @@ export function createStaticInvoiceServerRegistrar(): (deps: RegisterDeps) => Re
       return { status: 'skipped', reason: 'no usable channel yet' }
     }
 
-    const decoded = decodeServerPaths(deps.pathsConfig, deps.serverNodeId, deps.networkGraph)
+    const decoded = decodeServerPaths(deps.pathsConfig, deps.networkGraph)
     if (!decoded.ok) {
       return { status: 'failed', reason: decoded.reason }
     }

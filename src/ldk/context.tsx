@@ -1326,7 +1326,6 @@ export function LdkProvider({
                     channelManager: node.channelManager,
                     networkGraph: readOnlyGraph,
                     pathsConfig: LDK_CONFIG.staticInvoiceServerPaths,
-                    serverNodeId: LDK_CONFIG.staticInvoiceServerNodeId,
                     hasPersistedOffer: persistedAsyncOffer !== null,
                   })
                   if (outcome.status === 'failed') {

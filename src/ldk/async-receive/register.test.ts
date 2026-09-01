@@ -103,7 +103,6 @@ function deps(overrides: Record<string, unknown> = {}) {
     channelManager: makeManager() as never,
     networkGraph: {} as never,
     pathsConfig: blob([0x01]),
-    serverNodeId: NODE_A,
     hasPersistedOffer: false,
     ...overrides,
   } as never
@@ -187,7 +186,10 @@ describe('createStaticInvoiceServerRegistrar', () => {
     expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()
   })
 
-  it('registers nothing when one path introduces at the wrong node', () => {
+  it('registers a blob whose paths introduce at different nodes', () => {
+    // The normal shape from a real server: one path per peer it can be
+    // reached through, so the introduction nodes differ and none is the
+    // server itself.
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
@@ -195,8 +197,8 @@ describe('createStaticInvoiceServerRegistrar', () => {
       deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0x02]) })
     )
 
-    expect(outcome.status).toBe('failed')
-    expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()
+    expect(outcome).toEqual({ status: 'registered', pathCount: 2 })
+    expect(manager.set_paths_to_static_invoice_server).toHaveBeenCalledTimes(1)
   })
 
   it('retries on a later call when the first was skipped for lack of a channel', () => {

@@ -14,8 +14,13 @@ import { bytesToHex } from '../utils'
  * uniffi bindings already emit and consume for async-recipient paths. Every
  * Swift/Kotlin ldk-node client speaks this form, so matching it means no
  * invented format. It is LDK's internal `Writeable` encoding rather than a BOLT
- * wire format, so both ends must pin the same LDK revision; the failure mode is
- * a decode error at bootstrap, not corrupted persisted state.
+ * wire format, so in principle both ends must pin the same LDK revision; the
+ * failure mode is a decode error at bootstrap, not corrupted persisted state.
+ *
+ * In practice the encoding has held across a revision gap: a blob written by
+ * `lightning` 0.3.0+git read back here on 0.2.4-0 exactly — two paths, full
+ * consumption, no trailing bytes. Reassuring rather than guaranteed, so the
+ * decode error remains the contract.
  *
  * Kept out of `config.ts` because that module is imported by tests that never
  * initialize WASM.
@@ -39,8 +44,8 @@ function hexToBytes(hex: string): Uint8Array {
  *
  * Paths built with a compact introduction node carry a directed short channel
  * id instead of a pubkey; those need the network graph to resolve. Returns null
- * when it cannot be resolved, which the caller treats as a failed identity
- * check rather than a pass.
+ * when it cannot be resolved, which the caller treats as an unusable path
+ * rather than a pass.
  */
 export function introductionNodeIdHex(
   path: BlindedMessagePath,
@@ -58,15 +63,28 @@ export function introductionNodeIdHex(
     if (!bytes || bytes.length === 0) return null
     return bytesToHex(bytes)
   } catch {
-    // An unresolvable compact introduction node can throw out of WASM. Treat it
-    // as a failed identity check, never as a pass.
+    // An unresolvable compact introduction node can throw out of WASM. Treat
+    // it as unresolvable, never as a pass.
     return null
   }
 }
 
 /**
- * Decode a hex-encoded `Vec<BlindedMessagePath>` and pin every path to the
- * configured server node id.
+ * Decode a hex-encoded `Vec<BlindedMessagePath>`.
+ *
+ * This deliberately does **not** check who the paths lead to, because that
+ * cannot be checked. An earlier version required every path to introduce at a
+ * configured server node id, on the assumption that a static invoice server's
+ * paths introduce at the server. They do not: `blinded_paths_for_async_recipient`
+ * builds paths introducing at the server's *peers*, since concealing the
+ * destination is what a blinded path is for. Observed against a real ldk-server
+ * — a two-path blob introducing at two different peers, neither of them the
+ * server — so no single expected node id could ever have matched.
+ *
+ * What remains verifiable is structural: the framing is well-formed, every path
+ * decodes, the blob is fully consumed, and each introduction node resolves to a
+ * pubkey we could actually send to. Server identity rests on the integrity of
+ * the build-time config, which is where the paths come from in the first place.
  *
  * There is no per-element length prefix, so the blob cannot be parsed by
  * skipping elements — each path must be fully decoded to find where the next
@@ -77,12 +95,11 @@ export function introductionNodeIdHex(
  * reproduces exactly those bytes — so the round-trip length is how far to
  * advance. Verified against real LDK in `handshake-harness.test.ts`.
  *
- * Fails the whole set on any bad entry: a partial registration would hand a
- * substituted server authority over the wallet's only receive code.
+ * Fails the whole set on any bad entry: registering a subset would leave the
+ * server holding paths the wallet does not think it granted.
  */
 export function decodeServerPaths(
   blobHex: string,
-  expectedNodeIdHex: string,
   networkGraph: ReadOnlyNetworkGraph
 ): ServerPathsResult {
   const trimmed = blobHex.trim()
@@ -137,15 +154,10 @@ export function decodeServerPaths(
     }
     offset += consumed
 
-    const introductionNodeId = introductionNodeIdHex(path, networkGraph)
-    if (introductionNodeId === null) {
+    // An introduction node we cannot resolve is one we cannot send to, so the
+    // path is useless regardless of who it belongs to.
+    if (introductionNodeIdHex(path, networkGraph) === null) {
       return { ok: false, reason: `path ${index} has an unresolvable introduction node` }
-    }
-    if (introductionNodeId !== expectedNodeIdHex) {
-      return {
-        ok: false,
-        reason: `path ${index} introduces at ${introductionNodeId}, expected ${expectedNodeIdHex}`,
-      }
     }
 
     paths.push(path)

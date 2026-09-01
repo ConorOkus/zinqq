@@ -266,13 +266,10 @@ describe('async-receive handshake (real WASM)', () => {
       .join('')
 
     const { decodeServerPaths } = await import('./server-paths')
-    const serverNodeIdHex = Array.from(server.nodeId)
-      .map((x) => x.toString(16).padStart(2, '0'))
-      .join('')
 
     const graph = server.networkGraph.read_only()
     try {
-      const result = decodeServerPaths(hex, serverNodeIdHex, graph)
+      const result = decodeServerPaths(hex, graph)
       expect(result.ok).toBe(true)
       if (result.ok) expect(result.paths).toHaveLength(2)
     } finally {
@@ -282,27 +279,32 @@ describe('async-receive handshake (real WASM)', () => {
     }
   })
 
-  it('rejects a real blob whose paths introduce at a different node', async () => {
+  it('accepts a real blob whose paths introduce at different nodes', async () => {
+    // What a live ldk-server actually emits: `blinded_paths_for_async_recipient`
+    // introduces each path at one of the server's peers, so the introduction
+    // nodes differ from each other and from the server. Nothing here is
+    // pinnable, and requiring it to be would reject every genuine blob.
     const server = buildNode(9)
     const stranger = buildNode(11)
     const a = serverPath(server).write()
+    const b = serverPath(stranger).write()
 
-    const bytes = new Uint8Array(2 + a.length)
+    const bytes = new Uint8Array(2 + a.length + b.length)
     bytes[0] = 0
-    bytes[1] = 1
+    bytes[1] = 2
     bytes.set(a, 2)
+    bytes.set(b, 2 + a.length)
     const hex = Array.from(bytes)
       .map((x) => x.toString(16).padStart(2, '0'))
       .join('')
 
     const { decodeServerPaths } = await import('./server-paths')
-    const strangerHex = Array.from(stranger.nodeId)
-      .map((x) => x.toString(16).padStart(2, '0'))
-      .join('')
 
     const graph = server.networkGraph.read_only()
     try {
-      expect(decodeServerPaths(hex, strangerHex, graph).ok).toBe(false)
+      const result = decodeServerPaths(hex, graph)
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.paths).toHaveLength(2)
     } finally {
       graph.free()
     }

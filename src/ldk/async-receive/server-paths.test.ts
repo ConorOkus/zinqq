@@ -112,72 +112,76 @@ describe('introductionNodeIdHex', () => {
 })
 
 describe('decodeServerPaths', () => {
-  it('decodes every path in the vector and pins each to the server node id', () => {
-    const result = decodeServerPaths(blob([0x01, 0x01]), NODE_A, graph)
+  it('decodes every path in the vector', () => {
+    const result = decodeServerPaths(blob([0x01, 0x01]), graph)
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.paths).toHaveLength(2)
   })
 
   it('treats an empty setting as the feature being off', () => {
-    expect(decodeServerPaths('', NODE_A, graph)).toEqual({ ok: true, paths: [] })
+    expect(decodeServerPaths('', graph)).toEqual({ ok: true, paths: [] })
   })
 
   it('rejects a non-hex blob', () => {
-    const result = decodeServerPaths('zzzz', NODE_A, graph)
+    const result = decodeServerPaths('zzzz', graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('not even-length lowercase hex')
   })
 
   it('rejects a blob too short to hold a length prefix', () => {
-    const result = decodeServerPaths('00', NODE_A, graph)
+    const result = decodeServerPaths('00', graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('too short')
   })
 
   it('rejects a blob declaring zero paths', () => {
-    const result = decodeServerPaths(blob([], 0), NODE_A, graph)
+    const result = decodeServerPaths(blob([], 0), graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('zero paths')
   })
 
   it('rejects the extended length encoding rather than guessing at it', () => {
-    const result = decodeServerPaths(blob([0x01], 0xffff), NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01], 0xffff), graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('extended (0xffff) encoding')
   })
 
   it('rejects a blob that ends before the declared path count', () => {
-    const result = decodeServerPaths(blob([0x01], 3), NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01], 3), graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toMatch(/ended before path|failed to decode/)
   })
 
   it('rejects trailing bytes after the declared paths', () => {
-    const result = decodeServerPaths(blob([0x01, 0x01], 1), NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01, 0x01], 1), graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('trailing byte')
   })
 
   it('rejects the whole set when one path fails to decode', () => {
-    const result = decodeServerPaths(blob([0x01, 0xff]), NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01, 0xff]), graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('path 1 failed to decode')
   })
 
-  it('rejects the whole set when one path introduces at a different node', () => {
-    const result = decodeServerPaths(blob([0x01, 0x02]), NODE_A, graph)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toContain('expected')
+  it('accepts paths introducing at different nodes', () => {
+    // A real static invoice server builds each path introducing at one of its
+    // own peers, so a multi-path blob normally names several different nodes
+    // and none of them is the server. Pinning one node id here would reject
+    // every genuine blob.
+    const result = decodeServerPaths(blob([0x01, 0x02]), graph)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.paths).toHaveLength(2)
   })
 
   it('rejects a path whose introduction node cannot be resolved', () => {
-    const result = decodeServerPaths(blob([0x04]), NODE_A, graph)
+    const result = decodeServerPaths(blob([0x04]), graph)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('unresolvable introduction node')
   })
 
   it('does not return a partial path set on failure', () => {
-    const result = decodeServerPaths(blob([0x01, 0x01, 0xff]), NODE_A, graph)
+    const result = decodeServerPaths(blob([0x01, 0x01, 0xff]), graph)
     expect(result.ok).toBe(false)
     expect(result).not.toHaveProperty('paths')
   })
