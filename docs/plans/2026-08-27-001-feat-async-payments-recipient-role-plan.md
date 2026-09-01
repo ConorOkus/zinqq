@@ -45,6 +45,9 @@ A browser wallet is offline most of the time. Today the only offer it can publis
 **Registration**
 
 - R1. The wallet accepts blinded message paths to a static invoice server, and that server's node id, as build-time configuration validated at load like the existing LSP settings.
+
+  **Divergence, 2026-08-31 (recorded per the authority hierarchy, not worked around).** The node-id half of R1 was dropped. It assumed a static invoice server's paths introduce at the server, so pinning that node id would pin server identity. They do not: `blinded_paths_for_async_recipient` builds paths introducing at the server's _peers_, because concealing the destination is what a blinded path is for. The first real blob from the operator's `ldk-server` carried two paths introducing at two different peers, neither of them the server, so no configured value could have matched and registration would have failed on every genuine input. `VITE_STATIC_INVOICE_SERVER_NODE_ID` is removed; `decodeServerPaths` now verifies structure and introduction-node resolvability only. The trust-boundary section's claim that "R1's node-id pinning is the control" is therefore void — the wallet cannot verify a blinded path's destination, and server identity rests on the integrity of the build-time config the paths themselves arrive in.
+
 - R2. When paths are configured and a usable channel exists, the wallet registers them with its node so LDK drives the offer-building handshake with the server.
 - R3. When paths are absent, registration is skipped and the current receive flow is unchanged.
 

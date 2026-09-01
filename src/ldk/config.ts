@@ -27,8 +27,6 @@ interface LdkConfig {
    * cannot serve multiple users.
    */
   staticInvoiceServerPaths: string
-  /** Node id every configured path must introduce at. Pins server identity. */
-  staticInvoiceServerNodeId: string
   /**
    * Explicit acknowledgement that this build serves exactly one recipient.
    * Required whenever paths are set — see the validation below for why.
@@ -57,7 +55,6 @@ const DEFAULTS: LdkConfig = {
   lspPort: 9735,
   lspLabel: 'megalith',
   staticInvoiceServerPaths: '',
-  staticInvoiceServerNodeId: '',
   staticInvoiceServerRecipientAck: '',
   genesisBlockHash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
 }
@@ -83,10 +80,6 @@ export const LDK_CONFIG: LdkConfig = {
   staticInvoiceServerPaths: (
     (import.meta.env.VITE_STATIC_INVOICE_SERVER_PATHS as string | undefined) ??
     DEFAULTS.staticInvoiceServerPaths
-  ).trim(),
-  staticInvoiceServerNodeId: (
-    (import.meta.env.VITE_STATIC_INVOICE_SERVER_NODE_ID as string | undefined) ??
-    DEFAULTS.staticInvoiceServerNodeId
   ).trim(),
   staticInvoiceServerRecipientAck: (
     (import.meta.env.VITE_STATIC_INVOICE_SERVER_RECIPIENT_ACK as string | undefined) ??
@@ -140,13 +133,6 @@ const SINGLE_RECIPIENT_ACK = 'single-recipient-deployment'
 // actual decode is WASM-backed and lives in async-receive/server-paths.ts,
 // because this module is imported by tests that never initialize WASM.
 if (LDK_CONFIG.staticInvoiceServerPaths !== '') {
-  if (!/^[0-9a-f]{66}$/.test(LDK_CONFIG.staticInvoiceServerNodeId)) {
-    throw new Error(
-      '[LDK Config] staticInvoiceServerPaths is set but staticInvoiceServerNodeId is not a ' +
-        '66-character lowercase hex public key. Both are required to pin the server identity.'
-    )
-  }
-
   // Single-recipient correctness gate, not a roadmap note.
   //
   // The server issues these paths against a recipient_id that "must uniquely

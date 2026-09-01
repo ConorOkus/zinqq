@@ -6,6 +6,7 @@ import {
   BroadcasterInterface,
   ChainMonitor,
   ChainParameters,
+  ChannelFeatures,
   ChannelManager,
   DefaultMessageRouter,
   DefaultRouter,
@@ -13,6 +14,7 @@ import {
   IgnoringMessageHandler,
   Init,
   InitFeatures,
+  IntroductionNode_DirectedShortChannelId,
   Logger,
   MessageContext,
   MultiThreadedLockableScore,
@@ -22,12 +24,14 @@ import {
   OnionMessage,
   Network,
   NetworkGraph,
+  NodeId,
   Option_FilterZ,
   OnionMessenger,
   PeerStorageKey,
   Persist,
   Recipient,
   Result_BlindedMessagePathDecodeErrorZ_OK,
+  Result_NoneLightningErrorZ_OK,
   Result_NoneNoneZ_OK,
   Result_PublicKeyNoneZ_OK,
   ProbabilisticScorer,
@@ -37,6 +41,7 @@ import {
   UserConfig,
   initializeWasmFromBinary,
 } from 'lightningdevkit'
+import { bytesToHex } from '../utils'
 
 /**
  * Real-WASM harness for the async-payments recipient role.
@@ -266,13 +271,10 @@ describe('async-receive handshake (real WASM)', () => {
       .join('')
 
     const { decodeServerPaths } = await import('./server-paths')
-    const serverNodeIdHex = Array.from(server.nodeId)
-      .map((x) => x.toString(16).padStart(2, '0'))
-      .join('')
 
     const graph = server.networkGraph.read_only()
     try {
-      const result = decodeServerPaths(hex, serverNodeIdHex, graph)
+      const result = decodeServerPaths(hex, graph)
       expect(result.ok).toBe(true)
       if (result.ok) expect(result.paths).toHaveLength(2)
     } finally {
@@ -282,29 +284,93 @@ describe('async-receive handshake (real WASM)', () => {
     }
   })
 
-  it('rejects a real blob whose paths introduce at a different node', async () => {
+  it('accepts a real blob whose paths introduce at different nodes', async () => {
+    // What a live ldk-server actually emits: `blinded_paths_for_async_recipient`
+    // introduces each path at one of the server's peers, so the introduction
+    // nodes differ from each other and from the server. Nothing here is
+    // pinnable, and requiring it to be would reject every genuine blob.
     const server = buildNode(9)
     const stranger = buildNode(11)
     const a = serverPath(server).write()
+    const b = serverPath(stranger).write()
 
-    const bytes = new Uint8Array(2 + a.length)
+    const bytes = new Uint8Array(2 + a.length + b.length)
     bytes[0] = 0
-    bytes[1] = 1
+    bytes[1] = 2
     bytes.set(a, 2)
+    bytes.set(b, 2 + a.length)
     const hex = Array.from(bytes)
       .map((x) => x.toString(16).padStart(2, '0'))
       .join('')
 
     const { decodeServerPaths } = await import('./server-paths')
-    const strangerHex = Array.from(stranger.nodeId)
-      .map((x) => x.toString(16).padStart(2, '0'))
-      .join('')
 
     const graph = server.networkGraph.read_only()
     try {
-      expect(decodeServerPaths(hex, strangerHex, graph).ok).toBe(false)
+      const result = decodeServerPaths(hex, graph)
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.paths).toHaveLength(2)
     } finally {
       graph.free()
+    }
+  })
+
+  it('rejects a real path whose compact introduction node is not in the graph', async () => {
+    // The gate that survived the removal of the node-id pin, against real
+    // bindings rather than a mock. It is easy to get wrong in a way that reads
+    // as correct: LDK signals "not found" with a NodeId wrapping a null
+    // pointer, whose as_slice() is 33 zero bytes, so a length-only check
+    // accepts the all-zeros pubkey and the path sails through.
+    const server = buildNode(13)
+    const other = buildNode(15)
+    const path = serverPath(server)
+
+    // Announce the channel RGS-style so the path can be compacted, then decode
+    // against a graph that has never seen it.
+    const [first, second] =
+      bytesToHex(server.nodeId) < bytesToHex(other.nodeId)
+        ? [server.nodeId, other.nodeId]
+        : [other.nodeId, server.nodeId]
+    expect(
+      server.networkGraph.add_channel_from_partial_announcement(
+        4242n,
+        Option_u64Z.constructor_some(1_000_000n),
+        BigInt(Math.floor(Date.now() / 1000)),
+        ChannelFeatures.constructor_empty(),
+        NodeId.constructor_from_pubkey(first),
+        NodeId.constructor_from_pubkey(second)
+      )
+    ).toBeInstanceOf(Result_NoneLightningErrorZ_OK)
+
+    const populated = server.networkGraph.read_only()
+    try {
+      path.use_compact_introduction_node(populated)
+    } finally {
+      populated.free()
+    }
+    expect(path.introduction_node()).toBeInstanceOf(IntroductionNode_DirectedShortChannelId)
+
+    const ser = path.write()
+    const bytes = new Uint8Array(2 + ser.length)
+    bytes[0] = 0
+    bytes[1] = 1
+    bytes.set(ser, 2)
+    const hex = Array.from(bytes)
+      .map((x) => x.toString(16).padStart(2, '0'))
+      .join('')
+
+    const { decodeServerPaths } = await import('./server-paths')
+
+    const emptyGraph = NetworkGraph.constructor_new(
+      Network.LDKNetwork_Bitcoin,
+      Logger.new_impl({ log: () => {} })
+    ).read_only()
+    try {
+      const result = decodeServerPaths(hex, emptyGraph)
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.reason).toContain('unresolvable introduction node')
+    } finally {
+      emptyGraph.free()
     }
   })
 
