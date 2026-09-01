@@ -59,8 +59,9 @@ export interface LspRelayRouterOptions {
    *
    * `peerHexes` is the set LDK offered us: nodes that are connected *and*
    * advertise `onion_messages`. It is reported because an LSP missing from it
-   * is the common cause of an unusable relay, and the absence looks identical
-   * to a disconnect from the outside.
+   * is the common cause of an unusable relay. Note what it cannot settle: a
+   * missing LSP is either disconnected or connected-but-silent about the
+   * feature, and this set looks the same either way.
    */
   onUnroutable?: (reason: string, introductionNodeHex: string | null, peerHexes: string[]) => void
 }

@@ -561,10 +561,16 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
       // in silence and the only symptom was a BOLT 12 payment that never
       // completed.
       //
-      // The peer list is part of the report because the failure it most often
-      // explains is an LSP that is connected but does not advertise
-      // `onion_messages`: LDK then never offers it here, which is
-      // indistinguishable from a disconnect unless the set is printed.
+      // The peer list is the set LDK offered the router, which holds only peers
+      // that are connected *and* advertise `onion_messages`. So it answers one
+      // question — was the LSP eligible to relay at all — and deliberately not
+      // the follow-up: an LSP missing from it may be disconnected or may be
+      // connected while staying silent about the feature, and this log cannot
+      // tell those apart. Separating them would mean reading `PeerManager` from
+      // inside `find_path`, which LDK calls into us, and re-entering a lock in
+      // a single-threaded WASM runtime is a worse failure than an unanswered
+      // question. Check the peer's Init features in the LDK log to finish the
+      // diagnosis.
       captureError(
         'warning',
         'LDK',
