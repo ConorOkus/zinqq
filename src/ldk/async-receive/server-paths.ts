@@ -2,6 +2,7 @@ import {
   BlindedMessagePath,
   IntroductionNode_NodeId,
   Result_BlindedMessagePathDecodeErrorZ_OK,
+  type NodeId,
   type ReadOnlyNetworkGraph,
 } from 'lightningdevkit'
 import { bytesToHex } from '../utils'
@@ -40,6 +41,28 @@ function hexToBytes(hex: string): Uint8Array {
 }
 
 /**
+ * Hex pubkey behind a `NodeId`, or null when the lookup found nothing.
+ *
+ * "Nothing" does not arrive as JS `null`. `public_introduction_node_id` always
+ * hands back a `NodeId` object; for `None` that object wraps a null pointer,
+ * and calling `as_slice()` on it yields 33 zero bytes — a value that reads as a
+ * perfectly well-formed pubkey to anything checking only length. Verified
+ * against real WASM: an unresolvable compact introduction node produces
+ * `ptr: 0` and `"00".repeat(33)`.
+ *
+ * So the pointer is checked first, the same guard `nodeIdBytes` in
+ * `onion/lsp-relay-router.ts` uses, with the all-zero slice rejected as well
+ * because a caller that trusts this value routes a payment by it.
+ */
+function nodeIdHex(nodeId: NodeId): string | null {
+  if (!nodeId || (nodeId as unknown as { ptr?: bigint }).ptr === 0n) return null
+  const bytes = nodeId.as_slice()
+  if (!bytes || bytes.length !== 33) return null
+  if (bytes.every((byte) => byte === 0)) return null
+  return bytesToHex(bytes)
+}
+
+/**
  * Resolve the hex node id a blinded path's introduction node points at.
  *
  * Paths built with a compact introduction node carry a directed short channel
@@ -57,11 +80,7 @@ export function introductionNodeIdHex(
       return bytesToHex(introduction.node_id)
     }
 
-    const resolved = path.public_introduction_node_id(networkGraph)
-    if (!resolved) return null
-    const bytes = resolved.as_slice()
-    if (!bytes || bytes.length === 0) return null
-    return bytesToHex(bytes)
+    return nodeIdHex(path.public_introduction_node_id(networkGraph))
   } catch {
     // An unresolvable compact introduction node can throw out of WASM. Treat
     // it as unresolvable, never as a pass.

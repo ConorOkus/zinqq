@@ -52,7 +52,11 @@ vi.mock('lightningdevkit', () => {
     }
     public_introduction_node_id() {
       if (this.marker === 0x03) return { as_slice: () => hexToBytes(NODE_A) }
-      return null
+      // How the real bindings say "not found": a NodeId wrapping a null
+      // pointer, whose as_slice() is 33 zero bytes — never JS null. Modelling
+      // it as null hid a hole where an unresolvable path decoded to the
+      // all-zeros pubkey and was accepted.
+      return { ptr: 0n, as_slice: () => new Uint8Array(33) }
     }
   }
 

@@ -30,8 +30,17 @@ describe('LDK_CONFIG', () => {
     )
   })
 
-  it('leaves the async-receive feature off by default', () => {
-    expect(LDK_CONFIG.staticInvoiceServerPaths).toBe('')
+  // Stubbed rather than read off the ambient env: a developer with the async
+  // receive feature configured in .env.local has a legitimately non-empty value,
+  // and asserting against the real env made the suite fail on their machine
+  // while staying green in CI, which has no .env.local.
+  it('leaves the async-receive feature off when the variable is unset', async () => {
+    vi.stubEnv('VITE_STATIC_INVOICE_SERVER_PATHS', undefined)
+    vi.resetModules()
+    const { LDK_CONFIG: config } = await import('./config')
+    expect(config.staticInvoiceServerPaths).toBe('')
+    vi.unstubAllEnvs()
+    vi.resetModules()
   })
 })
 
