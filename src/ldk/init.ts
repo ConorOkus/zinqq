@@ -112,6 +112,11 @@ export interface LdkNode {
   trustedLspIds: Set<string>
 }
 
+/** First 16 hex chars of a node id — the shortening this file already logs by. */
+function short(nodeIdHex: string): string {
+  return `${nodeIdHex.substring(0, 16)}...`
+}
+
 export interface InitResult {
   node: LdkNode
   watchState: WatchState
@@ -547,17 +552,34 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     entropySource: keysManager.as_EntropySource(),
     lspNodeId: LDK_CONFIG.lspNodeId,
     onRelay: (introductionNode) => {
-      console.log(`[ldk] relaying onion message via LSP to ${introductionNode.substring(0, 16)}…`)
+      console.log(
+        `[LDK Init] relaying onion message via LSP ${short(LDK_CONFIG.lspNodeId)} to ${short(introductionNode)}`
+      )
     },
-    onUnroutable: (reason, introductionNode) => {
+    onUnroutable: (reason, introductionNode, peerHexes) => {
       // Loud on purpose. Before this, an unroutable onion message was dropped
       // in silence and the only symptom was a BOLT 12 payment that never
       // completed.
+      //
+      // The peer list is the set LDK offered the router, which holds only peers
+      // that are connected *and* advertise `onion_messages`. So it answers one
+      // question — was the LSP eligible to relay at all — and deliberately not
+      // the follow-up: an LSP missing from it may be disconnected or may be
+      // connected while staying silent about the feature, and this log cannot
+      // tell those apart. Separating them would mean reading `PeerManager` from
+      // inside `find_path`, which LDK calls into us, and re-entering a lock in
+      // a single-threaded WASM runtime is a worse failure than an unanswered
+      // question. Check the peer's Init features in the LDK log to finish the
+      // diagnosis.
       captureError(
         'warning',
         'LDK',
         `Onion message unroutable (${reason})`,
-        introductionNode ?? 'unresolved introduction node'
+        [
+          `destination=${introductionNode === null ? 'unresolved introduction node' : short(introductionNode)}`,
+          `lsp=${LDK_CONFIG.lspNodeId === '' ? 'not configured' : short(LDK_CONFIG.lspNodeId)}`,
+          `onion-message peers=${peerHexes.length === 0 ? 'none' : `[${peerHexes.map(short).join(', ')}]`}`,
+        ].join(' ')
       )
     },
   })

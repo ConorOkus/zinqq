@@ -54,8 +54,16 @@ export interface LspRelayRouterOptions {
   lspNodeId: string
   /** Called when we hand a message to the LSP to forward. */
   onRelay?: (introductionNodeHex: string) => void
-  /** Called when neither a direct path nor the relay is available. */
-  onUnroutable?: (reason: string, introductionNodeHex: string | null) => void
+  /**
+   * Called when neither a direct path nor the relay is available.
+   *
+   * `peerHexes` is the set LDK offered us: nodes that are connected *and*
+   * advertise `onion_messages`. It is reported because an LSP missing from it
+   * is the common cause of an unusable relay. Note what it cannot settle: a
+   * missing LSP is either disconnected or connected-but-silent about the
+   * feature, and this set looks the same either way.
+   */
+  onUnroutable?: (reason: string, introductionNodeHex: string | null, peerHexes: string[]) => void
 }
 
 /**
@@ -181,15 +189,15 @@ export function createLspRelayMessageRouter({
 
       // Past here the default router has handed back a path LDK cannot use.
       if (introductionNode === null) {
-        onUnroutable?.('introduction node SCID is not in the network graph', null)
+        onUnroutable?.('introduction node SCID is not in the network graph', null, peerHexes)
         return Result_OnionMessagePathNoneZ.constructor_err()
       }
       if (lspNodeId === '') {
-        onUnroutable?.('no LSP configured to relay through', introductionNode)
+        onUnroutable?.('no LSP configured to relay through', introductionNode, peerHexes)
         return Result_OnionMessagePathNoneZ.constructor_err()
       }
       if (!peerHexes.includes(lspNodeId)) {
-        onUnroutable?.('LSP is not a connected peer', introductionNode)
+        onUnroutable?.('LSP is not a connected peer', introductionNode, peerHexes)
         return Result_OnionMessagePathNoneZ.constructor_err()
       }
 
