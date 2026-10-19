@@ -43,6 +43,40 @@ fallback.
 
 ## What it does
 
+### Stable Balance
+
+Settings → Stable Balance integrates the [Stable Channels](https://github.com/toneloc/stable-channels)
+client protocol. Select a provider, fund a direct channel using a reviewed LSPS2
+invoice, then review and confirm a USD target and its 1% allocation fee. An
+existing ready channel to that provider also works. The target appears only
+after the provider signs its acceptance.
+
+The client settles excess backing to the provider when bitcoin rises and waits
+for authenticated provider payments when it falls. Home shows the acknowledged
+target separately from its current bitcoin backing value and native BTC. Keep
+the wallet open and online: settlement depends on the provider's availability
+and collateral. Closing the channel returns bitcoin at its current value.
+
+The default provider is `stablechannels.com:9735`. Optional
+`VITE_STABLE_PROVIDER_NODE_ID`, `VITE_STABLE_PROVIDER_HOST`, and
+`VITE_STABLE_PROVIDER_PORT` settings select a different compatible provider;
+restored positions retain their original counterparty. One direct provider
+channel is supported. The ordinary receive LSP stays separately configured.
+
+Deploy `api/stable-price.ts` with the frontend (Vercel discovers it automatically).
+It requests six fixed USD exchange markets; the browser independently requires
+three agreeing markets and rejects stale prices. Vite serves the endpoint during
+development. Static hosting must supply this API separately. Pending operations
+and signed receipts are persisted locally and in encrypted VSS; an uncertain
+payment is never automatically retried.
+
+Protocol reference: upstream commit `128b6bcf87f9bcc36b53717f59667043fbf81a11`.
+Tests cover accounting, persistence, replay, real LDK signatures and custom-TLV
+construction, plus desktop/mobile navigation. Funded live-provider acceptance
+and settlement still require verification; local tests send no mainnet payments.
+Programmatic callers can use `window.__stableBalance` for status, provider
+selection, funding quotes/invoices, trade quotes/confirmation, and pausing settlement.
+
 ### Send & Receive
 
 - Unified send accepts BIP 321, BOLT 11, BOLT 12, BIP 353, LNURL-pay, and

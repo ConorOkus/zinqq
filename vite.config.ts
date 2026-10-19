@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
 import wasm from 'vite-plugin-wasm'
 import { VitePWA } from 'vite-plugin-pwa'
+import { GET as getStablePrice } from './api/stable-price'
 
 /**
  * Vite plugin that proxies LNURL requests to bypass CORS issues.
@@ -82,6 +83,23 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       wasm(),
       lnurlCorsProxy(),
+      {
+        name: 'stable-price-dev-api',
+        configureServer(server) {
+          server.middlewares.use('/api/stable-price', (_req, res) => {
+            void getStablePrice()
+              .then(async (response) => {
+                res.statusCode = response.status
+                response.headers.forEach((value, key) => res.setHeader(key, value))
+                res.end(await response.text())
+              })
+              .catch(() => {
+                res.statusCode = 503
+                res.end('{"error":"Prices unavailable"}')
+              })
+          })
+        },
+      },
       VitePWA({
         registerType: 'prompt',
         injectRegister: null,

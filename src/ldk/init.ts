@@ -79,6 +79,7 @@ import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
 import { initCloseRecords } from './close-records/store'
 import { captureError } from '../storage/error-log'
+import type { StablePaymentEvent } from '../stable/types'
 
 import {
   createChannelManagerPersistScheduler,
@@ -124,6 +125,9 @@ export interface InitResult {
   bdkWallet: import('@bitcoindevkit/bdk-wallet-web').Wallet
   bdkEsploraClient: import('@bitcoindevkit/bdk-wallet-web').EsploraClient
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
+  setStablePaymentCallback: (
+    cb: ((event: StablePaymentEvent) => void | Promise<void>) | undefined
+  ) => void
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
   setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => void
@@ -763,6 +767,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // 15. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
+  let stablePaymentCallback: ((event: StablePaymentEvent) => void | Promise<void>) | undefined
   let channelClosedCallback: ChannelClosedCallback | undefined
   let syncNeededCallback: SyncNeededCallback | undefined
   let connectionNeededCallback: ConnectionNeededCallback | undefined
@@ -794,7 +799,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     () => syncNeededCallback?.(),
     (...args) => connectionNeededCallback?.(...args),
     bumpTxHandler,
-    (...args) => recoveryNeededCallback?.(...args)
+    (...args) => recoveryNeededCallback?.(...args),
+    (event) => stablePaymentCallback?.(event)
   )
 
   // ChannelManager VSS version ref — seeded from recovery or migration, updated by persistChannelManager
@@ -897,6 +903,9 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     bdkEsploraClient,
     setPaymentCallback: (cb: PaymentEventCallback | undefined) => {
       paymentCallback = cb
+    },
+    setStablePaymentCallback: (cb) => {
+      stablePaymentCallback = cb
     },
     setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => {
       channelClosedCallback = cb

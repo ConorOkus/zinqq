@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { useStableBalance } from '../stable/use-stable-balance'
+import { formatUsd } from '../stable/math'
+import { formatBtc } from '../utils/format-btc'
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
@@ -21,6 +24,10 @@ export function Home() {
   const { recovery, dismiss: dismissRecovery } = useRecovery(vssClient)
   const pendingSweep = usePendingSweep()
   const [showIosHint, setShowIosHint] = useState(false)
+  const stable = useStableBalance()
+  const position = stable.state?.position
+  const backing = BigInt(position?.backingSats ?? '0')
+  const freshPrice = stable.priceFresh
 
   const showInstallButton = !isStandalone && (canInstall || isIos)
 
@@ -75,7 +82,24 @@ export function Home() {
           </button>
         </div>
       )}
-      <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
+      <BalanceDisplay
+        balance={total}
+        pending={pending}
+        loading={isLoading}
+        stable={
+          position && position.targetUsd > 0 && stable.channel?.channelId === position.channelId
+            ? {
+                target: formatUsd(BigInt(Math.round(position.targetUsd * 100))),
+                backingValue:
+                  freshPrice && stable.price
+                    ? formatUsd((backing * stable.price.priceCents) / 100_000_000n)
+                    : 'Price unavailable',
+                native: formatBtc(total > backing ? total - backing : 0n),
+                status: stable.status,
+              }
+            : undefined
+        }
+      />
 
       {recovery && (
         <div className="mb-3">

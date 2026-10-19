@@ -7,11 +7,18 @@ interface BalanceDisplayProps {
   pending?: bigint
   breakdown?: string
   loading?: boolean
+  stable?: { target: string; backingValue: string; native: string; status: string }
 }
 
 const STORAGE_KEY = 'balance-visible'
 
-export function BalanceDisplay({ balance, pending, breakdown, loading }: BalanceDisplayProps) {
+export function BalanceDisplay({
+  balance,
+  pending,
+  breakdown,
+  loading,
+  stable,
+}: BalanceDisplayProps) {
   const [visible, setVisible] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) !== 'false'
@@ -63,6 +70,15 @@ export function BalanceDisplay({ balance, pending, breakdown, loading }: Balance
       )}
       {breakdown && visible && (
         <div className="mt-1 text-sm text-[var(--color-on-field-muted)]">{breakdown}</div>
+      )}
+      {stable && visible && (
+        <div className="mt-4 space-y-1 text-sm text-[var(--color-on-field-muted)]">
+          <p className="font-semibold text-on-field">{stable.target} USD target</p>
+          <p>
+            Backing value: {stable.backingValue} · Native BTC: {stable.native}
+          </p>
+          <p>{stable.status}</p>
+        </div>
       )}
       <button
         className="mt-3 flex items-center gap-2 py-2 text-sm font-medium text-[var(--color-on-field-muted)]"

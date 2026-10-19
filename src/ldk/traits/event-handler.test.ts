@@ -240,7 +240,9 @@ vi.mock('lightningdevkit', () => {
     SocketAddress_Hostname,
     Result_NoneReplayEventZ: {
       constructor_ok: vi.fn(() => ({ is_ok: () => true })),
+      constructor_err: vi.fn(() => ({ is_ok: () => false })),
     },
+    ReplayEvent: { constructor_new: () => ({}) },
     Result_NoneAPIErrorZ_Err: class {},
     // JIT 0-conf channel config overrides (Phase 4). Structured so tests can
     // assert the pinned settings reach the accept call.
@@ -919,5 +921,42 @@ describe('createEventHandler — Event_OpenChannelRequest trust set', () => {
 
     handleEvent(new Event_OpenChannelRequest())
     expect(mockAcceptInbound0conf).toHaveBeenCalledTimes(1)
+  })
+})
+
+// This test crosses the real EventHandler adapter boundary: the financial write
+// must finish before LDK is told it can discard its persisted event.
+describe('stable-channel payment acknowledgement', () => {
+  it('returns ReplayEvent while the stable payment write is pending', async () => {
+    let finish!: () => void
+    const observed = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+    )
+    const { handler } = createEventHandler(
+      createMockChannelManager(),
+      createMockKeysManager(),
+      mockBdkWallet as never,
+      () => false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      observed
+    )
+    const invoke = (
+      handler as unknown as { _impl: { handle_event: (event: unknown) => { is_ok(): boolean } } }
+    )._impl.handle_event
+    const event: unknown = new Event_PaymentClaimed()
+    expect(invoke(event).is_ok()).toBe(false)
+    expect(invoke(event).is_ok()).toBe(false)
+    expect(observed).toHaveBeenCalledTimes(1)
+    finish()
+    await Promise.resolve()
+    expect(invoke(event).is_ok()).toBe(true)
   })
 })
