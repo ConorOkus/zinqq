@@ -83,8 +83,7 @@ export interface SelectionResult {
 }
 
 export type SelectionOutcome =
-  | SelectionResult
-  | { shortfall: { neededSubsidySats: bigint; availableSats: bigint } }
+  SelectionResult | { shortfall: { neededSubsidySats: bigint; availableSats: bigint } }
 
 function feeForWeight(weightWu: bigint, rateSatVb: bigint): bigint {
   const vbytes = (weightWu + 3n) / 4n

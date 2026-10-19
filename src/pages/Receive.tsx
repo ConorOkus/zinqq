@@ -354,8 +354,8 @@ export function Receive() {
       if (e.key !== 'Tab') return
       const items = getFocusable()
       if (items.length === 0) return
-      const first = items[0] as HTMLElement | undefined
-      const last = items[items.length - 1] as HTMLElement | undefined
+      const first = items[0]
+      const last = items[items.length - 1]
       if (e.shiftKey && first && document.activeElement === first) {
         e.preventDefault()
         last?.focus()

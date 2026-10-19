@@ -84,7 +84,7 @@ export function connectToPeer(
       }
 
       // Send Noise Act One
-      ws.send(initResult.res)
+      ws.send(new Uint8Array(initResult.res))
     }
 
     ws.onmessage = (event) => {

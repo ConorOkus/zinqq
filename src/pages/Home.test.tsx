@@ -10,7 +10,7 @@ import {
 } from '../onchain/onchain-context'
 import { Home } from './Home'
 
-/* eslint-disable @typescript-eslint/require-await, react/display-name */
+/* eslint-disable @typescript-eslint/require-await */
 
 function readyOnchain(
   overrides: Partial<Extract<OnchainContextValue, { status: 'ready' }>> = {}

@@ -507,8 +507,7 @@ describe('Receive', () => {
         expect(requestJitQuote).toHaveBeenCalledTimes(2)
       })
       const secondCallOpts = requestJitQuote.mock.calls[1]![2] as
-        | { skipPrimary?: boolean }
-        | undefined
+        { skipPrimary?: boolean } | undefined
       expect(secondCallOpts?.skipPrimary).toBeFalsy()
       expect(await screen.findByRole('button', { name: /generate payment request/i })).toBeEnabled()
       expect(screen.queryByText(/could not generate payment request/i)).not.toBeInTheDocument()

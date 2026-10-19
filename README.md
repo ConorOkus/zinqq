@@ -128,10 +128,9 @@ flowchart LR
 
 ### Browser
 
-- **UI:** React 19 + TypeScript 5.9, React Router v7, Tailwind v4, built by
-  Vite 7 with `vite-plugin-wasm`, `vite-plugin-top-level-await`, and
-  `vite-plugin-pwa`.
-- **LDK node:** `lightningdevkit` 0.1.8-0 (~12 MB WASM) with custom JS trait
+- **UI:** React 19 + TypeScript 6.0, React Router v8, Tailwind v4, built by
+  Vite 8 with `vite-plugin-wasm` and `vite-plugin-pwa`.
+- **LDK node:** `lightningdevkit` 0.2.4-0 (~14 MB WASM) with custom JS trait
   implementations for the logger, fee estimator, broadcaster, persister,
   filter, event handler, signer provider, and wallet source
   (`src/ldk/traits/`). Running components include `ChainMonitor`,
@@ -176,6 +175,22 @@ flowchart LR
 The Content-Security-Policy in `index.html` enumerates every external host the
 app is allowed to reach; it's the tightest inventory of network dependencies
 in the codebase.
+
+## Development
+
+Use Node.js 22.22 or newer and pnpm 12.14.0. The app and `proxy/` have separate
+lockfiles; run `pnpm install --frozen-lockfile` in each directory.
+
+The app keeps ESLint 9 and TypeScript 6.0 to satisfy the React lint plugins and
+typescript-eslint peer requirements. LDK remains pinned to 0.2.4-0 and the app
+uses Vitest 4.1: upgrading either causes the real-WASM handshake suite to fail
+with an invalid memory offset when run as a whole. The test configuration keeps
+the top-level-await plugin; production uses native top-level await. The proxy
+uses TypeScript 7 and Vitest 5.
+
+Run `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, and
+`pnpm build` for the app, and `pnpm typecheck` and `pnpm test` in `proxy/`.
+Production builds require `VITE_STATIC_INVOICE_SERVER_PATHS` to be unset or empty.
 
 ## Upcoming
 

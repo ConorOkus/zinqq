@@ -550,7 +550,7 @@ describe('createEventHandler', () => {
     first.spendable_outpoint = () => {
       throw new Error('binding edge case')
     }
-    handleEvent(evt as never)
+    handleEvent(evt)
     // The descriptors write is the fund-safety payload — it must survive a
     // throwing attribution accessor; attribution degrades to empty.
     expect(idbPut).toHaveBeenCalledWith(

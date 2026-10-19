@@ -9,7 +9,7 @@ export function createSocketDescriptor(ws: WebSocket): SocketDescriptor {
     // resume_read parameter is required by LDK but unused — browser WebSocket has no back-pressure
     send_data(...args: [Uint8Array, boolean]): number {
       if (ws.readyState !== WebSocket.OPEN) return 0
-      ws.send(args[0])
+      ws.send(new Uint8Array(args[0]))
       return args[0].length
     },
     disconnect_socket(): void {

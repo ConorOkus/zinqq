@@ -113,9 +113,7 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(
-      deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0x01]) })
-    )
+    const outcome = register(deps({ channelManager: manager, pathsConfig: blob([0x01, 0x01]) }))
 
     expect(outcome).toEqual({ status: 'registered', pathCount: 2 })
     expect(manager.set_paths_to_static_invoice_server).toHaveBeenCalledTimes(1)
@@ -129,7 +127,7 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(deps({ channelManager: manager as never, pathsConfig: '' }))
+    const outcome = register(deps({ channelManager: manager, pathsConfig: '' }))
 
     expect(outcome.status).toBe('skipped')
     expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()
@@ -149,7 +147,7 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(deps({ channelManager: manager as never, hasPersistedOffer: true }))
+    const outcome = register(deps({ channelManager: manager, hasPersistedOffer: true }))
 
     expect(outcome.status).toBe('skipped')
     expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()
@@ -178,9 +176,7 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(
-      deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0xff]) })
-    )
+    const outcome = register(deps({ channelManager: manager, pathsConfig: blob([0x01, 0xff]) }))
 
     expect(outcome.status).toBe('failed')
     expect(manager.set_paths_to_static_invoice_server).not.toHaveBeenCalled()
@@ -193,9 +189,7 @@ describe('createStaticInvoiceServerRegistrar', () => {
     const manager = makeManager()
     const register = createStaticInvoiceServerRegistrar()
 
-    const outcome = register(
-      deps({ channelManager: manager as never, pathsConfig: blob([0x01, 0x02]) })
-    )
+    const outcome = register(deps({ channelManager: manager, pathsConfig: blob([0x01, 0x02]) }))
 
     expect(outcome).toEqual({ status: 'registered', pathCount: 2 })
     expect(manager.set_paths_to_static_invoice_server).toHaveBeenCalledTimes(1)
