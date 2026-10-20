@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { ScreenHeader } from '../components/ScreenHeader'
@@ -10,6 +10,7 @@ import type { JitQuote } from '../ldk/context'
 import type { JitInvoiceResult } from '../ldk/lsps2/types'
 import { formatBtc } from '../utils/format-btc'
 import { SpliceFunding } from '../components/SpliceFunding'
+import { ActionHelp } from '../components/ActionHelp'
 
 const BUTTON =
   'min-h-12 w-full rounded-xl bg-accent px-4 py-3 font-semibold text-dark disabled:opacity-40'
@@ -33,6 +34,14 @@ export function StableBalance() {
   const fresh = snapshot.priceFresh
   const backing = BigInt(position?.backingSats ?? '0')
   const native = snapshot.channel ? snapshot.channel.receiverSats - backing : 0n
+  const currentValue = useMemo(() => {
+    if (!runtime || !snapshot.channel || !snapshot.priceFresh) return null
+    try {
+      return runtime.client.quoteMaximum().targetCents
+    } catch {
+      return null
+    }
+  }, [runtime, snapshot])
 
   useEffect(() => {
     if (runtime) void runtime.client.refresh().catch(() => {})
@@ -55,9 +64,8 @@ export function StableBalance() {
       <ScreenHeader title="Stable Balance" backTo="/settings" />
       <div className="mx-auto flex w-full max-w-lg flex-col gap-5 px-6 pb-12 pt-4">
         <p className="text-sm text-[var(--color-on-dark-muted)]">
-          Keep part of your Lightning bitcoin at a USD target through automatic payments with a
-          stability provider. On-chain funds and your other bitcoin remain exposed to the bitcoin
-          price.
+          Keep part of your Bitcoin at USD target through automatic payments with a stability
+          provider. On-chain funds and your other bitcoin remain exposed to the bitcoin price.
         </p>
         <section className="rounded-2xl bg-dark-elevated p-5" aria-label="Stable balance status">
           <p className="text-sm text-[var(--color-on-dark-muted)]">Acknowledged USD target</p>
@@ -261,24 +269,26 @@ export function StableBalance() {
                         }}
                       />
                     </label>
-                    <button
-                      className="min-h-11 text-sm font-semibold underline disabled:opacity-40"
-                      disabled={busy || !!snapshot.state.pending || !snapshot.channel.usable}
-                      onClick={() =>
-                        void perform(async () => {
-                          setTradeQuote(null)
-                          await runtime.client.refresh()
-                          const suggested = runtime.client.quoteMaximum()
-                          setTarget(formatUsd(suggested.targetCents).slice(1))
-                        })
-                      }
+                    <ActionHelp
+                      label="About current value"
+                      text="Fills the maximum USD target your channel balance supports at the latest bitcoin price, after the 1% conversion fee."
                     >
-                      Use current value
-                    </button>
-                    <p className="text-xs text-[var(--color-on-dark-muted)]">
-                      Fills the maximum USD target your channel balance supports at the latest
-                      bitcoin price, after the 1% conversion fee.
-                    </p>
+                      <button
+                        className="min-h-11 text-sm font-semibold underline disabled:opacity-40"
+                        disabled={busy || !!snapshot.state.pending || !snapshot.channel.usable}
+                        onClick={() =>
+                          void perform(async () => {
+                            setTradeQuote(null)
+                            await runtime.client.refresh()
+                            const suggested = runtime.client.quoteMaximum()
+                            setTarget(formatUsd(suggested.targetCents).slice(1))
+                          })
+                        }
+                      >
+                        Use current value (
+                        {currentValue === null ? 'unavailable' : formatUsd(currentValue)})
+                      </button>
+                    </ActionHelp>
                     <button
                       className={BUTTON}
                       disabled={busy || !!snapshot.state.pending || !snapshot.channel.usable}
