@@ -1,4 +1,4 @@
-import { priceConsensus, type PriceObservation } from '../src/stable/price.ts'
+import { priceConsensus, type PriceObservation } from '../src/stable/price.js'
 
 const FEEDS = [
   { source: 'Bitstamp', url: 'https://www.bitstamp.net/api/v2/ticker/btcusd/', path: ['last'] },
