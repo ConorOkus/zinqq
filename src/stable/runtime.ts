@@ -17,6 +17,7 @@ import {
 import type { StablePaymentEvent, StableProvider, StableSnapshot } from './types'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 import { SpliceController, splicePending, type SpliceEvent } from './splice'
+import { getKnownPeers, putKnownPeer } from '../ldk/storage/known-peers'
 
 export const PUBLIC_STABLE_PROVIDER: StableProvider = {
   nodeId: '0388948c5c7775a5eda3ee4a96434a270f20f5beeed7e9c99f242f21b87d658850',
@@ -43,6 +44,12 @@ export function configuredStableProvider(): StableProvider {
     throw new Error('Invalid stability provider configuration')
   return provider
 }
+
+async function rememberProvider(provider: StableProvider): Promise<void> {
+  const peers = await getKnownPeers()
+  if (!peers.has(provider.nodeId)) await putKnownPeer(provider.nodeId, provider.host, provider.port)
+}
+
 const INITIAL: StableSnapshot = {
   state: null,
   price: null,
@@ -105,6 +112,8 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
     if (!options.alive()) return null
     runtime?.stop()
     const provider = store.state.enabled ? store.state.provider : configured
+    if (store.state.enabled) await rememberProvider(provider)
+    if (!options.alive()) return null
     let splice: SpliceController | null = null
     const canSend = () =>
       options.alive() &&
@@ -208,6 +217,8 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
       splice,
       enable: async () => {
         await client.enable()
+        if (!options.alive()) throw new Error('Wallet stopped')
+        await rememberProvider(provider)
         if (!options.alive()) throw new Error('Wallet stopped')
         options.node.trustedLspIds.add(provider.nodeId)
         void update()
