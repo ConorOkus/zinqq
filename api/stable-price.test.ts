@@ -1,8 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GET } from './stable-price'
+import { execFileSync } from 'node:child_process'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 afterEach(() => vi.unstubAllGlobals())
 describe('fixed-market USD price endpoint', () => {
+  it('loads the price handler in Node without a bundler resolving its imports', () => {
+    const handlerUrl = pathToFileURL(resolve('api/stable-price.ts')).href
+    const output = execFileSync(
+      process.execPath,
+      [
+        '--experimental-strip-types',
+        '--input-type=module',
+        '--eval',
+        `const { GET } = await import(${JSON.stringify(handlerUrl)}); console.log(typeof GET)`,
+      ],
+      { encoding: 'utf8', timeout: 5000 }
+    )
+    expect(output.trim()).toBe('function')
+  })
+
   it('returns independent observations without caching an old price', async () => {
     const fetcher = vi.fn((url: string) => {
       const value = url.includes('bitstamp')
