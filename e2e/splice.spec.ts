@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 
+test.use({ hasTouch: true })
+
 // This fixture cannot sign or broadcast. Funding/signing use actual BDK and
 // LDK bindings in src/stable/splice*.test.ts.
 const fixture = `
@@ -48,7 +50,14 @@ for (const width of [390, 1280]) {
     await page.goto('/settings/stable-balance')
     const panel = page.getByRole('region', { name: 'Allocate USD' })
     await expect(panel).toBeVisible({ timeout: 20_000 })
-    await panel.getByRole('button', { name: 'Use current value' }).click()
+    await expect(panel.getByText(/Fills the maximum USD target/)).toHaveCount(0)
+    const help = panel.getByRole('button', { name: 'About current value' })
+    await help.focus()
+    await expect(panel.getByRole('tooltip')).toContainText('after the 1% conversion fee')
+    await panel.screenshot({ path: `/tmp/zinq-current-value-tooltip-${width}.png` })
+    await page.keyboard.press('Escape')
+    await expect(panel.getByRole('tooltip')).toHaveCount(0)
+    await panel.getByRole('button', { name: 'Use current value ($198.04)' }).click()
     await expect(panel.getByLabel('USD target')).toHaveValue('198.04')
     expect(
       await page.evaluate(() => (window as unknown as Record<string, unknown>).__usdCommits)
@@ -79,13 +88,21 @@ for (const width of [390, 1280]) {
     await page.goto('/settings/stable-balance')
     const panel = page.getByRole('region', { name: 'Add on-chain funds' })
     await expect(panel).toBeVisible({ timeout: 20_000 })
+    await expect(panel.getByRole('heading', { name: 'Add funds', exact: true })).toBeVisible()
+    await expect(panel.getByText(/Maximum uses confirmed funds/)).toHaveCount(0)
+    const help = panel.getByRole('button', { name: 'About maximum amount' })
+    if (width === 390) await help.tap()
+    else await help.hover()
+    await expect(panel.getByRole('tooltip')).toContainText('10,000-sat on-chain safety reserve')
+    await panel.screenshot({ path: `/tmp/zinq-maximum-tooltip-${width}.png` })
+    await panel.getByRole('heading', { name: 'Add funds', exact: true }).click()
+    await expect(panel.getByRole('tooltip')).toHaveCount(0)
     await panel.getByRole('button', { name: 'Use maximum' }).click()
-    await expect(panel.getByLabel('Amount in sats')).toHaveValue('59400')
-    await expect(panel.getByText(/Maximum uses confirmed funds/)).toBeVisible()
+    await expect(panel.getByLabel('Amount', { exact: true })).toHaveValue('59400')
     await expect(panel.getByRole('button', { name: 'Confirm add funds' })).toHaveCount(0)
     // A custom amount can still replace the suggested maximum.
-    if (width === 1280) await panel.getByLabel('Amount in sats').fill('40000')
-    await panel.getByRole('button', { name: 'Review add funds' }).click()
+    if (width === 1280) await panel.getByLabel('Amount', { exact: true }).fill('40000')
+    await panel.getByRole('button', { name: 'Review', exact: true }).click()
     await expect(panel.getByText(`Adding: ${width === 390 ? '₿59,400' : '₿40,000'}`)).toBeVisible()
     await expect(panel.getByText('Maximum mining fee: ₿600')).toBeVisible()
     await expect(

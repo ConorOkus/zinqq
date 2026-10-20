@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { type SpliceController, splicePending, type SpliceQuote } from '../stable/splice'
 import { formatBtc } from '../utils/format-btc'
+import { ActionHelp } from './ActionHelp'
 
 export function SpliceFunding({ controller }: { controller: SpliceController }) {
   const [, refresh] = useState(0)
@@ -29,7 +30,7 @@ export function SpliceFunding({ controller }: { controller: SpliceController }) 
       className="space-y-3 rounded-2xl border border-on-dark/15 p-4"
       aria-label="Add on-chain funds"
     >
-      <h2 className="font-semibold">Add funds to this channel</h2>
+      <h2 className="font-semibold">Add funds</h2>
       <p className="text-sm text-[var(--color-on-dark-muted)]">
         Move confirmed on-chain bitcoin into this channel. After confirmation, your added balance
         will be requested as dollars, subject to the provider’s acceptance and 1% trade fee.
@@ -97,7 +98,7 @@ export function SpliceFunding({ controller }: { controller: SpliceController }) 
           ) : (
             <>
               <label className="block text-sm">
-                Amount in sats
+                Amount
                 <input
                   className="mt-2 min-h-12 w-full rounded-xl border border-on-dark/20 bg-dark-elevated px-4 text-on-dark"
                   inputMode="numeric"
@@ -105,22 +106,23 @@ export function SpliceFunding({ controller }: { controller: SpliceController }) 
                   onChange={(e) => setAmount(e.target.value)}
                 />
               </label>
-              <button
-                className="min-h-11 text-sm font-semibold underline disabled:opacity-40"
-                disabled={busy}
-                onClick={() =>
-                  void perform(async () => {
-                    const maximum = await controller.quoteMaximum()
-                    setAmount(maximum.amountSats)
-                  })
-                }
+              <ActionHelp
+                label="About maximum amount"
+                text="Maximum uses confirmed funds after the mining-fee allowance and a 10,000-sat on-chain safety reserve."
               >
-                Use maximum
-              </button>
-              <p className="text-xs text-[var(--color-on-dark-muted)]">
-                Maximum uses confirmed funds after the mining-fee allowance and a 10,000-sat
-                on-chain safety reserve.
-              </p>
+                <button
+                  className="min-h-11 text-sm font-semibold underline disabled:opacity-40"
+                  disabled={busy}
+                  onClick={() =>
+                    void perform(async () => {
+                      const maximum = await controller.quoteMaximum()
+                      setAmount(maximum.amountSats)
+                    })
+                  }
+                >
+                  Use maximum
+                </button>
+              </ActionHelp>
               <button
                 className={button}
                 disabled={busy}
@@ -131,7 +133,7 @@ export function SpliceFunding({ controller }: { controller: SpliceController }) 
                   })
                 }
               >
-                {busy ? 'Preparing review…' : 'Review add funds'}
+                {busy ? 'Preparing review…' : 'Review'}
               </button>
             </>
           )}

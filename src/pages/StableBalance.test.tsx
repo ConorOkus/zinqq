@@ -67,7 +67,9 @@ describe('Stable Balance', () => {
   it('fills the current value after refreshing prices and still requires review and confirmation', async () => {
     const user = userEvent.setup()
     show()
-    await user.click(screen.getByRole('button', { name: 'Use current value' }))
+    const currentValue = screen.getByRole('button', { name: 'Use current value ($100.00)' })
+    quoteMaximum.mockClear()
+    await user.click(currentValue)
     expect(refresh.mock.invocationCallOrder.at(-1)).toBeLessThan(
       quoteMaximum.mock.invocationCallOrder[0]!
     )
@@ -83,14 +85,23 @@ describe('Stable Balance', () => {
     const user = userEvent.setup()
     show()
     await user.type(screen.getByLabelText('USD target'), '50.00')
+    quoteMaximum.mockClear()
     refresh.mockRejectedValueOnce(new Error('USD market consensus is unavailable'))
-    await user.click(screen.getByRole('button', { name: 'Use current value' }))
+    await user.click(screen.getByRole('button', { name: 'Use current value ($100.00)' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'USD market consensus is unavailable'
     )
     expect(screen.getByLabelText('USD target')).toHaveValue('50.00')
     expect(quoteMaximum).not.toHaveBeenCalled()
     expect(commit).not.toHaveBeenCalled()
+  })
+  it('keeps the page available when the current value cannot be quoted', () => {
+    quoteMaximum.mockImplementation(() => {
+      throw new Error('USD market consensus is unavailable')
+    })
+    show()
+    expect(screen.getByRole('button', { name: 'Use current value (unavailable)' })).toBeVisible()
+    expect(screen.getByLabelText('USD target')).toHaveValue('')
   })
   it('requires review of the fee before committing and never optimistically shows USD', async () => {
     const user = userEvent.setup()
