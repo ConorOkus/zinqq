@@ -70,7 +70,13 @@ export class StableClient {
   blocksOrdinaryPayments = () =>
     this.preparingPayment ||
     !!this.deps.store.state.pending ||
+    (!!this.deps.store.state.firstReceive?.received &&
+      !this.deps.store.state.firstReceive.attempted) ||
     this.deps.store.state.inbox.length > 0
+  canPrepareFirstReceive = () => {
+    const state = this.deps.store.state
+    return !state.position && !state.pending && !state.paused && !state.firstReceive?.received
+  }
   private makeSnapshot(): StableSnapshot {
     let channel: StableChannel | null = null
     let channelError: string | null = null
@@ -115,6 +121,15 @@ export class StableClient {
             : action === 'pay'
               ? 'Settlement due'
               : 'Active'
+      }
+      if (!state.position && !state.pending && state.firstReceive) {
+        if (state.firstReceive.attempted) status = 'Dollar conversion needs attention'
+        else if (!state.firstReceive.received)
+          status = 'Your first Lightning payment will become dollars'
+        else
+          status = this.error
+            ? `Waiting to convert: ${this.error}`
+            : 'Converting your first payment to dollars'
       }
     }
     return {
@@ -208,6 +223,20 @@ export class StableClient {
     this.serial(async () => {
       await this.save({ enabled: true, provider: this.deps.provider, notice: null })
     })
+  prepareFirstReceive = (paymentHash: string) =>
+    this.serial(async () => {
+      if (!this.canPrepareFirstReceive()) return
+      const first = this.deps.store.state.firstReceive
+      await this.save({
+        enabled: true,
+        provider: this.deps.provider,
+        firstReceive: {
+          paymentHashes: [...new Set([...(first?.paymentHashes ?? []), paymentHash])],
+          received: null,
+          attempted: false,
+        },
+      })
+    })
   pause = (paused: boolean) =>
     this.serial(async () => {
       await this.save({ paused })
@@ -258,9 +287,9 @@ export class StableClient {
     )
     if (
       targetCents * 10_000_000n > usdUnits(position?.targetUsd ?? 0) &&
-      allocation.backingSats > channel.inboundSats
+      channel.inboundSats === 0n
     )
-      throw new Error('The provider must supply more collateral before increasing this target')
+      throw new Error('The provider has no inbound liquidity for collateral payments')
     usdUnits(usdNumber(targetCents))
     if (targetCents * 10_000_000n === usdUnits(position?.targetUsd ?? 0))
       throw new Error('Choose a different USD target')
@@ -271,6 +300,26 @@ export class StableClient {
       channelId: channel.channelId,
       price,
     }
+  }
+  /** Read-only suggestion using the same fee and balance limits as a reviewed trade. */
+  quoteMaximum = (): StableTradeQuote => {
+    const current = BigInt(Math.round((this.deps.store.state.position?.targetUsd ?? 0) * 100))
+    let best = this.quote(current + 1n)
+    const channel = this.readyChannel()
+    // Keep the acknowledged target when BTC prices move; only newly allocated
+    // bitcoin is valued at the current price.
+    let low = current + 2n
+    let high = current + (channel.receiverSats * best.price.priceCents) / 100_000_000n
+    while (low <= high) {
+      const mid = (low + high) / 2n
+      try {
+        best = this.quote(mid)
+        low = mid + 1n
+      } catch {
+        high = mid - 1n
+      }
+    }
+    return best
   }
   private intent(
     kind: StableIntent['kind'],
@@ -302,7 +351,13 @@ export class StableClient {
   private async send(intent: StableIntent) {
     this.preparingPayment = true
     try {
-      await this.save({ pending: intent, notice: null })
+      await this.save({
+        pending: intent,
+        notice: null,
+        ...(intent.kind === 'trade' && this.deps.store.state.firstReceive?.received
+          ? { firstReceive: { ...this.deps.store.state.firstReceive, attempted: true } }
+          : {}),
+      })
       try {
         this.requireSend()
       } catch (error) {
@@ -323,42 +378,97 @@ export class StableClient {
       this.preparingPayment = false
     }
   }
-  commit = (quote: StableTradeQuote) =>
+  commit = (quote: StableTradeQuote) => this.serial(() => this.commitQuote(quote))
+  private async commitQuote(quote: StableTradeQuote) {
+    const current = this.quote(quote.targetCents)
+    if (
+      quote.baseline !== current.baseline ||
+      quote.channelId !== current.channelId ||
+      quote.feeSats !== current.feeSats ||
+      quote.backingSats !== current.backingSats ||
+      quote.price.observedAt !== current.price.observedAt
+    )
+      throw new Error('The quote changed. Review a fresh quote')
+    const channel = this.readyChannel()
+    const targetUsd = usdNumber(quote.targetCents)
+    const tradeId = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))
+    const payload = JSON.stringify({
+      type: 'TRADE_V1',
+      channel_id: channel.channelId,
+      user_channel_id: channel.userChannelId,
+      trade_id: tradeId,
+      expected_usd: targetUsd,
+      quote_price: Number(quote.price.priceCents) / 100,
+      ts: Math.floor(this.now() / 1000),
+    })
+    const fee = quote.feeSats * 1000n
+    await this.send(
+      this.intent(
+        'trade',
+        channel.channelId,
+        fee > 0n ? fee : 1n,
+        payload,
+        TRADE_TLV,
+        targetUsd,
+        quote.backingSats,
+        tradeId
+      )
+    )
+  }
+  autoConvertFirstReceive = () =>
     this.serial(async () => {
-      const current = this.quote(quote.targetCents)
-      if (
-        quote.baseline !== current.baseline ||
-        quote.channelId !== current.channelId ||
-        quote.feeSats !== current.feeSats ||
-        quote.backingSats !== current.backingSats ||
-        quote.price.observedAt !== current.price.observedAt
-      )
-        throw new Error('The quote changed. Review a fresh quote')
+      const state = this.deps.store.state
+      const first = state.firstReceive
+      if (!first?.received || first.attempted || state.position || state.pending || state.paused)
+        return
+      this.requireSend()
       const channel = this.readyChannel()
-      const targetUsd = usdNumber(quote.targetCents)
-      const tradeId = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))
-      const payload = JSON.stringify({
-        type: 'TRADE_V1',
-        channel_id: channel.channelId,
-        user_channel_id: channel.userChannelId,
-        trade_id: tradeId,
-        expected_usd: targetUsd,
-        quote_price: Number(quote.price.priceCents) / 100,
-        ts: Math.floor(this.now() / 1000),
-      })
-      const fee = quote.feeSats * 1000n
-      await this.send(
-        this.intent(
-          'trade',
-          channel.channelId,
-          fee > 0n ? fee : 1n,
-          payload,
-          TRADE_TLV,
-          targetUsd,
-          quote.backingSats,
-          tradeId
-        )
-      )
+      if (channel.channelId !== first.received.channelId)
+        throw new Error('The first receive channel is unavailable')
+      const price = this.requirePrice()
+      let low = 1n
+      let high = (channel.receiverSats * price.priceCents) / 100_000_000n
+      let target = 0n
+      while (low <= high) {
+        const mid = (low + high) / 2n
+        try {
+          quoteAllocation(
+            0n,
+            0n,
+            mid,
+            price.priceCents,
+            channel.spendableSats,
+            channel.receiverSats
+          )
+          target = mid
+          low = mid + 1n
+        } catch {
+          high = mid - 1n
+        }
+      }
+      if (target === 0n) throw new Error('The first payment is too small to allocate dollars')
+      await this.commitQuote(this.quote(target))
+    })
+  /** Called only after a tracked splice locks on the same logical provider channel. */
+  rebindSplicedChannel = (oldChannelId: string, newChannelId: string) =>
+    this.serial(async () => {
+      const state = this.deps.store.state
+      if (state.pending || state.inbox.length)
+        throw new Error('Wait for provider updates before completing channel funding')
+      if (state.position?.channelId === newChannelId) return
+      if (state.position && state.position.channelId !== oldChannelId)
+        throw new Error('Dollar position belongs to a different channel')
+      if (state.position)
+        await this.save({ position: { ...state.position, channelId: newChannelId } })
+    })
+  allocateAll = (beforeSend: () => Promise<void>) =>
+    this.serial(async () => {
+      const state = this.deps.store.state
+      if (state.paused || state.pending || state.inbox.length)
+        throw new Error('Wait for dollar balance updates')
+      const quote = this.quoteMaximum()
+      await beforeSend()
+      await this.commitQuote(quote)
     })
   tick = () =>
     this.serial(async () => {
@@ -418,7 +528,9 @@ export class StableClient {
     return (
       state.enabled &&
       (event.kind === 'received'
-        ? event.records.some(
+        ? (!state.firstReceive?.received &&
+            !!state.firstReceive?.paymentHashes.includes(event.paymentId)) ||
+          event.records.some(
             (record) => record.type === TRADE_TLV || record.type === SETTLEMENT_TLV
           )
         : state.pending?.paymentId === event.paymentId)
@@ -621,6 +733,25 @@ export class StableClient {
         return
       }
       const state = this.deps.store.state
+      const first = state.firstReceive
+      if (first && !first.received && first.paymentHashes.includes(event.paymentId)) {
+        const channel = this.deps.channel()
+        if (!channel || !event.channelIds.includes(channel.channelId) || event.amountMsat < 1000n)
+          return
+        // Persist the actual claimed amount before LDK acknowledges the event.
+        // Price lookup and the fee payment run later, outside the event handler.
+        await this.save({
+          firstReceive: {
+            ...first,
+            received: {
+              paymentId: event.paymentId,
+              channelId: channel.channelId,
+              amountSats: (event.amountMsat / 1000n).toString(),
+            },
+          },
+        })
+        return
+      }
       if (
         !this.handles(event) ||
         state.position?.receipts[event.paymentId] ||

@@ -1,7 +1,7 @@
 /**
  * LSP contact resolution.
  *
- * Builds the LSP contact pair from env-var config. Megalith is the sole LSP and
+ * Builds the LSP contact pair from config. Stable Channels is the default LSP and
  * occupies the `primary` slot; the `fallback` slot is retained (currently always
  * null) so a second LSP can be re-introduced without reworking the receive
  * flow's primary/fallback failover orchestration.
@@ -11,15 +11,15 @@ import { LDK_CONFIG } from '../config'
 
 /**
  * Telemetry / display tag for an LSP. Sourced from `VITE_LSP_LABEL`, defaulting
- * to `'megalith'` — the label must track whatever node the env vars point at, or
- * logs and telemetry misattribute a candidate LSP's behavior to Megalith. The
+ * to `'stablechannels'` — the label must track whatever node the env vars point at,
+ * so logs and telemetry identify the configured provider. The
  * `string & {}` arm keeps the known label typo-checked (and autocompleted) while
  * the orchestration stays label-agnostic.
  */
-export type LspLabel = 'megalith' | (string & {})
+export type LspLabel = 'stablechannels' | (string & {})
 
 /**
- * Whether a fallback LSP is configured. `false` today — Megalith is the sole
+ * Whether a fallback LSP is configured. `false` today — there is a single
  * LSP, so `resolveLspContacts().fallback` is always null. When a second LSP is
  * re-introduced, flip this alongside populating the `fallback` slot; the
  * buy-phase re-quote in `Receive.tsx` gates on it to avoid a pointless
@@ -41,7 +41,7 @@ export interface LspContactPair {
 }
 
 /**
- * Resolve the primary (Megalith by default, via env vars) LSP contact. `primary`
+ * Resolve the primary (Stable Channels by default, with env overrides) LSP contact. `primary`
  * is null when the env config is empty (LSPS2 disabled). `fallback` is currently
  * always null — the slot is kept for a future second LSP.
  *

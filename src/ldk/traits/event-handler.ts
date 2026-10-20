@@ -79,6 +79,7 @@ import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../j
 import { captureError } from '../../storage/error-log'
 import { createStableEventGate } from '../../stable/event-gate'
 import { copyStablePaymentEvent } from '../../stable/ldk'
+import { copySpliceEvent, type SpliceEvent } from '../../stable/splice'
 import type { StablePaymentEvent } from '../../stable/types'
 
 export type PaymentEventCallback = (
@@ -163,7 +164,8 @@ export function createEventHandler(
   onConnectionNeeded?: ConnectionNeededCallback,
   bumpTxHandler?: BumpTransactionEventHandlerSync,
   onRecoveryNeeded?: RecoveryNeededCallback,
-  onStablePayment?: (event: StablePaymentEvent) => void | Promise<void>
+  onStablePayment?: (event: StablePaymentEvent) => void | Promise<void>,
+  onSpliceEvent?: (event: SpliceEvent) => void | Promise<void>
 ): {
   handler: EventHandler
   cleanup: () => void
@@ -179,6 +181,16 @@ export function createEventHandler(
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
+        const splice = copySpliceEvent(event)
+        if (
+          splice &&
+          !stableEventReady(splice.key, () => {
+            if (!onSpliceEvent && splice.kind !== 'ready')
+              return Promise.reject(new Error('Waiting for channel funding recovery'))
+            return onSpliceEvent?.(splice)
+          })
+        )
+          return Result_NoneReplayEventZ.constructor_err(ReplayEvent.constructor_new())
         if (onStablePayment) {
           const payment = copyStablePaymentEvent(event)
           if (

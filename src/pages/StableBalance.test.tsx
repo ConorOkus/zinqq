@@ -11,6 +11,7 @@ let snapshot: StableSnapshot
 let runtime: StableRuntime | null
 const refresh = vi.fn(() => Promise.resolve())
 const quote = vi.fn()
+const quoteMaximum = vi.fn()
 const commit = vi.fn(() => Promise.resolve())
 const enable = vi.fn(() => Promise.resolve())
 vi.mock('../stable/use-stable-balance', () => ({ useStableBalance: () => snapshot }))
@@ -29,9 +30,10 @@ const trade: StableTradeQuote = {
 beforeEach(() => {
   vi.clearAllMocks()
   quote.mockReturnValue(trade)
+  quoteMaximum.mockReturnValue(trade)
   runtime = {
     provider,
-    client: { refresh, quote, commit, pause: vi.fn(() => Promise.resolve()) },
+    client: { refresh, quote, quoteMaximum, commit, pause: vi.fn(() => Promise.resolve()) },
     enable,
     quoteFunding: vi.fn(),
     confirmFunding: vi.fn(),
@@ -62,6 +64,34 @@ const show = () =>
   )
 
 describe('Stable Balance', () => {
+  it('fills the current value after refreshing prices and still requires review and confirmation', async () => {
+    const user = userEvent.setup()
+    show()
+    await user.click(screen.getByRole('button', { name: 'Use current value' }))
+    expect(refresh.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      quoteMaximum.mock.invocationCallOrder[0]!
+    )
+    expect(screen.getByLabelText('USD target')).toHaveValue('100.00')
+    expect(screen.queryByRole('button', { name: 'Confirm USD target' })).not.toBeInTheDocument()
+    expect(commit).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Review USD target' }))
+    expect(quote).toHaveBeenCalledWith(10000n)
+    expect(await screen.findByRole('button', { name: 'Confirm USD target' })).toBeVisible()
+    expect(commit).not.toHaveBeenCalled()
+  })
+  it('keeps the entered target when fresh prices are unavailable', async () => {
+    const user = userEvent.setup()
+    show()
+    await user.type(screen.getByLabelText('USD target'), '50.00')
+    refresh.mockRejectedValueOnce(new Error('USD market consensus is unavailable'))
+    await user.click(screen.getByRole('button', { name: 'Use current value' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'USD market consensus is unavailable'
+    )
+    expect(screen.getByLabelText('USD target')).toHaveValue('50.00')
+    expect(quoteMaximum).not.toHaveBeenCalled()
+    expect(commit).not.toHaveBeenCalled()
+  })
   it('requires review of the fee before committing and never optimistically shows USD', async () => {
     const user = userEvent.setup()
     show()

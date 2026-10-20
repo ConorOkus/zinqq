@@ -18,7 +18,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run --exclude src/ldk/async-receive/handshake-harness.test.ts && pnpm test:async-receive",
+    "test:async-receive": "vitest run src/ldk/async-receive/handshake-harness.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"

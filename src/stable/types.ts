@@ -37,6 +37,12 @@ export interface StableState {
   position: StablePosition | null
   pending: StableIntent | null
   notice: string | null
+  /** One-time conversion of a tracked first Lightning receipt; absent in older backups. */
+  firstReceive?: {
+    paymentHashes: string[]
+    received: { paymentId: string; channelId: string; amountSats: string } | null
+    attempted: boolean
+  }
   inbox: {
     paymentId: string
     amountMsat: string

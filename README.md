@@ -46,15 +46,33 @@ fallback.
 ### Stable Balance
 
 Settings → Stable Balance integrates the [Stable Channels](https://github.com/toneloc/stable-channels)
-client protocol. Select a provider, fund a direct channel using a reviewed LSPS2
-invoice, then review and confirm a USD target and its 1% allocation fee. An
-existing ready channel to that provider also works. The target appears only
-after the provider signs its acceptance.
+client protocol. A first Lightning receive through the default provider automatically
+allocates the full provider-channel balance to dollars after the opening fee and 1%
+allocation fee, with no extra BTC buffer; sub-cent rounding dust stays in the stable
+backing. The receive review discloses the conversion;
+no separate provider selection or USD-target setup is needed. The target appears
+only after the provider signs its acceptance. Settings still supports selecting a
+provider, funding a channel, and reviewing manual changes to the USD target.
+
+To add confirmed on-chain bitcoin to the existing provider channel, tap the
+dollar amount, then **Add funds to this channel**. Review the amount and maximum
+mining fee before confirming. The wallet keeps a 10,000-sat on-chain reserve,
+reserves the contributed inputs during negotiation, and restores pending splices
+from encrypted backup. Once the new funding output locks, it preserves the
+existing dollar position and requests allocation of the added balance to dollars
+(1% trade fee and provider acceptance apply). Keep the wallet open and online
+while funding completes. Splice-out is not exposed.
 
 The client settles excess backing to the provider when bitcoin rises and waits
-for authenticated provider payments when it falls. Home shows the acknowledged
-target separately from its current bitcoin backing value and native BTC. Keep
-the wallet open and online: settlement depends on the provider's availability
+for authenticated provider payments when it falls. Home uses the acknowledged
+USD target as its main balance, with that same amount converted to sats at the
+latest BTC price below it. The bitcoin equivalent excludes separate on-chain
+funds and becomes unavailable when prices are stale. Details of backing and
+settlement are available by tapping the dollar amount. **Use current value** fills
+the largest affordable USD target after the conversion fee; it still requires
+review and confirmation. If backup recovery fails, the balances are unavailable
+and recovery retries automatically. Keep the wallet open and online:
+settlement depends on the provider's availability
 and collateral. Closing the channel returns bitcoin at its current value.
 
 The default provider is `stablechannels.com:9735`. Optional
@@ -218,9 +236,11 @@ lockfiles; run `pnpm install --frozen-lockfile` in each directory.
 The app keeps ESLint 9 and TypeScript 6.0 to satisfy the React lint plugins and
 typescript-eslint peer requirements. LDK remains pinned to 0.2.4-0 and the app
 uses Vitest 4.1: upgrading either causes the real-WASM handshake suite to fail
-with an invalid memory offset when run as a whole. The test configuration keeps
-the top-level-await plugin; production uses native top-level await. The proxy
-uses TypeScript 7 and Vitest 5.
+with an invalid memory offset when run as a whole. `pnpm test` runs the real-WASM
+async-receive harness in its own process, since sharing a test invocation with
+other native suites also causes invalid memory offsets. All assertions still run.
+The test configuration keeps the top-level-await plugin; production uses native
+top-level await. The proxy uses TypeScript 7 and Vitest 5.
 
 Run `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, and
 `pnpm build` for the app, and `pnpm typecheck` and `pnpm test` in `proxy/`.

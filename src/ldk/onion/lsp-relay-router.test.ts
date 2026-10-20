@@ -18,9 +18,9 @@ import {
   ReceiveAuthKey,
   Result_NoneLightningErrorZ_OK,
   Result_OnionMessagePathNoneZ_OK,
-  initializeWasmFromBinary,
 } from 'lightningdevkit'
 import { createLspRelayMessageRouter } from './lsp-relay-router'
+import { initializeTestLdk } from '../../test/initialize-ldk-wasm'
 import { bytesToHex, hexToBytes } from '../utils'
 
 /**
@@ -32,13 +32,7 @@ describe('createLspRelayMessageRouter', () => {
   let logger: Logger
 
   beforeAll(async () => {
-    const nodeFs = 'node:fs'
-    const { readFileSync } = (await import(/* @vite-ignore */ nodeFs)) as {
-      readFileSync: (path: string) => Uint8Array
-    }
-    await initializeWasmFromBinary(
-      new Uint8Array(readFileSync('node_modules/lightningdevkit/liblightningjs.wasm'))
-    )
+    await initializeTestLdk()
     logger = Logger.new_impl({ log: () => {} })
   })
 

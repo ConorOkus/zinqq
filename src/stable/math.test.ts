@@ -15,8 +15,23 @@ describe('stable-channel allocation', () => {
       quoteAllocation(10_000n, 100_000n, 11_000n, 11_000_000n, 200_000n, 200_000n).backingSats
     ).toBe(109_091n)
   })
-  it('refuses a position that consumes the capacity margin', () => {
-    expect(() => quoteAllocation(0n, 0n, 10_000n, price, 100_000n, 100_000n)).toThrow()
+  it('allocates the entire balance after the trade fee without an extra BTC buffer', () => {
+    expect(quoteAllocation(0n, 0n, 9_900n, price, 100_000n, 100_000n)).toEqual({
+      targetCents: 9_900n,
+      backingSats: 99_000n,
+      feeSats: 1_000n,
+    })
+    expect(() => quoteAllocation(0n, 0n, 9_901n, price, 100_000n, 100_000n)).toThrow()
+  })
+  it('can stabilize the channel reserve while keeping the trade fee spendable', () => {
+    expect(quoteAllocation(0n, 0n, 9_900n, price, 99_000n, 100_000n).backingSats).toBe(99_000n)
+  })
+  it('includes sub-cent rounding dust in the initial stable backing', () => {
+    expect(quoteAllocation(0n, 0n, 9_900n, price, 100_001n, 100_001n)).toEqual({
+      targetCents: 9_900n,
+      backingSats: 99_001n,
+      feeSats: 1_000n,
+    })
   })
   it('does not erase actionable drift when closing a position', () => {
     expect(() => quoteAllocation(10_000n, 100_000n, 0n, 11_000_000n, 200_000n, 200_000n)).toThrow(

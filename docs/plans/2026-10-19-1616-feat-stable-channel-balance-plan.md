@@ -22,7 +22,7 @@ execution: code
 
 ### Summary
 
-Add a Stable Balance screen, provider funding through LSPS2, signed USD-target trades, automatic signed settlement, and a truthful USD/native-BTC split on Home. The existing bitcoin total remains measured funds.
+Add a Stable Balance screen, provider funding through LSPS2, signed USD-target trades, and automatic signed settlement. Per the user's follow-up, Home prioritizes the acknowledged USD balance and shows the same value converted to sats at the latest BTC price below it; the detailed Balance screen retains the measured bitcoin total. A known empty dollar position shows $0.00 and zero sats, while an unknown recovered position stays unavailable.
 
 ### Problem Frame
 

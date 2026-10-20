@@ -15,6 +15,8 @@ import {
   verifyStable,
 } from './ldk'
 import type { StablePaymentEvent, StableProvider, StableSnapshot } from './types'
+import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
+import { SpliceController, splicePending, type SpliceEvent } from './splice'
 
 export const PUBLIC_STABLE_PROVIDER: StableProvider = {
   nodeId: '0388948c5c7775a5eda3ee4a96434a270f20f5beeed7e9c99f242f21b87d658850',
@@ -67,7 +69,7 @@ export const getStableSnapshot = () => snapshot
 export const getStableRuntime = () => runtime
 
 export function assertNoPendingStableOperation(): void {
-  if (runtime?.client.blocksOrdinaryPayments())
+  if (runtime?.client.blocksOrdinaryPayments() || splicePending(runtime?.splice?.state ?? null))
     throw new Error(
       'Wait for the stable balance adjustment to finish before sending another payment'
     )
@@ -76,6 +78,7 @@ export function assertNoPendingStableOperation(): void {
 export interface StableRuntime {
   client: StableClient
   provider: StableProvider
+  splice: SpliceController | null
   enable: () => Promise<void>
   quoteFunding: (amountSats: bigint, signal?: AbortSignal) => Promise<JitQuote>
   confirmFunding: (quote: JitQuote, signal?: AbortSignal) => Promise<JitInvoiceResult>
@@ -86,6 +89,9 @@ interface RuntimeOptions {
   vss: VssClient | null
   alive(): boolean
   healthy(): boolean
+  wallet?: Wallet
+  persistManager?: () => Promise<void>
+  setSpliceCallback?: (cb: ((event: SpliceEvent) => void | Promise<void>) | undefined) => void
   setPaymentCallback(cb: ((event: StablePaymentEvent) => void | Promise<void>) | undefined): void
   quoteFunding(provider: StableProvider, amountSats: bigint, signal: AbortSignal): Promise<JitQuote>
   confirmFunding(quote: JitQuote, signal: AbortSignal): Promise<JitInvoiceResult>
@@ -99,12 +105,14 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
     if (!options.alive()) return null
     runtime?.stop()
     const provider = store.state.enabled ? store.state.provider : configured
+    let splice: SpliceController | null = null
     const canSend = () =>
       options.alive() &&
       options.healthy() &&
       document.visibilityState === 'visible' &&
       navigator.onLine &&
-      !hasPendingPayments(options.node)
+      !hasPendingPayments(options.node) &&
+      !splicePending(splice?.state ?? null)
     const client = new StableClient({
       store,
       provider,
@@ -115,6 +123,35 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
       send: (intent) => sendStableKeysend(options.node, provider, intent, canSend),
       price: (previous) => fetchPrice(previous),
     })
+    if (options.wallet && options.persistManager && options.setSpliceCallback) {
+      splice = new SpliceController({
+        node: options.node,
+        wallet: options.wallet,
+        providerId: provider.nodeId,
+        vss: options.vss,
+        alive: () => options.alive(),
+        canStart: () =>
+          canSend() &&
+          store.state.enabled &&
+          !store.state.paused &&
+          !store.state.pending &&
+          !store.state.inbox.length &&
+          options.node.channelManager
+            .list_channels()
+            .every((channel) => channel.get_is_channel_ready()) &&
+          !client.getSnapshot().busy,
+        persistManager: options.persistManager,
+        rebind: client.rebindSplicedChannel,
+        allocateAll: client.allocateAll,
+      })
+      await splice.load()
+      if (!options.alive()) {
+        splice.stop()
+        client.stop()
+        return null
+      }
+      options.setSpliceCallback(splice.handle)
+    }
     if (store.state.enabled) options.node.trustedLspIds.add(provider.nodeId)
     options.setPaymentCallback((event) => {
       if (!client.handles(event)) return
@@ -144,6 +181,9 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
       try {
         await client.processInbox().catch(() => {})
         await client.refresh()
+        await splice?.tick()
+        if (store.state.firstReceive?.received && !store.state.firstReceive.attempted)
+          await client.autoConvertFirstReceive()
         if (Date.now() - lastTick >= 60_000) {
           lastTick = Date.now()
           await client.tick()
@@ -165,6 +205,7 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
     const current: StableRuntime = {
       client,
       provider,
+      splice,
       enable: async () => {
         await client.enable()
         if (!options.alive()) throw new Error('Wallet stopped')
@@ -185,6 +226,8 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
         clearInterval(timer)
         unsubscribe()
         client.stop()
+        splice?.stop()
+        options.setSpliceCallback?.(undefined)
         document.removeEventListener('visibilitychange', onVisibility)
         if (runtime === current) {
           options.setPaymentCallback(undefined)
@@ -202,11 +245,18 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
       enable: current.enable,
       refresh: client.refresh,
       quoteTrade: client.quote,
+      quoteMaximumTrade: client.quoteMaximum,
       commitTrade: client.commit,
       pause: client.pause,
       clearClosedPosition: client.clearClosedPosition,
       quoteFunding: current.quoteFunding,
       confirmFunding: current.confirmFunding,
+      autoConvertFirstReceive: client.autoConvertFirstReceive,
+      getSpliceStatus: () => splice?.state ?? null,
+      quoteSplice: splice?.quote,
+      quoteMaximumSplice: splice?.quoteMaximum,
+      commitSplice: splice?.commit,
+      cancelUnsignedSplice: splice?.cancelUnsigned,
     }
     return current
   } catch (error) {
@@ -220,7 +270,7 @@ export async function startStableRuntime(options: RuntimeOptions): Promise<Stabl
         ) {
           return Promise.reject(
             new Error(
-              'Stable balance recovery failed; restart the wallet before acknowledging payment outcomes'
+              'Stable balance recovery failed; waiting for the backup before acknowledging payment outcomes'
             )
           )
         }

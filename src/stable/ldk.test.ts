@@ -1,12 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  initializeWasmFromBinary,
   Option_u64Z,
   Option_u64Z_Some,
   type RecipientOnionFields,
   type RouteParameters,
 } from 'lightningdevkit'
 import { getPublicKey } from '@noble/secp256k1'
+import { initializeTestLdk } from '../test/initialize-ldk-wasm'
 import type { LdkNode } from '../ldk/init'
 import { persistPayment, updatePaymentStatus } from '../ldk/storage/payment-history'
 import { providerChannel, sendStableKeysend } from './ldk'
@@ -46,15 +46,7 @@ describe('Stable Channels direct keysend (real WASM)', () => {
     sent: false,
     correlation: null,
   }
-  beforeAll(async () => {
-    const fsModule = 'node:fs'
-    const fs = (await import(/* @vite-ignore */ fsModule)) as {
-      readFileSync(path: string): Uint8Array
-    }
-    await initializeWasmFromBinary(
-      new Uint8Array(fs.readFileSync('node_modules/lightningdevkit/liblightningjs.wasm'))
-    )
-  })
+  beforeAll(initializeTestLdk)
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(persistPayment).mockResolvedValue(undefined)
@@ -110,5 +102,19 @@ describe('Stable Channels direct keysend (real WASM)', () => {
       0n,
       expect.any(String)
     )
+  })
+  it('sends a full-balance allocation without retaining a percentage or sat buffer', async () => {
+    await sendStableKeysend(
+      node,
+      provider,
+      {
+        ...intent,
+        amountMsat: '2010000',
+        backingSats: '198990',
+        targetUsd: 198.99,
+      },
+      () => true
+    )
+    expect(sendPayment).toHaveBeenCalledTimes(1)
   })
 })

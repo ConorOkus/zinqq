@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useStableBalance } from '../stable/use-stable-balance'
 import { formatUsd } from '../stable/math'
-import { formatBtc } from '../utils/format-btc'
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
@@ -18,7 +17,7 @@ export function Home() {
   const navigate = useNavigate()
   const onchain = useOnchain()
   const ldk = useLdk()
-  const { total, pending, isLoading } = useUnifiedBalance()
+  const { pending, isLoading } = useUnifiedBalance()
   const { canInstall, isIos, isStandalone, promptInstall } = usePwaInstall()
   const vssClient = ldk.status === 'ready' ? ldk.vssClient : null
   const { recovery, dismiss: dismissRecovery } = useRecovery(vssClient)
@@ -26,8 +25,17 @@ export function Home() {
   const [showIosHint, setShowIosHint] = useState(false)
   const stable = useStableBalance()
   const position = stable.state?.position
-  const backing = BigInt(position?.backingSats ?? '0')
-  const freshPrice = stable.priceFresh
+  const livePosition =
+    position && stable.channel?.channelId === position.channelId ? position : null
+  const dollarCents = stable.state ? BigInt(Math.round((livePosition?.targetUsd ?? 0) * 100)) : null
+  const bitcoinEquivalent =
+    dollarCents === null
+      ? null
+      : dollarCents === 0n
+        ? 0n
+        : stable.priceFresh && stable.price && stable.price.priceCents > 0n
+          ? (dollarCents * 100_000_000n) / stable.price.priceCents
+          : null
 
   const showInstallButton = !isStandalone && (canInstall || isIos)
 
@@ -83,21 +91,24 @@ export function Home() {
         </div>
       )}
       <BalanceDisplay
-        balance={total}
+        dollars={dollarCents !== null ? formatUsd(dollarCents) : null}
+        bitcoinEquivalent={bitcoinEquivalent}
+        recoveryFailed={!stable.state && !!stable.error}
         pending={pending}
         loading={isLoading}
-        stable={
-          position && position.targetUsd > 0 && stable.channel?.channelId === position.channelId
-            ? {
-                target: formatUsd(BigInt(Math.round(position.targetUsd * 100))),
-                backingValue:
-                  freshPrice && stable.price
-                    ? formatUsd((backing * stable.price.priceCents) / 100_000_000n)
-                    : 'Price unavailable',
-                native: formatBtc(total > backing ? total - backing : 0n),
-                status: stable.status,
-              }
-            : undefined
+        status={
+          stable.state
+            ? stable.status
+            : stable.error
+              ? 'Dollar balance unavailable'
+              : 'Loading dollar balance'
+        }
+        setup={
+          !!stable.state &&
+          !livePosition?.targetUsd &&
+          !stable.state.pending &&
+          (!stable.state.firstReceive || stable.state.firstReceive.attempted) &&
+          stable.state.inbox.length === 0
         }
       />
 

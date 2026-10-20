@@ -99,7 +99,7 @@ export async function sendStableKeysend(
     !latest ||
     (intent.kind === 'settlement'
       ? backing + amount / 1000n > latest.receiverSats
-      : backing > ((latest.spendableSats - (amount + 999n) / 1000n) * 99n) / 100n - 50n)
+      : backing > latest.receiverSats - (amount + 999n) / 1000n)
   if (!canSend() || !latest?.usable || latest.channelId !== intent.channelId || capacityChanged) {
     await updatePaymentStatus(intent.paymentId, 'failed', 0n, 'Channel changed before sending')
     throw new StableSendRejected('Wallet or channel changed before sending; review a fresh quote')

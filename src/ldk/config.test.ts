@@ -118,14 +118,66 @@ describe('LDK_CONFIG.lspLabel', () => {
     expect((await loadConfigWithLabel('  candidate-lsp  ')).lspLabel).toBe('candidate-lsp')
   })
 
-  it('falls back to megalith when unset', async () => {
-    expect((await loadConfigWithLabel(undefined)).lspLabel).toBe('megalith')
+  it('falls back to stablechannels when unset', async () => {
+    expect((await loadConfigWithLabel(undefined)).lspLabel).toBe('stablechannels')
   })
 
-  it('falls back to megalith when whitespace-only', async () => {
+  it('falls back to stablechannels when whitespace-only', async () => {
     // Pins the `?.trim() || DEFAULT` ordering. Every sibling field uses
     // `(env ?? DEFAULT).trim()`, which would leave '' here instead — an
     // empty telemetry label that attributes logs to nothing at all.
-    expect((await loadConfigWithLabel('   ')).lspLabel).toBe('megalith')
+    expect((await loadConfigWithLabel('   ')).lspLabel).toBe('stablechannels')
+  })
+})
+
+describe('LDK_CONFIG receive LSP', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+    vi.resetModules()
+  })
+
+  async function loadConfig() {
+    vi.resetModules()
+    return (await import('./config')).LDK_CONFIG
+  }
+
+  it('uses the public Stable Channels node when no LSP override is set', async () => {
+    for (const name of ['NODE_ID', 'HOST', 'PORT', 'TOKEN', 'LABEL']) {
+      vi.stubEnv(`VITE_LSP_${name}`, undefined)
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const config = await loadConfig()
+    expect(config).toMatchObject({
+      lspNodeId: '0388948c5c7775a5eda3ee4a96434a270f20f5beeed7e9c99f242f21b87d658850',
+      lspHost: 'stablechannels.com',
+      lspPort: 9735,
+      lspLabel: 'stablechannels',
+    })
+    expect(config.lspToken).toBeUndefined()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('keeps explicit provider overrides', async () => {
+    vi.stubEnv('VITE_LSP_NODE_ID', '02' + '1'.repeat(64))
+    vi.stubEnv('VITE_LSP_HOST', 'other.example')
+    vi.stubEnv('VITE_LSP_PORT', '19735')
+    vi.stubEnv('VITE_LSP_TOKEN', 'other-token')
+    vi.stubEnv('VITE_LSP_LABEL', 'other')
+    expect(await loadConfig()).toMatchObject({
+      lspNodeId: '02' + '1'.repeat(64),
+      lspHost: 'other.example',
+      lspPort: 19735,
+      lspToken: 'other-token',
+      lspLabel: 'other',
+    })
+  })
+
+  it('still allows LSPS2 to be explicitly disabled', async () => {
+    vi.stubEnv('VITE_LSP_NODE_ID', '')
+    const config = await loadConfig()
+    expect(config.lspNodeId).toBe('')
+    const { resolveLspContacts } = await import('./lsp/contacts')
+    expect(await resolveLspContacts()).toEqual({ primary: null, fallback: null })
   })
 })

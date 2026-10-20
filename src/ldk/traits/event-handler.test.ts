@@ -52,9 +52,13 @@ vi.mock('lightningdevkit', () => {
     counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
   }
   class Event_ChannelReady extends MockEvent {
+    user_channel_id = 7n
     channel_id = { write: () => new Uint8Array([7, 8]) }
     counterparty_node_id = new Uint8Array([0xaa, 0xbb, 0xcc])
   }
+  class Event_FundingTransactionReadyForSigning extends MockEvent {}
+  class Event_SplicePending extends MockEvent {}
+  class Event_SpliceFailed extends MockEvent {}
   class ClosureReason_CounterpartyForceClosed {}
   class ClosureReason_HolderForceClosed {}
   class ClosureReason_LegacyCooperativeClosure {}
@@ -197,6 +201,9 @@ vi.mock('lightningdevkit', () => {
     Event_SpendableOutputs,
     Event_ChannelPending,
     Event_ChannelReady,
+    Event_FundingTransactionReadyForSigning,
+    Event_SplicePending,
+    Event_SpliceFailed,
     Event_ChannelClosed,
     Event_FundingGenerationReady,
     Event_FundingTxBroadcastSafe,
@@ -360,6 +367,7 @@ const {
   Event_SpendableOutputs,
   Event_ChannelPending,
   Event_ChannelReady,
+  Event_FundingTransactionReadyForSigning,
   Event_ChannelClosed,
   Event_ConnectionNeeded,
   Event_FundingGenerationReady,
@@ -927,6 +935,44 @@ describe('createEventHandler — Event_OpenChannelRequest trust set', () => {
 // This test crosses the real EventHandler adapter boundary: the financial write
 // must finish before LDK is told it can discard its persisted event.
 describe('stable-channel payment acknowledgement', () => {
+  it('keeps a funding-signature event replayable until splice persistence completes', async () => {
+    let finish!: () => void
+    const observed = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+    )
+    const { handler } = createEventHandler(
+      createMockChannelManager(),
+      createMockKeysManager(),
+      mockBdkWallet as never,
+      () => false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      observed
+    )
+    const invoke = (
+      handler as unknown as { _impl: { handle_event: (event: unknown) => { is_ok(): boolean } } }
+    )._impl.handle_event
+    const event: unknown = Object.assign(new Event_FundingTransactionReadyForSigning(), {
+      channel_id: { write: () => new Uint8Array(32).fill(1) },
+      user_channel_id: 7n,
+      counterparty_node_id: new Uint8Array(33).fill(2),
+      unsigned_transaction: new Uint8Array([1, 2, 3]),
+    })
+    expect(invoke(event).is_ok()).toBe(false)
+    expect(invoke(event).is_ok()).toBe(false)
+    expect(observed).toHaveBeenCalledTimes(1)
+    finish()
+    await Promise.resolve()
+    expect(invoke(event).is_ok()).toBe(true)
+  })
   it('returns ReplayEvent while the stable payment write is pending', async () => {
     let finish!: () => void
     const observed = vi.fn(

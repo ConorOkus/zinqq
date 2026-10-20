@@ -9,6 +9,7 @@ import type { StableTradeQuote } from '../stable/types'
 import type { JitQuote } from '../ldk/context'
 import type { JitInvoiceResult } from '../ldk/lsps2/types'
 import { formatBtc } from '../utils/format-btc'
+import { SpliceFunding } from '../components/SpliceFunding'
 
 const BUTTON =
   'min-h-12 w-full rounded-xl bg-accent px-4 py-3 font-semibold text-dark disabled:opacity-40'
@@ -96,7 +97,7 @@ export function StableBalance() {
         {!runtime ? (
           <p className="text-sm">
             Waiting for the wallet and its encrypted backup.{' '}
-            {snapshot.error ? 'Refresh the wallet after resolving the error.' : ''}
+            {snapshot.error ? 'Recovery will retry automatically.' : ''}
           </p>
         ) : (
           <>
@@ -236,12 +237,16 @@ export function StableBalance() {
                   </section>
                 )}
 
+                {snapshot.channel && runtime.splice && (
+                  <SpliceFunding controller={runtime.splice} />
+                )}
                 {snapshot.channel && (
                   <section className="space-y-3" aria-label="Allocate USD">
                     <h2 className="font-semibold">Set your USD target</h2>
                     <p className="text-sm text-[var(--color-on-dark-muted)]">
-                      Changing your target costs a 1% trade fee. Keep a small native BTC reserve.
-                      Enter 0 to return the position to BTC after its last settlement.
+                      Changing your target costs a 1% trade fee. You can allocate your full balance
+                      after the fee. Enter 0 to return the position to BTC after its last
+                      settlement.
                     </p>
                     <label className="block text-sm">
                       USD target
@@ -256,6 +261,24 @@ export function StableBalance() {
                         }}
                       />
                     </label>
+                    <button
+                      className="min-h-11 text-sm font-semibold underline disabled:opacity-40"
+                      disabled={busy || !!snapshot.state.pending || !snapshot.channel.usable}
+                      onClick={() =>
+                        void perform(async () => {
+                          setTradeQuote(null)
+                          await runtime.client.refresh()
+                          const suggested = runtime.client.quoteMaximum()
+                          setTarget(formatUsd(suggested.targetCents).slice(1))
+                        })
+                      }
+                    >
+                      Use current value
+                    </button>
+                    <p className="text-xs text-[var(--color-on-dark-muted)]">
+                      Fills the maximum USD target your channel balance supports at the latest
+                      bitcoin price, after the 1% conversion fee.
+                    </p>
                     <button
                       className={BUTTON}
                       disabled={busy || !!snapshot.state.pending || !snapshot.channel.usable}

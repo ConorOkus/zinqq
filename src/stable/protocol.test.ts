@@ -1,20 +1,13 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { UtilMethods, initializeWasmFromBinary } from 'lightningdevkit'
+import { UtilMethods } from 'lightningdevkit'
+import { initializeTestLdk } from '../test/initialize-ldk-wasm'
 import { getPublicKey } from '@noble/secp256k1'
 import { decodeProviderMessage, envelope, requestHash } from './protocol'
 
 describe('Stable Channels signed wire messages (real WASM)', () => {
   const secret = new Uint8Array(32).fill(7)
   const provider = getPublicKey(secret)
-  beforeAll(async () => {
-    const fsModule = 'node:fs'
-    const fs = (await import(/* @vite-ignore */ fsModule)) as {
-      readFileSync(path: string): Uint8Array
-    }
-    await initializeWasmFromBinary(
-      new Uint8Array(fs.readFileSync('node_modules/lightningdevkit/liblightningjs.wasm'))
-    )
-  })
+  beforeAll(initializeTestLdk)
   const verify = (bytes: Uint8Array, signature: string) =>
     UtilMethods.constructor_verify(bytes, signature, provider)
   const signed = (value: unknown) =>

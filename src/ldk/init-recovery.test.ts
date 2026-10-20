@@ -156,7 +156,8 @@ const {
     // LDK 0.2: get_funding_txo returns an OutPoint directly (no get_a tuple);
     // channel_id + persistence_key are used by watch_channel and registerLoadedMonitor.
     get_funding_txo: () => ({ get_txid: () => new Uint8Array(32), get_index: () => 0 }),
-    channel_id: () => ({}),
+    channel_id: () => ({ write: () => new Uint8Array(32) }),
+    get_latest_update_id: () => 1n,
     persistence_key: () => ({ to_str: () => 'mock-monitor-name' }),
   },
 }))
@@ -241,9 +242,14 @@ vi.mock('lightningdevkit', () => ({
   MessageRouter: { new_impl: vi.fn(() => ({})) },
   OnionMessenger: { constructor_new: vi.fn(() => ({ as_OnionMessageHandler: () => ({}) })) },
   UtilMethods: {
-    constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read: vi.fn(() => {
+    constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read: vi.fn((data: Uint8Array) => {
       const r = new MockMonitorResult()
-      Object.assign(r, { is_ok: () => true, res: { get_b: () => mockChannelMonitor } })
+      const monitor = {
+        ...mockChannelMonitor,
+        channel_id: () => ({ write: () => new Uint8Array(32).fill(data[0] ?? 0) }),
+        get_latest_update_id: () => BigInt(data[1] ?? 0),
+      }
+      Object.assign(r, { is_ok: () => true, res: { get_b: () => monitor } })
       return r
     }),
     constructor_C2Tuple_ThirtyTwoBytesChannelManagerZ_read: vi.fn(() => {
@@ -510,6 +516,32 @@ describe('VSS migration (backfill)', () => {
 
     initModule = await import('./init')
   })
+
+  it.each([true, false])(
+    'restores only the newest spliced snapshot before reading the manager (new first: %s)',
+    async (newFirst) => {
+      const old = [monitorKey1, Uint8Array.of(1, 21)] as const
+      const current = [monitorKey2, Uint8Array.of(1, 32)] as const
+      vi.mocked(idbGetAll).mockResolvedValue(new Map(newFirst ? [current, old] : [old, current]))
+      vi.mocked(idbGet).mockImplementation((store: string) =>
+        Promise.resolve(store === 'ldk_channel_manager' ? cmData : undefined)
+      )
+      await initModule.initializeLdk({
+        ldkSeed: new Uint8Array(32),
+        bdkDescriptors: { external: 'ext', internal: 'int' },
+        vssClient: makeVssClient(),
+      })
+      const { UtilMethods } = await import('lightningdevkit')
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const args = vi.mocked(UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelManagerZ_read)
+        .mock.lastCall!
+      const monitors = args[11]
+      expect(monitors).toHaveLength(1)
+      expect(monitors[0]!.get_latest_update_id()).toBe(32n)
+      expect(idbDelete).not.toHaveBeenCalled()
+      expect(idbDeleteBatch).not.toHaveBeenCalled()
+    }
+  )
 
   it('uploads existing IDB state to VSS when VSS is empty', async () => {
     // IDB has data

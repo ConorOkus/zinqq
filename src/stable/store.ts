@@ -39,6 +39,24 @@ function validateState(raw: unknown): StableState {
     (state.notice !== null && typeof state.notice !== 'string')
   )
     throw new Error('Invalid stable balance backup')
+  if (state.firstReceive !== undefined) {
+    const first = state.firstReceive
+    if (
+      !first ||
+      !Array.isArray(first.paymentHashes) ||
+      !first.paymentHashes.length ||
+      !first.paymentHashes.every((hash) => typeof hash === 'string' && HEX_ID.test(hash)) ||
+      typeof first.attempted !== 'boolean' ||
+      (first.attempted && !first.received) ||
+      (first.received !== null &&
+        (!first.received ||
+          !first.paymentHashes.includes(first.received.paymentId) ||
+          !HEX_ID.test(first.received.channelId) ||
+          !digits(first.received.amountSats) ||
+          BigInt(first.received.amountSats) <= 0n))
+    )
+      throw new Error('Invalid first receive conversion backup')
+  }
   if (state.position) {
     const p = state.position
     usdUnits(p.targetUsd)

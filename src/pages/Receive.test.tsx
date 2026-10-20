@@ -282,6 +282,29 @@ describe('Receive', () => {
   })
 
   describe('auto-detect: JIT path (insufficient inbound)', () => {
+    it('discloses automatic dollars and its fee in the first receive review', async () => {
+      const user = userEvent.setup()
+      renderReceive(
+        undefined,
+        readyLdkContext({
+          listChannels: vi.fn(() => []),
+          requestJitQuote: vi.fn().mockResolvedValue({
+            ...makeQuote(10_000_000n),
+            autoConvertToDollars: true,
+          }),
+        })
+      )
+      for (const digit of ['1', '0', '0', '0', '0']) {
+        await user.click(screen.getByRole('button', { name: digit }))
+      }
+      await user.click(screen.getByRole('button', { name: /request/i }))
+      const review = await screen.findByRole('region', { name: /review receive/i })
+      expect(review).toHaveTextContent(
+        /Your full Lightning balance will automatically become a dollar balance/
+      )
+      expect(review).toHaveTextContent(/1% conversion fee/)
+      expect(review).toHaveTextContent(/after the provider accepts it/)
+    })
     it('fetches a quote when amount exceeds inbound capacity', async () => {
       const user = userEvent.setup()
       const requestJitQuote = vi.fn().mockResolvedValue(makeQuote(50_000_000n))

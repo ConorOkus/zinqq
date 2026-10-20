@@ -57,6 +57,38 @@ describe('stable position durable store', () => {
       JSON.parse(new TextDecoder().decode(remote.putObject.mock.calls[0]![1] as Uint8Array))
     ).toMatchObject({ enabled: true, revision: 1 })
   })
+  it('restores the first claimed receipt and its one-time attempt marker', async () => {
+    const store = new StableStore(provider, null)
+    await store.load()
+    await store.save({
+      ...store.state,
+      enabled: true,
+      revision: 1,
+      firstReceive: {
+        paymentHashes: ['a'.repeat(64)],
+        received: { paymentId: 'a'.repeat(64), channelId: 'b'.repeat(64), amountSats: '50000' },
+        attempted: true,
+      },
+    })
+    const restarted = new StableStore(provider, null)
+    await restarted.load()
+    expect(restarted.state.firstReceive).toEqual(store.state.firstReceive)
+  })
+  it('rejects a conversion receipt not belonging to a tracked invoice', async () => {
+    const store = new StableStore(provider, null)
+    await store.load()
+    await expect(
+      store.save({
+        ...store.state,
+        revision: 1,
+        firstReceive: {
+          paymentHashes: ['a'.repeat(64)],
+          received: { paymentId: 'c'.repeat(64), channelId: 'b'.repeat(64), amountSats: '50000' },
+          attempted: false,
+        },
+      })
+    ).rejects.toThrow(/first receive/)
+  })
   it('restores encrypted remote state and its CAS version before writing', async () => {
     const local = new StableStore(provider, null)
     const state = { ...local.state, enabled: true, revision: 5 }

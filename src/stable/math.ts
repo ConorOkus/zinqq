@@ -33,7 +33,8 @@ export function quoteAllocation(
   }
   const delta = targetCents - currentTarget
   const feeSats = ((delta < 0n ? -delta : delta) * SATS) / ((delta > 0n ? 99n : 100n) * priceCents)
-  if (spendableSats <= feeSats) throw new Error('Insufficient channel balance for the fee')
+  if (spendableSats <= 0n || spendableSats < feeSats)
+    throw new Error('Insufficient channel balance for the fee')
   if (
     targetCents === 0n &&
     settlementDecision(currentTarget, currentBacking, priceCents, unitsPerDollar).action !==
@@ -41,18 +42,27 @@ export function quoteAllocation(
   ) {
     throw new Error('Settle the current position before closing it')
   }
-  const backingSats =
+  let backingSats =
     targetCents === 0n
       ? 0n
       : currentBacking + (targetCents * SATS) / priceCents - (currentTarget * SATS) / priceCents
-  const limit = ((spendableSats - feeSats) * 99n) / 100n - 50n
+  const postFeeBalance = receiverSats - feeSats
+  // Match the provider's normalize_backing_sats for a fresh allocation:
+  // any unallocated value below one cent belongs to the stable backing.
+  if (
+    currentTarget === 0n &&
+    currentBacking === 0n &&
+    targetCents > 0n &&
+    backingSats <= postFeeBalance &&
+    (postFeeBalance - backingSats) * priceCents * 100n < unitsPerDollar * SATS
+  )
+    backingSats = postFeeBalance
   if (
     backingSats < 0n ||
     (targetCents > 0n && backingSats === 0n) ||
-    backingSats > limit ||
     backingSats > receiverSats - feeSats
   ) {
-    throw new Error('Reduce the target to leave room for the fee and channel reserve')
+    throw new Error('Reduce the target to leave room for the conversion fee')
   }
   return { targetCents, backingSats, feeSats }
 }

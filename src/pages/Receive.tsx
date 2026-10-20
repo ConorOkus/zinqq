@@ -759,6 +759,13 @@ export function Receive() {
                       </p>
                     </>
                   )}
+                  {receiveState.quote.autoConvertToDollars && (
+                    <p className="text-sm text-[var(--color-on-dark-muted)]">
+                      Your full Lightning balance will automatically become a dollar balance after a
+                      1% conversion fee. The dollar amount is set at conversion and appears after
+                      the provider accepts it.
+                    </p>
+                  )}
                 </div>
               </>
             ) : (
