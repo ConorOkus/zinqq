@@ -102,6 +102,62 @@ describe('createPersister', () => {
   })
 
   describe('without VssClient (IDB-only)', () => {
+    it('keeps one storage key when a splice changes the funding outpoint', async () => {
+      const { persist, mockChainMonitor } = createTestPersister()
+      const original = makeOutpoint('original', 0)
+      const replacement = makeOutpoint('replacement', 1)
+      const before = makeMonitor(new Uint8Array([21]), 21n, original)
+      const after = makeMonitor(new Uint8Array([32]), 32n, replacement)
+      persist.persist_new_channel(original as never, before as never)
+      await vi.advanceTimersByTimeAsync(0)
+      persist.update_persisted_channel(original as never, null, after as never)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.mocked(idbPut).mock.calls.map(([, key]) => key)).toEqual([
+        original.to_str(),
+        original.to_str(),
+      ])
+      expect(mockChainMonitor.channel_monitor_updated).toHaveBeenLastCalledWith(
+        { __fromBytes: new Uint8Array([0xc1, 0xd0]) },
+        32n
+      )
+    })
+    it('preserves the loaded storage key after restarting a spliced channel', async () => {
+      const { persist, registerLoadedMonitor } = createTestPersister()
+      const original = makeOutpoint('original', 0)
+      const current = makeMonitor(new Uint8Array([32]), 32n, makeOutpoint('replacement', 1))
+      current.persistence_key = () => ({ to_str: () => original.to_str() })
+      registerLoadedMonitor(current as never, original.to_str())
+      persist.update_persisted_channel(original as never, null, current as never)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(idbPut).toHaveBeenCalledWith(
+        'ldk_channel_monitors',
+        original.to_str(),
+        Uint8Array.of(32)
+      )
+    })
+    it('preserves recovered aliases until LDK explicitly archives the channel', async () => {
+      const original = makeOutpoint('original', 0)
+      const replacement = makeOutpoint('replacement', 1)
+      const keys = [original.to_str(), replacement.to_str()]
+      const { persist, registerLoadedMonitor } = createTestPersister({ initialMonitorKeys: keys })
+      const current = makeMonitor(new Uint8Array([32]), 32n, replacement)
+      current.persistence_key = () => ({ to_str: () => original.to_str() })
+      registerLoadedMonitor(current as never, replacement.to_str(), keys)
+      persist.persist_new_channel(original as never, current as never)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(idbPut).toHaveBeenCalledWith(
+        'ldk_channel_monitors',
+        replacement.to_str(),
+        Uint8Array.of(32)
+      )
+      expect(idbDelete).not.toHaveBeenCalled()
+      persist.archive_persisted_channel(original as never)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.mocked(idbDelete).mock.calls).toEqual(
+        expect.arrayContaining(keys.map((key) => ['ldk_channel_monitors', key]))
+      )
+      expect(idbDelete).toHaveBeenCalledTimes(2)
+    })
     it('persists to IDB and calls channel_monitor_updated', async () => {
       const { persist, mockChainMonitor } = createTestPersister()
       const outpoint = makeOutpoint('abcd', 0)

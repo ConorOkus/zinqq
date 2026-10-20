@@ -3,7 +3,7 @@ import { vssWriteWithConflictRetry, VssConflictDuringTakeoverError } from './vss
 import { VssError, type VssClient } from './vss-client'
 import { ErrorCode } from './proto/vss_pb'
 
-/* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/unbound-method */
 
 function makeVssClient(overrides: Partial<VssClient> = {}): VssClient {
   return {

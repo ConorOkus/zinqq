@@ -28,7 +28,6 @@ import {
   type FeeEstimator,
   type BroadcasterInterface,
   type Persist,
-  type ChannelMonitor,
   type EventHandler,
   type SignerProvider,
 } from 'lightningdevkit'
@@ -79,12 +78,22 @@ import { EsploraClient } from './sync/esplora-client'
 import type { VssClient } from './storage/vss-client'
 import { initCloseRecords } from './close-records/store'
 import { captureError } from '../storage/error-log'
+import type { StablePaymentEvent } from '../stable/types'
+import { loadSpliceReservations, type SpliceEvent } from '../stable/splice'
+import { selectLatestMonitorSnapshots, type MonitorSnapshot } from './storage/monitor-snapshots'
 
 import {
   createChannelManagerPersistScheduler,
   type CmPersistContext,
   type ChannelManagerPersistScheduler,
 } from './storage/persist-cm'
+
+// Reinitializing the bindings replaces WASM memory while old sockets, timers,
+// and finalizers still hold pointers into it. Runtime changes need a new page;
+// accepting here also stops dependency updates from reaching React Fast Refresh.
+if (import.meta.hot) {
+  import.meta.hot.accept(() => window.location.reload())
+}
 
 export interface LdkNode {
   nodeId: string
@@ -124,6 +133,10 @@ export interface InitResult {
   bdkWallet: import('@bitcoindevkit/bdk-wallet-web').Wallet
   bdkEsploraClient: import('@bitcoindevkit/bdk-wallet-web').EsploraClient
   setPaymentCallback: (cb: PaymentEventCallback | undefined) => void
+  setStablePaymentCallback: (
+    cb: ((event: StablePaymentEvent) => void | Promise<void>) | undefined
+  ) => void
+  setSpliceEventCallback: (cb: ((event: SpliceEvent) => void | Promise<void>) | undefined) => void
   setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => void
   setSyncNeededCallback: (cb: SyncNeededCallback | undefined) => void
   setConnectionNeededCallback: (cb: ConnectionNeededCallback | undefined) => void
@@ -474,10 +487,6 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   // Wire known-peers VSS sync, seeded from recovery version if available
   setKnownPeersVssClient(vssClient ?? null, recoveredVersions.get(KNOWN_PEERS_VSS_KEY) ?? 0)
 
-  // Backfill manifest to VSS for wallets that predate the manifest feature.
-  // Fire-and-forget: the persister's writeManifest will keep it in sync going forward.
-  backfillManifest()
-
   // 4. Create Filter + ChainMonitor
   const { filter, watchState } = createFilter()
   const chainMonitor = ChainMonitor.constructor_new(
@@ -586,7 +595,16 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // 8. Restore ChannelMonitors from IndexedDB
   const monitorEntries = await idbGetAll<Uint8Array>('ldk_channel_monitors')
-  const restoredMonitors = deserializeMonitors(monitorEntries, keysManager, bdkSignerProvider)
+  const monitorSnapshots = selectLatestMonitorSnapshots(
+    deserializeMonitors(monitorEntries, keysManager, bdkSignerProvider)
+  )
+  const restoredMonitors = monitorSnapshots.map(({ monitor }) => monitor)
+  for (const { monitor, aliases } of monitorSnapshots) {
+    console.log(
+      `[LDK Init] Selected channel monitor ${short(bytesToHex(monitor.channel_id().write()))} ` +
+        `at update_id ${monitor.get_latest_update_id()} from ${aliases.length} stored snapshot(s)`
+    )
+  }
 
   // 9. Restore or create ChannelManager
   const cmBytes = await idbGet<Uint8Array>('ldk_channel_manager', 'primary')
@@ -639,13 +657,15 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     }
     // Register restored monitors with ChainMonitor
     const watch = chainMonitor.as_Watch()
-    for (const monitor of restoredMonitors) {
+    for (const { monitor, key, aliases } of monitorSnapshots) {
       // Register the monitor's storage key so archive_persisted_channel (which
       // only receives a MonitorName in LDK 0.2) can locate the IDB/VSS key.
-      registerLoadedMonitor(monitor)
+      registerLoadedMonitor(monitor, key, aliases)
       // LDK 0.2: Watch.watch_channel keys on ChannelId, not the funding OutPoint.
       watch.watch_channel(monitor.channel_id(), monitor)
     }
+    // Only update backup metadata after the monitor set and manager have been validated.
+    backfillManifest()
   } else {
     // Orphaned monitors without a ChannelManager means channels exist but state is lost.
     // This is a fund-safety issue — halt initialization rather than silently discard.
@@ -751,6 +771,7 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
   }
 
   // 14. Create BumpTransactionEventHandler for anchor channel CPFP
+  await loadSpliceReservations()
   const bdkWalletSource = createBdkWalletSource(bdkWallet)
   const ldkWallet = LdkWallet.constructor_new(bdkWalletSource, logger)
   const coinSelectionSource = ldkWallet.as_CoinSelectionSourceSync()
@@ -763,6 +784,8 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
 
   // 15. Create EventHandler
   let paymentCallback: PaymentEventCallback | undefined
+  let stablePaymentCallback: ((event: StablePaymentEvent) => void | Promise<void>) | undefined
+  let spliceEventCallback: ((event: SpliceEvent) => void | Promise<void>) | undefined
   let channelClosedCallback: ChannelClosedCallback | undefined
   let syncNeededCallback: SyncNeededCallback | undefined
   let connectionNeededCallback: ConnectionNeededCallback | undefined
@@ -794,7 +817,13 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     () => syncNeededCallback?.(),
     (...args) => connectionNeededCallback?.(...args),
     bumpTxHandler,
-    (...args) => recoveryNeededCallback?.(...args)
+    (...args) => recoveryNeededCallback?.(...args),
+    (event) => stablePaymentCallback?.(event),
+    (event) => {
+      if (spliceEventCallback) return spliceEventCallback(event)
+      if (event.kind !== 'ready')
+        return Promise.reject(new Error('Waiting for channel funding recovery'))
+    }
   )
 
   // ChannelManager VSS version ref — seeded from recovery or migration, updated by persistChannelManager
@@ -898,6 +927,12 @@ async function doInitializeLdk(options: InitOptions): Promise<InitResult> {
     setPaymentCallback: (cb: PaymentEventCallback | undefined) => {
       paymentCallback = cb
     },
+    setStablePaymentCallback: (cb) => {
+      stablePaymentCallback = cb
+    },
+    setSpliceEventCallback: (cb) => {
+      spliceEventCallback = cb
+    },
     setChannelClosedCallback: (cb: ChannelClosedCallback | undefined) => {
       channelClosedCallback = cb
     },
@@ -919,8 +954,8 @@ function deserializeMonitors(
   entries: Map<string, Uint8Array>,
   keysManager: KeysManager,
   signerProvider: SignerProvider
-): ChannelMonitor[] {
-  const monitors: ChannelMonitor[] = []
+): MonitorSnapshot[] {
+  const monitors: MonitorSnapshot[] = []
   for (const [key, data] of entries) {
     const result = UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read(
       data,
@@ -928,7 +963,7 @@ function deserializeMonitors(
       signerProvider
     )
     if (result instanceof Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK) {
-      monitors.push(result.res.get_b())
+      monitors.push({ key, data, monitor: result.res.get_b() })
     } else {
       throw new Error(
         `[LDK Init] Failed to deserialize ChannelMonitor "${key}". ` +

@@ -131,9 +131,7 @@ These existing bugs must be fixed before implementing this feature:
   >
   > ```typescript
   > type BroadcastResult =
-  >   | { status: 'broadcast'; txid: string }
-  >   | { status: 'already-known' }
-  >   | { status: 'in-flight' }
+  >   { status: 'broadcast'; txid: string } | { status: 'already-known' } | { status: 'in-flight' }
   > ```
   >
   > The current string return (`txid | 'in-flight' | 'already-broadcast'`) is stringly typed and error-prone. _(Source: TypeScript reviewer)_

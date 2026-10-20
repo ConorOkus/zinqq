@@ -1,5 +1,6 @@
 import {
   EventHandler,
+  ReplayEvent,
   Event_PaymentClaimable,
   Event_PaymentClaimed,
   Event_PaymentSent,
@@ -76,6 +77,10 @@ import { isInitialScanComplete } from '../../onchain/scan-state'
 import { LDK_CONFIG } from '../config'
 import { JIT_ACCEPT_UNDERPAYING_HTLCS, JIT_MAX_INBOUND_INFLIGHT_PCT } from '../jit-channel-config'
 import { captureError } from '../../storage/error-log'
+import { createStableEventGate } from '../../stable/event-gate'
+import { copyStablePaymentEvent } from '../../stable/ldk'
+import { copySpliceEvent, type SpliceEvent } from '../../stable/splice'
+import type { StablePaymentEvent } from '../../stable/types'
 
 export type PaymentEventCallback = (
   event:
@@ -158,14 +163,45 @@ export function createEventHandler(
   onSyncNeeded?: SyncNeededCallback,
   onConnectionNeeded?: ConnectionNeededCallback,
   bumpTxHandler?: BumpTransactionEventHandlerSync,
-  onRecoveryNeeded?: RecoveryNeededCallback
+  onRecoveryNeeded?: RecoveryNeededCallback,
+  onStablePayment?: (event: StablePaymentEvent) => void | Promise<void>,
+  onSpliceEvent?: (event: SpliceEvent) => void | Promise<void>
 ): {
   handler: EventHandler
   cleanup: () => void
 } {
+  const stableEventReady = createStableEventGate((error) =>
+    captureError(
+      'critical',
+      'StableBalance',
+      'Financial event persistence failed; waiting for replay',
+      String(error)
+    )
+  )
   const handler = EventHandler.new_impl({
     handle_event(event: Event): Result_NoneReplayEventZ {
       try {
+        const splice = copySpliceEvent(event)
+        if (
+          splice &&
+          !stableEventReady(splice.key, () => {
+            if (!onSpliceEvent && splice.kind !== 'ready')
+              return Promise.reject(new Error('Waiting for channel funding recovery'))
+            return onSpliceEvent?.(splice)
+          })
+        )
+          return Result_NoneReplayEventZ.constructor_err(ReplayEvent.constructor_new())
+        if (onStablePayment) {
+          const payment = copyStablePaymentEvent(event)
+          if (
+            payment &&
+            !stableEventReady(`${payment.kind}:${payment.paymentId}`, () =>
+              onStablePayment(payment)
+            )
+          ) {
+            return Result_NoneReplayEventZ.constructor_err(ReplayEvent.constructor_new())
+          }
+        }
         handleEvent(
           event,
           channelManager,

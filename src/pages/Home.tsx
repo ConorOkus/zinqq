@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useStableBalance } from '../stable/use-stable-balance'
+import { formatUsd } from '../stable/math'
 import { useNavigate } from 'react-router'
 import { useOnchain } from '../onchain/use-onchain'
 import { useLdk } from '../ldk/use-ldk'
@@ -15,12 +17,25 @@ export function Home() {
   const navigate = useNavigate()
   const onchain = useOnchain()
   const ldk = useLdk()
-  const { total, pending, isLoading } = useUnifiedBalance()
+  const { pending, isLoading } = useUnifiedBalance()
   const { canInstall, isIos, isStandalone, promptInstall } = usePwaInstall()
   const vssClient = ldk.status === 'ready' ? ldk.vssClient : null
   const { recovery, dismiss: dismissRecovery } = useRecovery(vssClient)
   const pendingSweep = usePendingSweep()
   const [showIosHint, setShowIosHint] = useState(false)
+  const stable = useStableBalance()
+  const position = stable.state?.position
+  const livePosition =
+    position && stable.channel?.channelId === position.channelId ? position : null
+  const dollarCents = stable.state ? BigInt(Math.round((livePosition?.targetUsd ?? 0) * 100)) : null
+  const bitcoinEquivalent =
+    dollarCents === null
+      ? null
+      : dollarCents === 0n
+        ? 0n
+        : stable.priceFresh && stable.price && stable.price.priceCents > 0n
+          ? (dollarCents * 100_000_000n) / stable.price.priceCents
+          : null
 
   const showInstallButton = !isStandalone && (canInstall || isIos)
 
@@ -75,7 +90,27 @@ export function Home() {
           </button>
         </div>
       )}
-      <BalanceDisplay balance={total} pending={pending} loading={isLoading} />
+      <BalanceDisplay
+        dollars={dollarCents !== null ? formatUsd(dollarCents) : null}
+        bitcoinEquivalent={bitcoinEquivalent}
+        recoveryFailed={!stable.state && !!stable.error}
+        pending={pending}
+        loading={isLoading}
+        status={
+          stable.state
+            ? stable.status
+            : stable.error
+              ? 'Dollar balance unavailable'
+              : 'Loading dollar balance'
+        }
+        setup={
+          !!stable.state &&
+          !livePosition?.targetUsd &&
+          !stable.state.pending &&
+          (!stable.state.firstReceive || stable.state.firstReceive.attempted) &&
+          stable.state.inbox.length === 0
+        }
+      />
 
       {recovery && (
         <div className="mb-3">

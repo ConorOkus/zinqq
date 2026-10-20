@@ -24,9 +24,7 @@ tags: [code-review, quality, architecture]
 
 ```typescript
 type BroadcastResult =
-  | { status: 'ok'; txid: string }
-  | { status: 'in-flight' }
-  | { status: 'already-broadcast' }
+  { status: 'ok'; txid: string } | { status: 'in-flight' } | { status: 'already-broadcast' }
 ```
 
 - Pros: Type-safe, forces callers to handle each case

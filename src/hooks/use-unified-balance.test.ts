@@ -9,7 +9,7 @@ import {
 import { LdkContext, defaultLdkContextValue, type LdkContextValue } from '../ldk/ldk-context'
 import { useUnifiedBalance } from './use-unified-balance'
 
-/* eslint-disable @typescript-eslint/unbound-method, @typescript-eslint/require-await, react/display-name */
+/* eslint-disable @typescript-eslint/require-await, react/display-name */
 
 function readyOnchain(
   overrides?: Partial<Extract<OnchainContextValue, { status: 'ready' }>>

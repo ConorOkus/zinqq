@@ -2,8 +2,8 @@ import { defineConfig, loadEnv, type PluginOption, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
 import wasm from 'vite-plugin-wasm'
-import topLevelAwait from 'vite-plugin-top-level-await'
 import { VitePWA } from 'vite-plugin-pwa'
+import { GET as getStablePrice } from './api/stable-price'
 
 /**
  * Vite plugin that proxies LNURL requests to bypass CORS issues.
@@ -82,8 +82,24 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       wasm(),
-      topLevelAwait(),
       lnurlCorsProxy(),
+      {
+        name: 'stable-price-dev-api',
+        configureServer(server) {
+          server.middlewares.use('/api/stable-price', (_req, res) => {
+            void getStablePrice()
+              .then(async (response) => {
+                res.statusCode = response.status
+                response.headers.forEach((value, key) => res.setHeader(key, value))
+                res.end(await response.text())
+              })
+              .catch(() => {
+                res.statusCode = 503
+                res.end('{"error":"Prices unavailable"}')
+              })
+          })
+        },
+      },
       VitePWA({
         registerType: 'prompt',
         injectRegister: null,
@@ -128,13 +144,22 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
-    esbuild: {
-      drop: isProd ? ['debugger'] : [],
-      pure: isProd ? ['console.debug'] : [],
+    build: {
+      rolldownOptions: {
+        treeshake: {
+          manualPureFunctions: isProd ? ['console.debug'] : [],
+        },
+        output: {
+          minify: {
+            compress: { dropDebugger: isProd },
+          },
+        },
+      },
     },
     worker: {
+      format: 'es',
       // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      plugins: (): PluginOption[] => [wasm(), topLevelAwait()],
+      plugins: (): PluginOption[] => [wasm()],
     },
     server: {
       headers: {

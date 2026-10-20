@@ -54,11 +54,7 @@ export const CLOSE_RECORD_SCHEMA_VERSION = 1
 
 /** Derived display status — pure function, never stored. */
 export type CloseStatus =
-  | 'closing'
-  | 'waiting_timelock'
-  | 'returning'
-  | 'complete'
-  | 'resolved_unverified'
+  'closing' | 'waiting_timelock' | 'returning' | 'complete' | 'resolved_unverified'
 
 export function deriveCloseStatus(record: CloseRecord, currentHeight: number | null): CloseStatus {
   if (record.completedAt !== undefined) {

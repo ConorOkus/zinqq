@@ -28,5 +28,5 @@ export async function initWasm(wasmPath: string): Promise<WasmExports> {
 
   const { instance } = await WebAssembly.instantiateStreaming(response)
   // instance.exports is intentionally typed as WasmExports (opaque until wasm-pack generates bindings)
-  return instance.exports as WasmExports
+  return instance.exports
 }

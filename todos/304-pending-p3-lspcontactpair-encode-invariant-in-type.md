@@ -31,8 +31,7 @@ dependencies: []
 
 ```ts
 export type LspContactPair =
-  | { primary: LspContact; fallback: LspContact | null }
-  | { primary: null; fallback: LspContact }
+  { primary: LspContact; fallback: LspContact | null } | { primary: null; fallback: LspContact }
 ```
 
 `resolveLspContacts` returns `LspContactPair | null` (null = neither configured); caller handles the null case once at the top, then type-narrows the rest of the flow.

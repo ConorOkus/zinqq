@@ -43,8 +43,7 @@ async function waitForLdkInit(page: Page): Promise<void> {
 async function getNodeId(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const node = (window as unknown as Record<string, unknown>).__ldkNode as
-      | { nodeId?: string }
-      | undefined
+      { nodeId?: string } | undefined
     return node?.nodeId ?? null
   })
 }

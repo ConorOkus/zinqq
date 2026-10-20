@@ -12,6 +12,8 @@ import { type Wallet, SignOptions, Psbt } from '@bitcoindevkit/bdk-wallet-web'
 import { revealNextAddress } from '../../onchain/address-utils'
 import { captureError } from '../../storage/error-log'
 import { hexToBytes, uint8ArrayToBase64 } from '../utils'
+import { isSpliceInputReserved } from '../../stable/splice'
+import { walletSpendInProgress } from '../../onchain/spend-lock'
 
 // P2WPKH witness: ~107 weight units (DER sig + compressed pubkey)
 const P2WPKH_SATISFACTION_WEIGHT = 107n
@@ -26,6 +28,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSourceSync {
   const impl: WalletSourceSyncInterface = {
     list_confirmed_utxos(): Result_CVec_UtxoZNoneZ {
       try {
+        if (walletSpendInProgress()) return Result_CVec_UtxoZNoneZ.constructor_ok([])
         const unspent = bdkWallet.list_unspent()
         const utxos: Utxo[] = []
         let skippedUnconfirmed = 0
@@ -33,6 +36,7 @@ export function createBdkWalletSource(bdkWallet: Wallet): WalletSourceSync {
         let totalValueSats = 0n
 
         for (const output of unspent) {
+          if (isSpliceInputReserved(output.outpoint.toString())) continue
           // Only include confirmed UTXOs — LDK requires confirmed inputs for
           // anchor CPFP. An unconfirmed parent could be dropped from the mempool,
           // invalidating the CPFP child and leaving the force-close stuck.

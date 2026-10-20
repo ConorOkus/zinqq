@@ -43,6 +43,58 @@ fallback.
 
 ## What it does
 
+### Stable Balance
+
+Settings → Stable Balance integrates the [Stable Channels](https://github.com/toneloc/stable-channels)
+client protocol. A first Lightning receive through the default provider automatically
+allocates the full provider-channel balance to dollars after the opening fee and 1%
+allocation fee, with no extra BTC buffer; sub-cent rounding dust stays in the stable
+backing. The receive review discloses the conversion;
+no separate provider selection or USD-target setup is needed. The target appears
+only after the provider signs its acceptance. Settings still supports selecting a
+provider, funding a channel, and reviewing manual changes to the USD target.
+
+To add confirmed on-chain bitcoin to the existing provider channel, tap the
+dollar amount, then **Add funds to this channel**. Review the amount and maximum
+mining fee before confirming. The wallet keeps a 10,000-sat on-chain reserve,
+reserves the contributed inputs during negotiation, and restores pending splices
+from encrypted backup. Once the new funding output locks, it preserves the
+existing dollar position and requests allocation of the added balance to dollars
+(1% trade fee and provider acceptance apply). Keep the wallet open and online
+while funding completes. Splice-out is not exposed.
+
+The client settles excess backing to the provider when bitcoin rises and waits
+for authenticated provider payments when it falls. Home uses the acknowledged
+USD target as its main balance, with that same amount converted to sats at the
+latest BTC price below it. The bitcoin equivalent excludes separate on-chain
+funds and becomes unavailable when prices are stale. Details of backing and
+settlement are available by tapping the dollar amount. **Use current value** fills
+the largest affordable USD target after the conversion fee; it still requires
+review and confirmation. If backup recovery fails, the balances are unavailable
+and recovery retries automatically. Keep the wallet open and online:
+settlement depends on the provider's availability
+and collateral. Closing the channel returns bitcoin at its current value.
+
+The default provider is `stablechannels.com:9735`. Optional
+`VITE_STABLE_PROVIDER_NODE_ID`, `VITE_STABLE_PROVIDER_HOST`, and
+`VITE_STABLE_PROVIDER_PORT` settings select a different compatible provider;
+restored positions retain their original counterparty. One direct provider
+channel is supported. The ordinary receive LSP stays separately configured.
+
+Deploy `api/stable-price.ts` with the frontend (Vercel discovers it automatically).
+It requests six fixed USD exchange markets; the browser independently requires
+three agreeing markets and rejects stale prices. Vite serves the endpoint during
+development. Static hosting must supply this API separately. Pending operations
+and signed receipts are persisted locally and in encrypted VSS; an uncertain
+payment is never automatically retried.
+
+Protocol reference: upstream commit `128b6bcf87f9bcc36b53717f59667043fbf81a11`.
+Tests cover accounting, persistence, replay, real LDK signatures and custom-TLV
+construction, plus desktop/mobile navigation. Funded live-provider acceptance
+and settlement still require verification; local tests send no mainnet payments.
+Programmatic callers can use `window.__stableBalance` for status, provider
+selection, funding quotes/invoices, trade quotes/confirmation, and pausing settlement.
+
 ### Send & Receive
 
 - Unified send accepts BIP 321, BOLT 11, BOLT 12, BIP 353, LNURL-pay, and
@@ -128,10 +180,9 @@ flowchart LR
 
 ### Browser
 
-- **UI:** React 19 + TypeScript 5.9, React Router v7, Tailwind v4, built by
-  Vite 7 with `vite-plugin-wasm`, `vite-plugin-top-level-await`, and
-  `vite-plugin-pwa`.
-- **LDK node:** `lightningdevkit` 0.1.8-0 (~12 MB WASM) with custom JS trait
+- **UI:** React 19 + TypeScript 6.0, React Router v8, Tailwind v4, built by
+  Vite 8 with `vite-plugin-wasm` and `vite-plugin-pwa`.
+- **LDK node:** `lightningdevkit` 0.2.4-0 (~14 MB WASM) with custom JS trait
   implementations for the logger, fee estimator, broadcaster, persister,
   filter, event handler, signer provider, and wallet source
   (`src/ldk/traits/`). Running components include `ChainMonitor`,
@@ -176,6 +227,24 @@ flowchart LR
 The Content-Security-Policy in `index.html` enumerates every external host the
 app is allowed to reach; it's the tightest inventory of network dependencies
 in the codebase.
+
+## Development
+
+Use Node.js 22.22 or newer and pnpm 12.14.0. The app and `proxy/` have separate
+lockfiles; run `pnpm install --frozen-lockfile` in each directory.
+
+The app keeps ESLint 9 and TypeScript 6.0 to satisfy the React lint plugins and
+typescript-eslint peer requirements. LDK remains pinned to 0.2.4-0 and the app
+uses Vitest 4.1: upgrading either causes the real-WASM handshake suite to fail
+with an invalid memory offset when run as a whole. `pnpm test` runs the real-WASM
+async-receive harness in its own process, since sharing a test invocation with
+other native suites also causes invalid memory offsets. All assertions still run.
+The test configuration keeps the top-level-await plugin; production uses native
+top-level await. The proxy uses TypeScript 7 and Vitest 5.
+
+Run `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, and
+`pnpm build` for the app, and `pnpm typecheck` and `pnpm test` in `proxy/`.
+Production builds require `VITE_STATIC_INVOICE_SERVER_PATHS` to be unset or empty.
 
 ## Upcoming
 

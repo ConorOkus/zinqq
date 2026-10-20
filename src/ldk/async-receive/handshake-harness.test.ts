@@ -39,9 +39,9 @@ import {
   ProbabilisticScoringFeeParameters,
   KeysManager,
   UserConfig,
-  initializeWasmFromBinary,
 } from 'lightningdevkit'
 import { bytesToHex } from '../utils'
+import { initializeTestLdk } from '../../test/initialize-ldk-wasm'
 
 /**
  * Real-WASM harness for the async-payments recipient role.
@@ -151,18 +151,7 @@ function buildNode(seedByte: number, userConfig?: UserConfig) {
 }
 
 describe('async-receive handshake (real WASM)', () => {
-  beforeAll(async () => {
-    // Loaded through a non-literal specifier on purpose. tsconfig.app.json
-    // deliberately omits node types so browser code can't reach for node APIs
-    // by accident, and this suite is the one place under src/ that legitimately
-    // needs the filesystem.
-    const nodeFs = 'node:fs'
-    const { readFileSync } = (await import(/* @vite-ignore */ nodeFs)) as {
-      readFileSync: (path: string) => Uint8Array
-    }
-    const bin = readFileSync('node_modules/lightningdevkit/liblightningjs.wasm')
-    await initializeWasmFromBinary(new Uint8Array(bin))
-  })
+  beforeAll(initializeTestLdk)
 
   function serverPath(server: ReturnType<typeof buildNode>) {
     const context = MessageContext.constructor_async_payments(

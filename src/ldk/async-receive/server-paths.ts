@@ -27,8 +27,7 @@ import { bytesToHex } from '../utils'
  * initialize WASM.
  */
 export type ServerPathsResult =
-  | { ok: true; paths: BlindedMessagePath[] }
-  | { ok: false; reason: string }
+  { ok: true; paths: BlindedMessagePath[] } | { ok: false; reason: string }
 
 const HEX_BLOB = /^(?:[0-9a-f]{2})+$/
 

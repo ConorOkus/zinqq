@@ -11,6 +11,16 @@ const THEME_LABELS: Record<ThemeMode, string> = {
 
 const SETTINGS_ITEMS = [
   {
+    label: 'Stable Balance',
+    detail: 'USD target',
+    icon: (
+      <span className="font-display text-2xl" aria-hidden="true">
+        $
+      </span>
+    ),
+    route: '/settings/stable-balance',
+  },
+  {
     label: 'Wallet Backup',
     detail: 'Setup',
     icon: (

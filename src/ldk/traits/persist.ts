@@ -73,7 +73,7 @@ export function createPersister(options: PersisterOptions = {}): {
   persist: Persist
   setChainMonitor: (cm: ChainMonitor) => void
   onPersistFailure: (handler: (err: PersistError) => void) => void
-  registerLoadedMonitor: (monitor: ChannelMonitor) => void
+  registerLoadedMonitor: (monitor: ChannelMonitor, storageKey?: string, aliases?: string[]) => void
   backfillManifest: () => void
   versionCache: Map<string, number>
 } {
@@ -91,6 +91,7 @@ export function createPersister(options: PersisterOptions = {}): {
   // `{txid}:{vout}` storage key. Populated on every persist/update and for
   // monitors restored at startup (registerLoadedMonitor).
   const nameToKey = new Map<string, string>()
+  const nameToAliases = new Map<string, Set<string>>()
 
   // Serialize manifest writes so each one reads the correct version after the previous completes.
   let manifestWriteChain: Promise<void> = Promise.resolve()
@@ -274,8 +275,11 @@ export function createPersister(options: PersisterOptions = {}): {
    * resolve the key. This equality is guaranteed by LDK, not by us.
    */
   function extractMonitor(monitor_name: MonitorName, monitor: ChannelMonitor): ExtractedMonitor {
-    const key = outpointKey(monitor.get_funding_txo())
-    nameToKey.set(monitor_name.to_str(), key)
+    const name = monitor_name.to_str()
+    // MonitorName stays fixed across splices; get_funding_txo() changes when
+    // a splice locks. Preserve the first/loaded storage key for this identity.
+    const key = nameToKey.get(name) ?? outpointKey(monitor.get_funding_txo())
+    nameToKey.set(name, key)
     return {
       key,
       channelIdBytes: monitor.channel_id().get_a(),
@@ -345,7 +349,8 @@ export function createPersister(options: PersisterOptions = {}): {
     },
 
     archive_persisted_channel(monitor_name: MonitorName): void {
-      const key = nameToKey.get(monitor_name.to_str())
+      const name = monitor_name.to_str()
+      const key = nameToKey.get(name)
       if (key === undefined) {
         // Effectively unreachable: every monitor the ChainMonitor can archive first
         // entered its watch set via persist_new_channel (new channels) or
@@ -362,35 +367,46 @@ export function createPersister(options: PersisterOptions = {}): {
         )
         return
       }
-      monitorKeys.delete(key)
-      nameToKey.delete(monitor_name.to_str())
-      channelWriteChains.delete(key) // Clean up resolved promise reference
+      const aliases = nameToAliases.get(name) ?? new Set([key])
+      for (const alias of aliases) {
+        monitorKeys.delete(alias)
+        channelWriteChains.delete(alias)
+      }
+      nameToKey.delete(name)
+      nameToAliases.delete(name)
       writeManifest()
 
       // Delete from VSS first, then IDB.
       // Archive is fire-and-forget (no retry): orphaned VSS keys waste storage
       // but do not affect fund safety since the channel is already closed.
-      const deleteVss = vssClient
-        ? vssClient
-            .deleteObject(key, versionCache.get(key) ?? 0)
-            .then(() => {
-              versionCache.delete(key)
-            })
-            .catch((err: unknown) => {
-              captureError('error', 'LDK Persist', `Failed to delete ${key} from VSS`, String(err))
-            })
-        : Promise.resolve()
+      for (const alias of aliases) {
+        const deleteVss = vssClient
+          ? vssClient
+              .deleteObject(alias, versionCache.get(alias) ?? 0)
+              .then(() => {
+                versionCache.delete(alias)
+              })
+              .catch((err: unknown) => {
+                captureError(
+                  'error',
+                  'LDK Persist',
+                  `Failed to delete ${alias} from VSS`,
+                  String(err)
+                )
+              })
+          : Promise.resolve()
 
-      deleteVss
-        .then(() => idbDelete('ldk_channel_monitors', key))
-        .catch((err: unknown) => {
-          captureError(
-            'error',
-            'LDK Persist',
-            'Failed to delete archived channel monitor',
-            String(err)
-          )
-        })
+        deleteVss
+          .then(() => idbDelete('ldk_channel_monitors', alias))
+          .catch((err: unknown) => {
+            captureError(
+              'error',
+              'LDK Persist',
+              'Failed to delete archived channel monitor',
+              String(err)
+            )
+          })
+      }
     },
   })
 
@@ -405,8 +421,11 @@ export function createPersister(options: PersisterOptions = {}): {
     // Pre-register monitors restored at startup so archive_persisted_channel can
     // resolve their storage key from MonitorName even before any persist/update
     // callback fires this session.
-    registerLoadedMonitor: (monitor: ChannelMonitor) => {
-      nameToKey.set(monitor.persistence_key().to_str(), outpointKey(monitor.get_funding_txo()))
+    registerLoadedMonitor: (monitor: ChannelMonitor, storageKey?: string, aliases?: string[]) => {
+      const name = monitor.persistence_key().to_str()
+      const key = storageKey ?? nameToKey.get(name) ?? outpointKey(monitor.get_funding_txo())
+      nameToKey.set(name, key)
+      nameToAliases.set(name, new Set([key, ...(aliases ?? [])]))
     },
     backfillManifest: () => {
       if (monitorKeys.size > 0 && !versionCache.has(MONITOR_MANIFEST_KEY)) {

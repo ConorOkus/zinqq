@@ -1,5 +1,12 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import {
+  startStableRuntime,
+  assertNoPendingStableOperation,
+  configuredStableProvider,
+  getStableRuntime,
+  type StableRuntime,
+} from '../stable/runtime'
+import {
   Retry,
   Option_u64Z,
   Option_u64Z_Some,
@@ -35,6 +42,7 @@ import { startSyncLoop } from './sync/chain-sync'
 import { connectToPeer as doConnectToPeer, type PeerConnection } from './peers/peer-connection'
 import { reconnectDisconnectedPeers } from './peers/peer-reconnect'
 import { idbPut } from '../storage/idb'
+import { walletSpendInProgress } from '../onchain/spend-lock'
 import {
   persistChannelManagerIdbOnly,
   type ChannelManagerPersistScheduler,
@@ -178,6 +186,8 @@ export interface JitQuote {
    * disclosure; never compare LSP labels for that.
    */
   role?: 'primary' | 'fallback'
+  /** First receive also allocates dollars after the payment is claimed. */
+  autoConvertToDollars?: boolean
 }
 
 type GetJitQuoteFn = (
@@ -773,6 +783,8 @@ export function LdkProvider({
   const createChannel = useCallback(
     (counterpartyPubkey: Uint8Array, channelValueSats: bigint): boolean => {
       if (!nodeRef.current) throw new Error('Node not initialized')
+      assertNoPendingStableOperation()
+      if (walletSpendInProgress()) throw new Error('Wait for the on-chain transaction to finish')
       // Generate a random user channel ID (u128). Use 8 random bytes (64 bits)
       // which is well within LDK's u128 limit while providing sufficient uniqueness.
       const idBytes = new Uint8Array(8)
@@ -954,7 +966,7 @@ export function LdkProvider({
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
       const contacts = await resolveLspContacts()
-      return runJitQuoteFlow({
+      const quote = await runJitQuoteFlow({
         node,
         amountMsat,
         connect: connectAndTrack,
@@ -962,6 +974,16 @@ export function LdkProvider({
         signal,
         skipPrimary: opts?.skipPrimary,
       })
+      if (
+        node.channelManager.list_channels().length === 0 &&
+        quote.contact.nodeId === configuredStableProvider().nodeId
+      ) {
+        const stable = getStableRuntime()
+        if (!stable) throw new Error('Wait for dollar balance recovery before your first receive')
+        quote.autoConvertToDollars =
+          stable.provider.nodeId === quote.contact.nodeId && stable.client.canPrepareFirstReceive()
+      }
+      return quote
     },
     []
   )
@@ -982,13 +1004,25 @@ export function LdkProvider({
     ): Promise<JitInvoiceResult> => {
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
-      return executeJitBuy(node, quote, description, signal)
+      const stable = getStableRuntime()
+      if (
+        quote.autoConvertToDollars &&
+        (!stable ||
+          node.channelManager.list_channels().length !== 0 ||
+          stable.provider.nodeId !== quote.contact.nodeId ||
+          !stable.client.canPrepareFirstReceive())
+      )
+        throw new Error('Dollar balance setup changed. Review a fresh receive request')
+      const invoice = await executeJitBuy(node, quote, description, signal)
+      if (quote.autoConvertToDollars) await stable!.client.prepareFirstReceive(invoice.paymentHash)
+      return invoice
     },
     []
   )
 
   const sendBolt11Payment = useCallback(
     (invoice: Bolt11Invoice, amountMsat?: bigint): Uint8Array => {
+      assertNoPendingStableOperation()
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
 
@@ -1041,6 +1075,7 @@ export function LdkProvider({
 
   const sendBolt12Payment = useCallback(
     async (offer: Offer, amountMsat?: bigint, payerNote?: string): Promise<Uint8Array> => {
+      assertNoPendingStableOperation()
       const node = nodeRef.current
       if (!node) throw new Error('Node not initialized')
 
@@ -1059,6 +1094,7 @@ export function LdkProvider({
       }
 
       // Use 8 random bytes for payment ID (safe u128 range per institutional learning)
+      assertNoPendingStableOperation()
       const paymentId = crypto.getRandomValues(new Uint8Array(32))
 
       // LDK 0.2: pay_for_offer dropped the `quantity` arg and folded max-routing-fee
@@ -1135,6 +1171,8 @@ export function LdkProvider({
     let cleanupEventHandlerFn: (() => void) | null = null
     let offerRetryTimer: ReturnType<typeof setTimeout> | null = null
     let cmPersistScheduler: ChannelManagerPersistScheduler | null = null
+    let stableRuntime: StableRuntime | null = null
+    let stableBackupHealthy = true
 
     const vssDisabled = import.meta.env.VITE_DISABLE_VSS === 'true'
     const vssAuth = vssDisabled ? null : new SignatureHeaderProvider(vssSigningKey)
@@ -1149,9 +1187,11 @@ export function LdkProvider({
       persisterOptions: {
         vssClient,
         onVssUnavailable: () => {
+          stableBackupHealthy = false
           setState((prev) => (prev.status === 'ready' ? { ...prev, vssStatus: 'degraded' } : prev))
         },
         onVssRecovered: () => {
+          stableBackupHealthy = true
           setState((prev) => (prev.status === 'ready' ? { ...prev, vssStatus: 'ok' } : prev))
         },
       },
@@ -1164,6 +1204,8 @@ export function LdkProvider({
           bdkWallet,
           bdkEsploraClient,
           setPaymentCallback,
+          setStablePaymentCallback,
+          setSpliceEventCallback,
           setChannelClosedCallback,
           setSyncNeededCallback,
           setConnectionNeededCallback,
@@ -1173,10 +1215,56 @@ export function LdkProvider({
           if (cancelled) return
 
           nodeRef.current = node
+          cmPersistScheduler = persistScheduler
+          cleanupEventHandlerFn = cleanupEventHandler
+          let stableRecoveryRunning = false
+          let nextStableRecoveryAt = 0
+          const recoverStableRuntime = async () => {
+            if (
+              cancelled ||
+              stableRuntime ||
+              stableRecoveryRunning ||
+              Date.now() < nextStableRecoveryAt
+            )
+              return
+            stableRecoveryRunning = true
+            nextStableRecoveryAt = Date.now() + 30_000
+            try {
+              const recovered = await startStableRuntime({
+                node,
+                vss: vssClient,
+                alive: () => !cancelled && nodeRef.current === node,
+                healthy: () => stableBackupHealthy,
+                setPaymentCallback: setStablePaymentCallback,
+                wallet: bdkWallet,
+                persistManager: () => persistScheduler.schedule(),
+                setSpliceCallback: setSpliceEventCallback,
+                quoteFunding: (provider, amountSats, signal) =>
+                  getJitQuote(
+                    node,
+                    { ...provider, token: null, label: 'Stable Channels' },
+                    amountSats * 1000n,
+                    connectAndTrack,
+                    { retryConnectOnce: true },
+                    signal
+                  ),
+                confirmFunding: (quote, signal) =>
+                  executeJitBuy(node, quote, 'Stable balance funding', signal),
+              })
+              if (cancelled) recovered?.stop()
+              else stableRuntime = recovered
+            } finally {
+              stableRecoveryRunning = false
+            }
+          }
+          await recoverStableRuntime()
+          if (cancelled) {
+            stableRuntime?.stop()
+            return
+          }
           // Scheduler is constructed once in init.ts; here we just hold the
           // reference for teardown. Lifetime mirrors the node — no cache
           // needed (see todos #341, #350).
-          cmPersistScheduler = persistScheduler
           const schedulePersist = persistScheduler.schedule
 
           // Megalith (the sole LSP) is seeded into the trust set at init from
@@ -1291,8 +1379,6 @@ export function LdkProvider({
           // Seed VSS version for recovery state on startup
           void seedRecoveryVssVersion(vssClient).catch(() => {})
 
-          cleanupEventHandlerFn = cleanupEventHandler
-
           const esplora = new EsploraClient(LDK_CONFIG.esploraUrl)
           const confirmables = [node.channelManager.as_Confirm(), node.chainMonitor.as_Confirm()]
 
@@ -1404,6 +1490,7 @@ export function LdkProvider({
             // polling there would leak IP + channel set). Gated internally:
             // zero cost when no close is pending.
             onSynced: async (info) => {
+              stableRuntime?.client.markSynced()
               await reconcileCloseRecords(
                 { channelManager: node.channelManager, esplora, bdkWallet },
                 info
@@ -1645,6 +1732,7 @@ export function LdkProvider({
 
           // PeerManager timer + LDK event processing every ~10s
           peerTimerId = setInterval(() => {
+            void recoverStableRuntime()
             node.peerManager.timer_tick_occurred()
             node.peerManager.process_events()
             // HTLC forwarding is handled inside drainEventsAndRefresh() (called below),
@@ -1901,6 +1989,7 @@ export function LdkProvider({
     const connections = activeConnections.current
     const teardown = () => {
       cancelled = true
+      stableRuntime?.stop()
       // Suppress trailing scheduler iterations so this tab can't write to
       // VSS after wallet-takeover hands the lock to another tab.
       cmPersistScheduler?.cancel()

@@ -354,8 +354,8 @@ export function Receive() {
       if (e.key !== 'Tab') return
       const items = getFocusable()
       if (items.length === 0) return
-      const first = items[0] as HTMLElement | undefined
-      const last = items[items.length - 1] as HTMLElement | undefined
+      const first = items[0]
+      const last = items[items.length - 1]
       if (e.shiftKey && first && document.activeElement === first) {
         e.preventDefault()
         last?.focus()
@@ -758,6 +758,13 @@ export function Receive() {
                         fee.
                       </p>
                     </>
+                  )}
+                  {receiveState.quote.autoConvertToDollars && (
+                    <p className="text-sm text-[var(--color-on-dark-muted)]">
+                      Your full Lightning balance will automatically become a dollar balance after a
+                      1% conversion fee. The dollar amount is set at conversion and appears after
+                      the provider accepts it.
+                    </p>
                   )}
                 </div>
               </>

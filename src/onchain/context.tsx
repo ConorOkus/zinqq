@@ -8,6 +8,7 @@ import {
   Recipient,
   FeeRate,
   SignOptions,
+  UnconfirmedTx,
 } from '@bitcoindevkit/bdk-wallet-web'
 import {
   OnchainContext,
@@ -26,6 +27,8 @@ import { useLdk } from '../ldk/use-ldk'
 import type { SyncNeededCallback } from '../ldk/traits/event-handler'
 import { getFeeRate as getSharedFeeRate } from '../shared/fee-cache'
 import { formatBtc } from '../utils/format-btc'
+import { assertNoPendingSplice } from '../stable/splice'
+import { beginWalletSpend } from './spend-lock'
 
 const FEE_TARGET_BLOCKS = 6
 
@@ -175,8 +178,10 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
       const esplora = esploraRef.current
       if (!wallet || !esplora) throw new Error('Wallet not ready')
 
+      const releaseSpend = beginWalletSpend()
       syncHandleRef.current?.pause()
       try {
+        await assertNoPendingSplice()
         const resolvedFeeRate = feeRateSatVb ?? (await getFeeRate())
         if (resolvedFeeRate < MIN_FEE_RATE_SAT_VB) {
           throw new Error(
@@ -205,6 +210,9 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         const tx = psbtToSign.extract_tx()
         const txid = tx.compute_txid().toString()
         await esplora.broadcast(tx)
+        wallet.apply_unconfirmed_txs([
+          new UnconfirmedTx(tx.clone(), BigInt(Math.floor(Date.now() / 1000))),
+        ])
 
         const b = wallet.balance
         setState((prev) =>
@@ -231,6 +239,7 @@ export function OnchainProvider({ children }: { children: ReactNode }) {
         throw mapSendError(err)
       } finally {
         syncHandleRef.current?.resume()
+        releaseSpend()
       }
     },
     []

@@ -50,10 +50,10 @@ const DEFAULTS: LdkConfig = {
   rgsUrl: 'https://rapidsync.lightningdevkit.org/snapshot',
   rgsSyncIntervalTicks: 30,
   vssUrl: '/api/vss-proxy',
-  lspNodeId: '',
-  lspHost: '',
+  lspNodeId: '0388948c5c7775a5eda3ee4a96434a270f20f5beeed7e9c99f242f21b87d658850',
+  lspHost: 'stablechannels.com',
   lspPort: 9735,
-  lspLabel: 'megalith',
+  lspLabel: 'stablechannels',
   staticInvoiceServerPaths: '',
   staticInvoiceServerRecipientAck: '',
   genesisBlockHash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f',
@@ -113,10 +113,11 @@ if (LDK_CONFIG.lspNodeId !== '') {
       '[LDK Config] lspHost is empty but lspNodeId is set. Both are required for LSPS2.'
     )
   }
-  // Warn rather than throw: the default label is correct for Megalith deployments,
-  // but silently applying it to some other node is the exact misattribution
-  // VITE_LSP_LABEL exists to prevent.
-  if (!(import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim()) {
+  // An overridden node needs its own label to keep telemetry attributable.
+  if (
+    LDK_CONFIG.lspNodeId !== DEFAULTS.lspNodeId &&
+    !(import.meta.env.VITE_LSP_LABEL as string | undefined)?.trim()
+  ) {
     console.warn(
       `[LDK Config] VITE_LSP_LABEL is unset — telemetry will tag LSP ` +
         `${LDK_CONFIG.lspNodeId.substring(0, 16)}... as "${DEFAULTS.lspLabel}". ` +

@@ -1,0 +1,10 @@
+packages:
+  - '.'
+
+enablePrePostScripts: true
+minimumReleaseAge: 0
+
+allowBuilds:
+  '@bufbuild/buf': true
+  '@swc/core': true
+  esbuild: true

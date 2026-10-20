@@ -1,6 +1,6 @@
 export const DB_NAME = 'zinqq-ldk-mainnet'
-// v12→v13: added ldk_close_records (channel close transparency records)
-const DB_VERSION = 13
+// v13→v14: add durable Stable Channels positions and pending operations.
+const DB_VERSION = 14
 
 const STORES = [
   'ldk_seed',
@@ -21,6 +21,7 @@ const STORES = [
   'ldk_error_log',
   'ldk_force_close_recovery',
   'ldk_close_records',
+  'ldk_stable_channels',
 ] as const
 
 export type StoreName = (typeof STORES)[number]

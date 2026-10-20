@@ -128,7 +128,7 @@ import { Result_TransactionNoneZ_OK } from 'lightningdevkit'
 import type { KeysManager } from 'lightningdevkit'
 import type { Wallet } from '@bitcoindevkit/bdk-wallet-web'
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
 
 const DUST_MARKER = 0x01
 const GOOD_MARKER = 0x02
@@ -310,7 +310,7 @@ describe('sweepSpendableOutputs', () => {
 
   it('sweeps legacy bare-array entries with null attribution', async () => {
     vi.mocked(idbGetAll).mockResolvedValue(
-      new Map<string, Uint8Array[]>([['legacy', [new Uint8Array([GOOD_MARKER])]]]) as any
+      new Map<string, Uint8Array[]>([['legacy', [new Uint8Array([GOOD_MARKER])]]])
     )
     const { keysManager } = makeKeysManager()
 

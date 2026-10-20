@@ -16,6 +16,7 @@ import { Restore } from '../pages/Restore'
 import { TransactionDetail } from '../pages/TransactionDetail'
 import { ChannelCloseDetail } from '../pages/ChannelCloseDetail'
 import { RecoverFunds } from '../pages/RecoverFunds'
+import { StableBalance } from '../pages/StableBalance'
 
 export const router = createBrowserRouter([
   {
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
       { path: 'activity/:txId', element: <TransactionDetail /> },
       { path: 'recover', element: <RecoverFunds /> },
       { path: 'settings', element: <Settings /> },
+      { path: 'settings/stable-balance', element: <StableBalance /> },
       { path: 'settings/backup', element: <Backup /> },
       { path: 'settings/restore', element: <Restore /> },
       { path: 'settings/advanced', element: <Advanced /> },
